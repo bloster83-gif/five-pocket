@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { Card, Row } from '@/components/ui';
 import { BarChart } from '@/components/charts';
 import { colors, formatMoney, signColor, spacing } from '@/theme';
-import { computePnL } from '@/domain/pockets';
+import { realizedEvents } from '@/domain/pockets';
 import type { Project, Trade } from '@/types/db';
 
 export default function StatsScreen() {
@@ -49,30 +49,31 @@ export default function StatsScreen() {
     const buys = yearTrades.filter((t) => t.side === 'buy').length;
     const sells = yearTrades.filter((t) => t.side === 'sell').length;
 
-    const tradesByProj: Record<string, Trade[]> = {};
-    yearTrades.forEach((t) => {
-      if (t.project_id) (tradesByProj[t.project_id] ??= []).push(t);
+    const projById: Record<string, Project> = {};
+    projects.forEach((p) => (projById[p.id] = p));
+
+    // 실현손익: 전체 이력으로 평단을 계산한 뒤(해 넘김·포켓 순환 대응),
+    // 매도 시점이 선택 연도에 속한 이벤트만 합산한다.
+    const events = realizedEvents(trades).filter(
+      (ev) => year === 'all' || Number(ev.at.slice(0, 4)) === year
+    );
+
+    const realizedByProj: Record<string, number> = {};
+    const realizedByMarket: Record<string, number> = {};
+    let wins = 0;
+    events.forEach((ev) => {
+      const proj = ev.trade.project_id ? projById[ev.trade.project_id] : undefined;
+      const mkt = proj?.market ?? ev.trade.market ?? 'US';
+      realizedByMarket[mkt] = (realizedByMarket[mkt] ?? 0) + ev.amount;
+      if (ev.trade.project_id) {
+        realizedByProj[ev.trade.project_id] = (realizedByProj[ev.trade.project_id] ?? 0) + ev.amount;
+      }
+      if (ev.amount > 0) wins++;
     });
     const perProject = projects
-      .map((p) => ({ project: p, realized: computePnL(tradesByProj[p.id] ?? [], null).realized }))
-      .filter((x) => (tradesByProj[x.project.id] ?? []).length > 0);
-
-    const realizedByMarket: Record<string, number> = {};
-    perProject.forEach((x) => {
-      realizedByMarket[x.project.market] = (realizedByMarket[x.project.market] ?? 0) + x.realized;
-    });
-
-    const buyByPocket: Record<string, Trade> = {};
-    trades.filter((t) => t.side === 'buy').forEach((t) => {
-      if (t.pocket_id) buyByPocket[t.pocket_id] = t;
-    });
-    let wins = 0;
-    const sellTrades = yearTrades.filter((t) => t.side === 'sell');
-    sellTrades.forEach((s) => {
-      const b = s.pocket_id ? buyByPocket[s.pocket_id] : undefined;
-      if (b && s.price > b.price) wins++;
-    });
-    const winRate = sellTrades.length ? Math.round((wins / sellTrades.length) * 100) : null;
+      .filter((p) => realizedByProj[p.id] != null)
+      .map((p) => ({ project: p, realized: realizedByProj[p.id] }));
+    const winRate = events.length ? Math.round((wins / events.length) * 100) : null;
 
     const byMonth: Record<string, number> = {};
     yearTrades.forEach((t) => {
