@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Link } from 'expo-router';
 import { useAuth } from '@/lib/auth';
 import { hasSupabaseConfig } from '@/lib/supabase';
-import { signInWithProvider, type SnsProvider } from '@/lib/oauth';
+import { completeNaverWebLogin, signInWithNaver, signInWithProvider, type SnsButton, type SnsProvider } from '@/lib/oauth';
 import { Button, Card, Field } from '@/components/ui';
 import { colors, spacing } from '@/theme';
 
@@ -22,8 +22,15 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [snsLoading, setSnsLoading] = useState<SnsProvider | null>(null);
+  const [snsLoading, setSnsLoading] = useState<SnsButton | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // 웹에서 네이버 로그인 후 ?token_hash= 로 돌아온 경우 세션 수립
+  useEffect(() => {
+    completeNaverWebLogin().then((res) => {
+      if (res?.error) setError(friendly(res.error));
+    });
+  }, []);
 
   const onSubmit = async () => {
     setError(null);
@@ -41,6 +48,14 @@ export default function LoginScreen() {
     setError(null);
     setSnsLoading(provider);
     const { error: err } = await signInWithProvider(provider);
+    setSnsLoading(null);
+    if (err) setError(friendly(err));
+  };
+
+  const onNaver = async () => {
+    setError(null);
+    setSnsLoading('naver');
+    const { error: err } = await signInWithNaver();
     setSnsLoading(null);
     if (err) setError(friendly(err));
   };
@@ -136,6 +151,25 @@ export default function LoginScreen() {
             <Text style={{ fontSize: 16 }}>💬</Text>
             <Text style={{ color: '#191919', fontWeight: '800', fontSize: 15 }}>
               {snsLoading === 'kakao' ? '연결 중…' : '카카오로 계속하기'}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={onNaver}
+            disabled={snsLoading != null}
+            style={{
+              backgroundColor: '#03C75A',
+              borderRadius: 12,
+              paddingVertical: 14,
+              alignItems: 'center',
+              flexDirection: 'row',
+              justifyContent: 'center',
+              gap: 8,
+              opacity: snsLoading && snsLoading !== 'naver' ? 0.5 : 1,
+            }}
+          >
+            <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 16 }}>N</Text>
+            <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 15 }}>
+              {snsLoading === 'naver' ? '연결 중…' : '네이버로 계속하기'}
             </Text>
           </Pressable>
           <Text style={{ color: colors.textDim, fontSize: 11, textAlign: 'center' }}>

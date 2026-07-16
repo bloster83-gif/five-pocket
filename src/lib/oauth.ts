@@ -7,6 +7,7 @@ import { supabase } from './supabase';
 WebBrowser.maybeCompleteAuthSession();
 
 export type SnsProvider = 'google' | 'kakao';
+export type SnsButton = SnsProvider | 'naver';
 
 /**
  * SNS 로그인 (Google / Kakao).
@@ -57,4 +58,58 @@ export async function signInWithProvider(provider: SnsProvider): Promise<{ error
   } catch (e: any) {
     return { error: e?.message ?? 'SNS 로그인 중 오류가 발생했어요.' };
   }
+}
+
+/**
+ * 네이버 로그인.
+ * Supabase 가 네이버를 기본 지원하지 않아 Edge Function(naver-auth)이 중계합니다.
+ * - Supabase 대시보드에서 `naver-auth` 함수 배포 + NAVER_CLIENT_ID/SECRET 시크릿 설정 필요.
+ * - 처음 로그인하면 자동으로 회원가입까지 됩니다.
+ */
+export async function signInWithNaver(): Promise<{ error?: string }> {
+  const base = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  if (!base) return { error: 'Supabase 설정(.env)이 필요해요.' };
+  const fnUrl = `${base}/functions/v1/naver-auth`;
+
+  try {
+    if (Platform.OS === 'web') {
+      // 웹: 전체 리다이렉트 → 돌아오면 completeNaverWebLogin() 이 마무리
+      window.location.href = `${fnUrl}?redirect_uri=${encodeURIComponent(window.location.origin)}`;
+      return {};
+    }
+
+    const redirectTo = makeRedirectUri();
+    const res = await WebBrowser.openAuthSessionAsync(
+      `${fnUrl}?redirect_uri=${encodeURIComponent(redirectTo)}`,
+      redirectTo
+    );
+    if (res.type !== 'success' || !res.url) return { error: '로그인이 취소되었어요.' };
+
+    const errMatch = res.url.match(/[?&#]naver_error=([^&]+)/);
+    if (errMatch) return { error: decodeURIComponent(errMatch[1]) };
+    const hashMatch = res.url.match(/[?&#]token_hash=([^&]+)/);
+    if (!hashMatch) return { error: '로그인 토큰을 받지 못했어요. naver-auth 함수 배포를 확인하세요.' };
+
+    const { error } = await supabase.auth.verifyOtp({ type: 'email', token_hash: hashMatch[1] });
+    return { error: error?.message };
+  } catch (e: any) {
+    return { error: e?.message ?? '네이버 로그인 중 오류가 발생했어요.' };
+  }
+}
+
+/**
+ * (웹 전용) 네이버 로그인 후 ?token_hash= 로 돌아온 URL 을 감지해 세션을 수립.
+ * 로그인 화면 mount 시 한 번 호출하세요. 해당 파라미터가 없으면 null 반환.
+ */
+export async function completeNaverWebLogin(): Promise<{ error?: string } | null> {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
+  const search = window.location.search;
+  const errMatch = search.match(/[?&]naver_error=([^&]+)/);
+  const hashMatch = search.match(/[?&]token_hash=([^&]+)/);
+  if (!errMatch && !hashMatch) return null;
+  // URL 정리 (새로고침 시 재시도 방지)
+  window.history.replaceState(null, '', window.location.pathname);
+  if (errMatch) return { error: decodeURIComponent(errMatch[1]) };
+  const { error } = await supabase.auth.verifyOtp({ type: 'email', token_hash: hashMatch![1] });
+  return { error: error?.message };
 }

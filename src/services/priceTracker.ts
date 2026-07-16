@@ -25,11 +25,13 @@ const POLL_MS = 4000;
  * 프로젝트 하나의 실시간 시세를 폴링하며,
  * 매수/매도 포인트 도달 시 로컬 알림을 발송한다.
  * loading/live/error 상태를 노출해 화면에서 확실히 표시할 수 있게 한다.
+ * onSignal 을 주면 (세션 내 중복 제거된) 신호마다 호출한다 — 자동매매 연동용.
  */
 export function usePriceTracker(
   project: Project | null,
   pockets: Pocket[],
-  enabled: boolean
+  enabled: boolean,
+  onSignal?: (signal: PriceSignal) => void
 ): TrackerResult {
   const [price, setPrice] = useState<number | null>(null);
   const [previousClose, setPreviousClose] = useState<number | null>(null);
@@ -42,6 +44,8 @@ export function usePriceTracker(
   const pocketsRef = useRef<Pocket[]>(pockets);
   pocketsRef.current = pockets;
   const sentRef = useRef<Set<string>>(new Set());
+  const onSignalRef = useRef<typeof onSignal>(onSignal);
+  onSignalRef.current = onSignal;
 
   useEffect(() => {
     if (!project || !enabled) {
@@ -70,6 +74,7 @@ export function usePriceTracker(
           if (sentRef.current.has(key)) continue;
           sentRef.current.add(key);
           setLastSignal(sig);
+          onSignalRef.current?.(sig);
           const label = sig.kind === 'buy' ? '매수' : '매도';
           await notifyNow(
             `${label} 포인트 도달 · ${project.symbol}`,

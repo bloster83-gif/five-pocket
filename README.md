@@ -108,6 +108,71 @@ npx expo start
 - **한국 주식** — 한국투자증권 KIS Developers (REST/웹소켓, 개인 무료, 진짜 실시간)
 - **미국 주식** — Finnhub 무료 티어 (웹소켓 `trade` 스트림)
 
+## 회원 등급 (Diary / AUTO) & 관리자
+
+- **Diary 등급** — 최초 가입 시 기본 등급. 기존의 수동 매매(알림 + 직접 체결 입력) 버전이 적용됩니다.
+- **AUTO 등급** — 관리자가 인증한 회원. 프로젝트별로 **자동 매수/매도**를 켤 수 있습니다.
+- **관리자 지정(1회)**: Supabase SQL Editor에서
+  ```sql
+  update public.profiles set is_admin = true where email = '내이메일@example.com';
+  ```
+- 관리자로 로그인하면 모든 탭 오른쪽 위에 👑 버튼이 생기고, **회원 관리 페이지**에서
+  가입자 목록(이름/이메일/가입일)과 등급을 확인·변경할 수 있습니다.
+
+## 자동매매 (한국투자증권 OpenAPI, AUTO 등급 전용)
+
+1. [KIS Developers](https://apiportal.koreainvestment.com)에서 Open API 신청 → AppKey/AppSecret 발급
+   (**모의투자 키로 먼저 테스트**하는 것을 강력 권장)
+2. 앱의 프로젝트 상세 → 🤖 자동매매 카드 → **계좌 연결 설정**에서 키/계좌번호 입력 + 연결 테스트
+3. 프로젝트 상세에서 **자동매매 스위치 ON** → 실시간 추적 중 포켓의 매수/매도 목표가에 도달하면
+   해당 목표가로 **지정가 주문**이 자동 전송되고, 체결 기록과 포켓 상태가 자동 갱신됩니다.
+
+제약 사항:
+
+- 현재 **한국주식(KRX)만** 자동주문을 지원합니다. (미국 주식은 알림만)
+- KIS API는 브라우저 CORS를 막으므로 앱 내 자동매매는 **폰(Expo Go)/네이티브 빌드에서만** 동작합니다.
+- 주문 이력은 `auto_orders` 테이블에 남고, 실패 시 알림으로 사유를 알려줍니다.
+
+### 24시간 무인 자동매매 (서버 러너)
+
+앱을 꺼 놓아도 서버가 대신 자동매매를 돌리는 방식입니다.
+`auto-trade-runner` Edge Function이 1분마다 AUTO 등급 회원의 자동매매 ON 프로젝트를 훑고,
+KIS 현재가를 조회해 포켓 신호를 판정 → 주문 → 기록 → **푸시 알림**까지 처리합니다.
+
+설정 (2단계):
+
+1. 함수 배포:
+   ```bash
+   supabase functions deploy auto-trade-runner
+   ```
+2. 스케줄 등록: `supabase/migrations/20260716f_auto_trade_cron.sql` 파일을 열어
+   `YOUR_PROJECT_REF`와 `YOUR_SERVICE_ROLE_KEY`를 본인 값으로 바꾼 뒤 SQL Editor에서 실행
+   (pg_cron이 평일 매 1분 함수를 호출합니다)
+
+동작 방식:
+
+- 장 시간(평일 09:00~15:30 KST) 외에는 함수가 스스로 아무 것도 하지 않습니다.
+- 같은 포켓+방향으로는 **10분 내 재주문하지 않아** 중복 주문을 막습니다. 앱(클라이언트)
+  자동매매와 동시에 켜져 있어도 이 가드 + 포켓 상태 전환으로 이중 주문을 방지합니다.
+- 주문 성공/실패는 `auto_orders`에 기록되고, 앱 알림 권한을 허용했다면
+  폰으로 푸시 알림(`profiles.expo_push_token`)이 갑니다.
+- 수동 테스트: `.../functions/v1/auto-trade-runner?force=1` 을 service_role 키로 호출하면
+  장 시간이 아니어도 1회 실행됩니다.
+
+## 네이버 로그인
+
+Supabase가 네이버를 기본 지원하지 않아 Edge Function이 중계합니다.
+
+1. [네이버 개발자센터](https://developers.naver.com)에서 애플리케이션 등록
+   - 사용 API: 네이버 로그인 (이메일 **필수 제공** 동의)
+   - Callback URL: `https://<프로젝트>.supabase.co/functions/v1/naver-auth`
+2. 함수 배포 + 시크릿 설정 (Supabase CLI):
+   ```bash
+   supabase functions deploy naver-auth --no-verify-jwt
+   supabase secrets set NAVER_CLIENT_ID=... NAVER_CLIENT_SECRET=...
+   ```
+3. 로그인 화면의 **"네이버로 계속하기"** 버튼으로 로그인(첫 로그인 시 자동 회원가입)됩니다.
+
 ## 배포 (앱스토어/실사용)
 
 - **EAS Build** 로 iOS/Android 빌드: `npm i -g eas-cli` → `eas build`
