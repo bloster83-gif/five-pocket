@@ -243,6 +243,11 @@ export default function ProjectDetailScreen() {
           <Pressable onPress={() => router.push('/broker')}>
             <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 13 }}>계좌 연결 설정 →</Text>
           </Pressable>
+          {project.auto_trade_enabled && (
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>
+              서버 러너(auto-trade-runner)를 배포해 두면 앱을 꺼도 장중(평일 09:00~15:30)에 자동매매가 돌아갑니다.
+            </Text>
+          )}
         </Card>
       )}
 

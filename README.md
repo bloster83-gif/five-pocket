@@ -130,10 +130,34 @@ npx expo start
 제약 사항:
 
 - 현재 **한국주식(KRX)만** 자동주문을 지원합니다. (미국 주식은 알림만)
-- KIS API는 브라우저 CORS를 막으므로 **폰(Expo Go)/네이티브 빌드에서만** 동작합니다.
-- 클라이언트 방식이라 **앱이 켜져 있고 해당 프로젝트를 추적 중일 때** 주문이 나갑니다.
-  (24시간 무인 자동매매가 필요하면 Supabase Edge Function + cron으로 서버화하는 다음 단계가 필요합니다)
-- 주문 이력은 `auto_orders` 테이블에 남고, 실패 시 앱 알림으로 사유를 알려줍니다.
+- KIS API는 브라우저 CORS를 막으므로 앱 내 자동매매는 **폰(Expo Go)/네이티브 빌드에서만** 동작합니다.
+- 주문 이력은 `auto_orders` 테이블에 남고, 실패 시 알림으로 사유를 알려줍니다.
+
+### 24시간 무인 자동매매 (서버 러너)
+
+앱을 꺼 놓아도 서버가 대신 자동매매를 돌리는 방식입니다.
+`auto-trade-runner` Edge Function이 1분마다 AUTO 등급 회원의 자동매매 ON 프로젝트를 훑고,
+KIS 현재가를 조회해 포켓 신호를 판정 → 주문 → 기록 → **푸시 알림**까지 처리합니다.
+
+설정 (2단계):
+
+1. 함수 배포:
+   ```bash
+   supabase functions deploy auto-trade-runner
+   ```
+2. 스케줄 등록: `supabase/migrations/20260716f_auto_trade_cron.sql` 파일을 열어
+   `YOUR_PROJECT_REF`와 `YOUR_SERVICE_ROLE_KEY`를 본인 값으로 바꾼 뒤 SQL Editor에서 실행
+   (pg_cron이 평일 매 1분 함수를 호출합니다)
+
+동작 방식:
+
+- 장 시간(평일 09:00~15:30 KST) 외에는 함수가 스스로 아무 것도 하지 않습니다.
+- 같은 포켓+방향으로는 **10분 내 재주문하지 않아** 중복 주문을 막습니다. 앱(클라이언트)
+  자동매매와 동시에 켜져 있어도 이 가드 + 포켓 상태 전환으로 이중 주문을 방지합니다.
+- 주문 성공/실패는 `auto_orders`에 기록되고, 앱 알림 권한을 허용했다면
+  폰으로 푸시 알림(`profiles.expo_push_token`)이 갑니다.
+- 수동 테스트: `.../functions/v1/auto-trade-runner?force=1` 을 service_role 키로 호출하면
+  장 시간이 아니어도 1회 실행됩니다.
 
 ## 네이버 로그인
 

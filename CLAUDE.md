@@ -13,6 +13,7 @@ Expo(React Native) + Supabase 기반 **5분할 매수·매도 일지** 앱. 멀�
 - `app/(app)/admin.tsx` — 관리자 회원 관리(등급 Diary↔AUTO 변경). `app/(app)/broker.tsx` — 한투(KIS) 계좌 설정.
 - **회원 등급**: profiles.tier = 'diary'(기본, 수동) | 'auto'(관리자 인증, 자동매매). useAuth()의 tier/isAdmin 사용.
 - **자동매매**: `src/services/autoTrader.ts`(신호→KIS 지정가 주문→auto_orders/trades 기록→포켓 상태 갱신) + `src/services/broker/kis.ts`(토큰 캐시·국내주식 현금주문, 모의/실전). AUTO 등급 + project.auto_trade_enabled + KRX + 네이티브에서만 동작. Diary 등급은 기존 수동 흐름 유지.
+- **24시간 무인 자동매매**: `supabase/functions/auto-trade-runner/`(Deno) — pg_cron(마이그레이션 f)이 평일 매 1분 호출. 장시간(09:00~15:30 KST) 가드 + 포켓·방향별 10분 중복주문 가드. 클라이언트 autoTrader와 로직 동일하게 유지할 것.
 - **네이버 로그인**: `supabase/functions/naver-auth/`(Edge Function, Deno — tsconfig에서 제외됨) + `src/lib/oauth.ts`의 signInWithNaver/completeNaverWebLogin.
 - `src/domain/pockets.ts` — 핵심 순수함수: 포켓 목표가, `computePnL`(포켓 순환 대응: 포지션 0이면 원가 리셋), `realizedEvents`(매도 1건별 실현손익).
 - `src/domain/goals.ts` — 인생목표 CAGR. 실제달성액 = 이월 ± 입출금 + 배당금 + 실현손익 (매매일지 자동 연동, 수동입력 없음).
