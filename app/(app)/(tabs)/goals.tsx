@@ -37,13 +37,25 @@ export default function GoalsScreen() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [flows, setFlows] = useState<CashFlow[]>([]);
 
+  // 연도별 목표금액 수기 수정 (goal_target_overrides)
+  const [overrides, setOverrides] = useState<Record<number, number>>({});
+  const [editingTarget, setEditingTarget] = useState(false);
+  const [targetInput, setTargetInput] = useState('');
+  const [savingTarget, setSavingTarget] = useState(false);
+
   const load = useCallback(async () => {
     if (!uid) return;
-    const [{ data: g, error: gErr }, { data: t }, { data: cf }] = await Promise.all([
+    const [{ data: g, error: gErr }, { data: t }, { data: cf }, { data: ov }] = await Promise.all([
       supabase.from('life_goals').select('*').eq('user_id', uid).maybeSingle(),
       supabase.from('trades').select('*').order('executed_at'),
       supabase.from('cash_flows').select('*'),
+      supabase.from('goal_target_overrides').select('*').eq('user_id', uid),
     ]);
+    if (ov) {
+      const m: Record<number, number> = {};
+      (ov as { year: number; amount: number }[]).forEach((o) => (m[o.year] = Number(o.amount)));
+      setOverrides(m);
+    }
     setMigrationNeeded(!!gErr && isMissingSchema(gErr));
     if (g) {
       const goal = g as LifeGoal;
@@ -139,8 +151,54 @@ export default function GoalsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentAge, targetAge, startAsset, targetAsset, baseYear, actualsAuto, depositNetByYear, dividendByYear]);
 
+  // 수기 수정된 연도는 계획(목표) 금액을 덮어쓴다
+  const displayRows = useMemo(
+    () => rows.map((r) => (overrides[r.year] != null ? { ...r, planned: overrides[r.year] } : r)),
+    [rows, overrides]
+  );
+
   const [selBar, setSelBar] = useState<number | null>(null);
-  const thisYearRow = rows.find((r) => r.year === nowYear) ?? null;
+  const thisYearRow = displayRows.find((r) => r.year === nowYear) ?? null;
+  const hasThisYearOverride = overrides[nowYear] != null;
+
+  // 올해 목표 수기 저장 / 자동 계산으로 복원
+  const saveThisYearTarget = async () => {
+    if (!uid) return;
+    const amt = Number(targetInput);
+    if (!amt || amt <= 0) return notify('입력 확인', '올해 목표 금액을 올바르게 입력하세요.');
+    setSavingTarget(true);
+    const { error } = await supabase.from('goal_target_overrides').upsert(
+      { user_id: uid, year: nowYear, amount: amt, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id,year' }
+    );
+    setSavingTarget(false);
+    if (error) {
+      if (isMissingSchema(error)) {
+        return notify('DB 준비 필요', '마이그레이션(20260716e)을 Supabase에서 먼저 실행하세요.');
+      }
+      return notify('저장 실패', error.message);
+    }
+    setOverrides((prev) => ({ ...prev, [nowYear]: amt }));
+    setEditingTarget(false);
+  };
+
+  const resetThisYearTarget = async () => {
+    if (!uid) return;
+    setSavingTarget(true);
+    const { error } = await supabase
+      .from('goal_target_overrides')
+      .delete()
+      .eq('user_id', uid)
+      .eq('year', nowYear);
+    setSavingTarget(false);
+    if (error && !isMissingSchema(error)) return notify('복원 실패', error.message);
+    setOverrides((prev) => {
+      const next = { ...prev };
+      delete next[nowYear];
+      return next;
+    });
+    setEditingTarget(false);
+  };
 
   const saveGoal = async () => {
     if (!uid) return;
@@ -175,14 +233,14 @@ export default function GoalsScreen() {
 
   const chartData = useMemo(
     () =>
-      rows.map((r) => ({
+      displayRows.map((r) => ({
         label: `'${String(r.year).slice(2)}`,
         bars: [
           { value: r.planned, color: colors.buy },
           ...(r.actual != null ? [{ value: r.actual, color: colors.text }] : []),
         ],
       })),
-    [rows]
+    [displayRows]
   );
 
   if (loading) {
@@ -254,10 +312,59 @@ export default function GoalsScreen() {
                 </Text>
                 <Text style={{ color: colors.textDim, fontSize: 12 }}>매매일지 자동 연동</Text>
               </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={{ color: colors.textDim }}>올해 목표</Text>
-                <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 16 }}>{formatKRW(thisYearRow.planned)}</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={{ color: colors.textDim }}>올해 목표</Text>
+                  {hasThisYearOverride && (
+                    <View style={{ backgroundColor: colors.cardAlt, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 }}>
+                      <Text style={{ color: colors.textDim, fontSize: 10 }}>수기 수정됨</Text>
+                    </View>
+                  )}
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                  <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 16 }}>{formatKRW(thisYearRow.planned)}</Text>
+                  <Pressable
+                    onPress={() => {
+                      setTargetInput(String(Math.round(thisYearRow.planned)));
+                      setEditingTarget((e) => !e);
+                    }}
+                    hitSlop={8}
+                    style={{
+                      backgroundColor: colors.cardAlt,
+                      borderRadius: 8,
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ fontSize: 13 }}>✏️</Text>
+                  </Pressable>
+                </View>
               </View>
+
+              {/* 올해 목표 수기 수정 폼 */}
+              {editingTarget && (
+                <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm }}>
+                  <NumberField
+                    label={`올해(${nowYear}) 목표 금액 (원)`}
+                    value={targetInput}
+                    onChangeText={setTargetInput}
+                    placeholder="예: 60,000,000"
+                  />
+                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    <View style={{ flex: 1 }}>
+                      <Button title="저장" onPress={saveThisYearTarget} loading={savingTarget} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Button title="닫기" variant="ghost" onPress={() => setEditingTarget(false)} />
+                    </View>
+                  </View>
+                  {hasThisYearOverride && (
+                    <Button title="자동 계산으로 되돌리기" variant="ghost" onPress={resetThisYearTarget} loading={savingTarget} />
+                  )}
+                </View>
+              )}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: colors.textDim }}>최초금액 (년초 이월)</Text>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>{formatKRW(thisYearRow.carryover)}</Text>
@@ -313,15 +420,15 @@ export default function GoalsScreen() {
           <Card>
             <Text style={{ color: colors.text, fontWeight: '800' }}>연도별 총자산</Text>
             <Legend items={[{ color: colors.buy, label: '계획(목표)' }, { color: colors.text, label: '실제 달성(자동)' }]} />
-            {selBar != null && rows[selBar] && (
+            {selBar != null && displayRows[selBar] && (
               <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.sm, padding: spacing.sm, gap: 2 }}>
                 <Text style={{ color: colors.text, fontWeight: '800' }}>
-                  {rows[selBar].age}세 ({rows[selBar].year})
+                  {displayRows[selBar].age}세 ({displayRows[selBar].year})
                 </Text>
-                <Text style={{ color: colors.buy, fontSize: 13 }}>계획 {formatKRW(rows[selBar].planned)}</Text>
+                <Text style={{ color: colors.buy, fontSize: 13 }}>계획 {formatKRW(displayRows[selBar].planned)}</Text>
                 <Text style={{ color: colors.text, fontSize: 13 }}>
-                  실제 {rows[selBar].actual != null ? formatKRW(rows[selBar].actual) : '미래'}
-                  {rows[selBar].returnPct != null ? `  ·  ${rows[selBar].returnPct}%` : ''}
+                  실제 {displayRows[selBar].actual != null ? formatKRW(displayRows[selBar].actual) : '미래'}
+                  {displayRows[selBar].returnPct != null ? `  ·  ${displayRows[selBar].returnPct}%` : ''}
                 </Text>
               </View>
             )}
@@ -341,7 +448,7 @@ export default function GoalsScreen() {
                   <Text style={[thCell, { width: 96 }]}>실제달성액</Text>
                   <Text style={[thCell, { width: 96 }]}>수익금액/수익률</Text>
                 </View>
-                {rows.map((r) => {
+                {displayRows.map((r) => {
                   const isThisYear = r.year === nowYear;
                   return (
                     <View

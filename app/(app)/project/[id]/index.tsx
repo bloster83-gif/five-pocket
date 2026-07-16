@@ -2,16 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
 import { Button, Card, Row } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, signColor, spacing } from '@/theme';
 import { computePnL, estimatedShares, pnlPct } from '@/domain/pockets';
 import { confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
+import { useAutoTrader } from '@/services/autoTrader';
 import type { Pocket, Project, Trade } from '@/types/db';
 
 export default function ProjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { tier } = useAuth();
 
   const [project, setProject] = useState<Project | null>(null);
   const [pockets, setPockets] = useState<Pocket[]>([]);
@@ -37,10 +40,14 @@ export default function ProjectDetailScreen() {
     }, [load])
   );
 
+  // 자동매매 (AUTO 등급 + 프로젝트 자동매매 ON 일 때만 실제 주문)
+  const { handleSignal, lastEvent } = useAutoTrader(project, trades, load);
+
   const { price, change, changePct, updatedAt, status, error, currency } = usePriceTracker(
     project,
     pockets,
-    !!project?.is_active
+    !!project?.is_active,
+    handleSignal
   );
   const pnl = computePnL(trades, price);
   const pct = pnlPct(pnl);
@@ -89,6 +96,24 @@ export default function ProjectDetailScreen() {
     if (!project) return;
     setProject({ ...project, is_active: val });
     await supabase.from('projects').update({ is_active: val }).eq('id', project.id);
+  };
+
+  const toggleAutoTrade = async (val: boolean) => {
+    if (!project) return;
+    const prev = project;
+    setProject({ ...project, auto_trade_enabled: val });
+    const { error } = await supabase
+      .from('projects')
+      .update({ auto_trade_enabled: val })
+      .eq('id', project.id);
+    if (error) {
+      setProject(prev);
+      if (/42703|auto_trade_enabled|does not exist|schema cache|PGRST204/i.test(`${error.code} ${error.message}`)) {
+        notify('DB 준비 필요', '자동매매에 필요한 컬럼이 아직 없어요. 마이그레이션(20260716e)을 Supabase에서 실행하면 켜집니다.');
+      } else {
+        notify('처리 실패', error.message);
+      }
+    }
   };
 
   const setClosed = async (close: boolean) => {
@@ -186,6 +211,40 @@ export default function ProjectDetailScreen() {
           )}
         </View>
       </Card>
+
+      {/* 자동매매 (AUTO 등급 전용) */}
+      {tier === 'auto' && (
+        <Card style={project.auto_trade_enabled ? { borderColor: colors.buy } : undefined}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🤖 자동매매 (한국투자증권)</Text>
+              <Text style={{ color: colors.textDim, fontSize: 12 }}>
+                {project.auto_trade_enabled
+                  ? '포켓 목표가 도달 시 자동으로 지정가 주문을 넣어요.'
+                  : '켜면 매수/매도 포인트 도달 시 자동 주문이 나갑니다.'}
+              </Text>
+            </View>
+            <Switch value={project.auto_trade_enabled} onValueChange={toggleAutoTrade} />
+          </View>
+          {lastEvent && (
+            <View
+              style={{
+                backgroundColor: lastEvent.ok ? colors.buyBg : 'rgba(251,191,36,0.12)',
+                borderRadius: 8,
+                padding: spacing.sm,
+              }}
+            >
+              <Text style={{ color: lastEvent.ok ? colors.buy : colors.warn, fontSize: 12, fontWeight: '700' }}>
+                {lastEvent.ok ? '✅' : '⚠️'} 포켓 {lastEvent.pocketIdx + 1} 자동 {lastEvent.kind === 'buy' ? '매수' : '매도'} ·{' '}
+                {lastEvent.message}
+              </Text>
+            </View>
+          )}
+          <Pressable onPress={() => router.push('/broker')}>
+            <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 13 }}>계좌 연결 설정 →</Text>
+          </Pressable>
+        </Card>
+      )}
 
       {/* 손익 */}
       <Card>

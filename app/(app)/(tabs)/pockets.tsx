@@ -16,6 +16,7 @@ export default function PocketsScreen() {
 
   const [onlyHolding, setOnlyHolding] = useState(false); // 보유중 스위치
   const [onlyRealized, setOnlyRealized] = useState(false); // 실현 스위치
+  const [pocketFilter, setPocketFilter] = useState<number | null>(null); // null = 전체, 0~4 = 포켓 1~5
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -62,10 +63,12 @@ export default function PocketsScreen() {
   }, [projects]);
 
   // 필터: 보유중 = 매수 상태, 실현 = 매도 체결이 1건 이상 있는 포켓
+  //        포켓 번호 선택 시 해당 idx 의 포켓만 (null = 전체)
   const filtered = useMemo(() => {
     return pockets.filter((k) => {
       const proj = projMap[k.project_id];
       if (!proj) return false;
+      if (pocketFilter != null && k.idx !== pocketFilter) return false;
       const kt = tradesByPocket[k.id] ?? [];
       const hasSell = kt.some((t) => t.side === 'sell');
       const holding = k.status === 'bought';
@@ -74,7 +77,7 @@ export default function PocketsScreen() {
       if (onlyRealized) return hasSell;
       return true;
     });
-  }, [pockets, projMap, tradesByPocket, onlyHolding, onlyRealized]);
+  }, [pockets, projMap, tradesByPocket, onlyHolding, onlyRealized, pocketFilter]);
 
   if (loading) {
     return (
@@ -107,6 +110,36 @@ export default function PocketsScreen() {
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text style={{ color: colors.sell, fontWeight: '700' }}>실현 완료만 보기 (매도 이력)</Text>
           <Switch value={onlyRealized} onValueChange={setOnlyRealized} />
+        </View>
+
+        {/* 포켓 번호 필터 — 처음엔 전체, 아이콘을 누르면 그 포켓만 */}
+        <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.xs }}>
+          <Text style={{ color: colors.textDim, fontSize: 12 }}>포켓 번호로 보기</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            <Pressable
+              onPress={() => setPocketFilter(null)}
+              style={[chipStyle, pocketFilter == null && chipOnStyle]}
+            >
+              <Text style={{ color: pocketFilter == null ? colors.buy : colors.textDim, fontWeight: '800', fontSize: 13 }}>
+                전체
+              </Text>
+            </Pressable>
+            {[0, 1, 2, 3, 4].map((i) => {
+              const on = pocketFilter === i;
+              return (
+                <Pressable
+                  key={i}
+                  onPress={() => setPocketFilter(on ? null : i)}
+                  style={[chipStyle, on && chipOnStyle]}
+                >
+                  <Text style={{ fontSize: 12 }}>🧺</Text>
+                  <Text style={{ color: on ? colors.buy : colors.textDim, fontWeight: '800', fontSize: 13 }}>
+                    {i + 1}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
       </Card>
 
@@ -142,13 +175,36 @@ export default function PocketsScreen() {
                 </View>
               </View>
 
-              {/* 요약: 보유수량/실현손익 */}
+              {/* 보유 중이면 보유수량·평균매수가를 강조 박스로 */}
+              {pnl.totalQtyOpen > 0 && (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    backgroundColor: colors.buyBg,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: colors.buy,
+                    paddingVertical: spacing.sm,
+                    paddingHorizontal: spacing.md,
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.textDim, fontSize: 11 }}>보유 수량</Text>
+                    <Text style={{ color: colors.buy, fontSize: 18, fontWeight: '900' }}>
+                      {money(pnl.totalQtyOpen, 0)}주
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                    <Text style={{ color: colors.textDim, fontSize: 11 }}>평균 매수가</Text>
+                    <Text style={{ color: colors.text, fontSize: 18, fontWeight: '900' }}>
+                      {formatPrice(pnl.avgOpenPrice, proj.market)}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* 실현손익 / 거래없음 요약 */}
               <View style={{ flexDirection: 'row', gap: spacing.lg }}>
-                {pnl.totalQtyOpen > 0 && (
-                  <Text style={{ color: colors.text, fontSize: 13 }}>
-                    보유 {money(pnl.totalQtyOpen, 0)}주 @ {formatPrice(pnl.avgOpenPrice, proj.market)}
-                  </Text>
-                )}
                 {pnl.realized !== 0 && (
                   <Text style={{ color: signColor(pnl.realized), fontSize: 13, fontWeight: '700' }}>
                     실현 {pnl.realized > 0 ? '+' : ''}
@@ -183,3 +239,20 @@ export default function PocketsScreen() {
     </ScrollView>
   );
 }
+
+// 포켓 번호 필터 칩 스타일
+const chipStyle = {
+  flexDirection: 'row' as const,
+  alignItems: 'center' as const,
+  gap: 3,
+  paddingHorizontal: 12,
+  paddingVertical: 8,
+  borderRadius: 999,
+  backgroundColor: colors.cardAlt,
+  borderWidth: 1,
+  borderColor: colors.border,
+};
+const chipOnStyle = {
+  backgroundColor: colors.buyBg,
+  borderColor: colors.buy,
+};
