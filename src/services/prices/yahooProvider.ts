@@ -1,0 +1,138 @@
+import type { PriceProvider, Quote } from './types';
+
+// =====================================================================
+// 야후 파이낸스(비공식) 시세 제공자 — 키 불필요, 한국(.KS/.KQ)+미국 주식 지원
+//  - getQuote: chart 엔드포인트에서 현재가/통화/전일종가 파싱
+//  - subscribe: N초 폴링 (준실시간, 약 15분 지연 데이터)
+//  - fetchCandles: 캔들차트용 일봉 OHLC
+// 실기기(Expo Go/네이티브)에서 라이브 동작. 웹은 CORS로 막힘(EXPO_PUBLIC_YF_PROXY 필요).
+// =====================================================================
+
+const HOSTS = ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com'];
+const PROXY = process.env.EXPO_PUBLIC_YF_PROXY;
+const UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+
+function withProxy(url: string): string {
+  if (!PROXY) return url;
+  return PROXY.includes('=') ? PROXY + encodeURIComponent(url) : PROXY + url;
+}
+
+/** 한국 6자리 코드가 접미사 없이 저장된 경우 .KS 를 붙여 야후에서 조회 가능하게 */
+export function normalizeSymbol(symbol: string): string {
+  if (/^\d{6}$/.test(symbol)) return symbol + '.KS';
+  return symbol;
+}
+
+// 두 호스트를 순서대로 시도
+async function fetchJson(path: string): Promise<any> {
+  let lastErr: any;
+  for (const host of HOSTS) {
+    try {
+      const res = await fetch(withProxy(host + path), {
+        headers: { Accept: 'application/json', 'User-Agent': UA },
+      });
+      if (!res.ok) {
+        lastErr = new Error(`yahoo ${res.status}`);
+        continue;
+      }
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr ?? new Error('yahoo fetch failed');
+}
+
+const POLL_MS = 4000;
+
+export interface Candle {
+  t: number; // epoch ms
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+}
+
+export type CandleMode = 'day' | 'week' | 'year';
+
+const MODE_CFG: Record<CandleMode, { interval: string; range: string }> = {
+  day: { interval: '1d', range: '6mo' }, // 일봉
+  week: { interval: '1wk', range: '2y' }, // 주봉
+  year: { interval: '1mo', range: '10y' }, // 월봉을 받아 연봉으로 집계
+};
+
+/** 월봉 → 연봉 집계 (연도별 시가=첫달 시가, 고가=최대, 저가=최소, 종가=마지막달 종가) */
+function aggregateYearly(candles: Candle[]): Candle[] {
+  const byYear = new Map<number, Candle>();
+  for (const c of candles) {
+    const y = new Date(c.t).getFullYear();
+    const g = byYear.get(y);
+    if (!g) byYear.set(y, { ...c });
+    else {
+      g.h = Math.max(g.h, c.h);
+      g.l = Math.min(g.l, c.l);
+      g.c = c.c;
+    }
+  }
+  return Array.from(byYear.values()).sort((a, b) => a.t - b.t);
+}
+
+/** 캔들차트용 OHLC (일봉/주봉/년봉) */
+export async function fetchCandles(symbol: string, mode: CandleMode = 'day'): Promise<{ candles: Candle[]; currency?: string }> {
+  const sym = normalizeSymbol(symbol);
+  const { interval, range } = MODE_CFG[mode];
+  const json = await fetchJson(`/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${range}`);
+  const result = json?.chart?.result?.[0];
+  const ts: number[] = result?.timestamp ?? [];
+  const q = result?.indicators?.quote?.[0] ?? {};
+  let candles: Candle[] = [];
+  for (let i = 0; i < ts.length; i++) {
+    const o = q.open?.[i];
+    const h = q.high?.[i];
+    const l = q.low?.[i];
+    const c = q.close?.[i];
+    if ([o, h, l, c].some((v) => v == null)) continue;
+    candles.push({ t: ts[i] * 1000, o, h, l, c });
+  }
+  if (mode === 'year') candles = aggregateYearly(candles);
+  return { candles, currency: result?.meta?.currency };
+}
+
+export class YahooPriceProvider implements PriceProvider {
+  readonly name = 'yahoo';
+
+  async getQuote(symbol: string): Promise<Quote> {
+    const sym = normalizeSymbol(symbol);
+    const json = await fetchJson(`/v8/finance/chart/${encodeURIComponent(sym)}?interval=1m&range=1d`);
+    const meta = json?.chart?.result?.[0]?.meta;
+    if (!meta || typeof meta.regularMarketPrice !== 'number') {
+      throw new Error('yahoo: no price in response');
+    }
+    return {
+      symbol,
+      price: meta.regularMarketPrice,
+      at: meta.regularMarketTime ? meta.regularMarketTime * 1000 : Date.now(),
+      currency: meta.currency,
+      previousClose: meta.chartPreviousClose ?? meta.previousClose,
+    };
+  }
+
+  subscribe(symbol: string, onQuote: (q: Quote) => void): () => void {
+    let alive = true;
+    const tick = async () => {
+      if (!alive) return;
+      try {
+        onQuote(await this.getQuote(symbol));
+      } catch {
+        // 일시적 오류는 무시하고 다음 폴링에서 재시도
+      }
+    };
+    tick();
+    const id = setInterval(tick, POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }
+}

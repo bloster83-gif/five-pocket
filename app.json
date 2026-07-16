@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "5-Pocket",
+    "slug": "five-pocket",
+    "version": "1.0.0",
+    "scheme": "fivepocket",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#0B1220"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fivepocket.app"
+    },
+    "android": {
+      "package": "com.fivepocket.app"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "color": "#22D3A6"
+        }
+      ],
+      "expo-asset",
+      "expo-web-browser"
+    ]
+  }
+}
