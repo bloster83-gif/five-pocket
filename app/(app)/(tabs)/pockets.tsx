@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Card, Row } from '@/components/ui';
+import { Card, Chip, Field, Row } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import type { Pocket, Project, Trade } from '@/types/db';
@@ -17,6 +17,9 @@ export default function PocketsScreen() {
   const [onlyHolding, setOnlyHolding] = useState(false); // 보유중 스위치
   const [onlyRealized, setOnlyRealized] = useState(false); // 실현 스위치
   const [pocketFilter, setPocketFilter] = useState<number | null>(null); // null = 전체, 0~4 = 포켓 1~5
+  const [showSearch, setShowSearch] = useState(false);
+  const [q, setQ] = useState(''); // 종목명/티커 검색
+  const [market, setMarket] = useState<'KRX' | 'US' | null>(null); // null = 전체 시장
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -68,6 +71,11 @@ export default function PocketsScreen() {
     return pockets.filter((k) => {
       const proj = projMap[k.project_id];
       if (!proj) return false;
+      if (market && proj.market !== market) return false;
+      if (q.trim()) {
+        const s = q.trim().toLowerCase();
+        if (!proj.name.toLowerCase().includes(s) && !proj.symbol.toLowerCase().includes(s)) return false;
+      }
       if (pocketFilter != null && k.idx !== pocketFilter) return false;
       const kt = tradesByPocket[k.id] ?? [];
       const hasSell = kt.some((t) => t.side === 'sell');
@@ -77,7 +85,7 @@ export default function PocketsScreen() {
       if (onlyRealized) return hasSell;
       return true;
     });
-  }, [pockets, projMap, tradesByPocket, onlyHolding, onlyRealized, pocketFilter]);
+  }, [pockets, projMap, tradesByPocket, onlyHolding, onlyRealized, pocketFilter, q, market]);
 
   if (loading) {
     return (
@@ -89,6 +97,38 @@ export default function PocketsScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 40 }}>
+      {/* 툴바: 돋보기 + 시장 빠른 필터 */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <Pressable
+          onPress={() => setShowSearch((s) => !s)}
+          style={{
+            width: 44,
+            height: 40,
+            borderRadius: 10,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: showSearch ? colors.buy : colors.cardAlt,
+          }}
+        >
+          <Text style={{ fontSize: 18 }}>🔍</Text>
+        </Pressable>
+        <Chip label="한국" icon="🇰🇷" active={market === 'KRX'} onPress={() => setMarket(market === 'KRX' ? null : 'KRX')} />
+        <Chip label="미국" icon="🇺🇸" active={market === 'US'} onPress={() => setMarket(market === 'US' ? null : 'US')} activeColor={colors.accent} />
+      </View>
+
+      {/* 종목 검색 */}
+      {showSearch && (
+        <Card>
+          <Field
+            label="검색 (종목명/티커)"
+            value={q}
+            onChangeText={setQ}
+            placeholder="예: 삼성, AAPL"
+            autoCapitalize="none"
+          />
+        </Card>
+      )}
+
       {/* 예산 합산 */}
       <Card>
         <Text style={{ color: colors.text, fontWeight: '800' }}>프로젝트 예산 합계 (진행중)</Text>

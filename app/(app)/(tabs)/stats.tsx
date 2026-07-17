@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 import { Stack, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import { Card, Row } from '@/components/ui';
+import { Card, Chip, Row } from '@/components/ui';
 import { BarChart } from '@/components/charts';
 import { colors, formatMoney, signColor, spacing } from '@/theme';
 import { realizedEvents } from '@/domain/pockets';
@@ -15,6 +15,7 @@ export default function StatsScreen() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [year, setYear] = useState<number | 'all'>('all');
+  const [market, setMarket] = useState<'all' | 'KRX' | 'US'>('all');
 
   const load = useCallback(async () => {
     const [{ data: p }, { data: t }] = await Promise.all([
@@ -38,9 +39,26 @@ export default function StatsScreen() {
     return Array.from(s).sort((a, b) => b - a);
   }, [trades]);
 
+  const projById = useMemo(() => {
+    const m: Record<string, Project> = {};
+    projects.forEach((p) => (m[p.id] = p));
+    return m;
+  }, [projects]);
+
+  // 체결의 시장 판별: 프로젝트 시장 → 독립 체결의 market → 기본 US
+  const marketOf = useCallback(
+    (t: Trade) => (t.project_id ? projById[t.project_id]?.market : undefined) ?? t.market ?? 'US',
+    [projById]
+  );
+
   const yearTrades = useMemo(
-    () => (year === 'all' ? trades : trades.filter((t) => Number(t.executed_at.slice(0, 4)) === year)),
-    [trades, year]
+    () =>
+      trades.filter(
+        (t) =>
+          (year === 'all' || Number(t.executed_at.slice(0, 4)) === year) &&
+          (market === 'all' || marketOf(t) === market)
+      ),
+    [trades, year, market, marketOf]
   );
 
   const stats = useMemo(() => {
@@ -49,13 +67,12 @@ export default function StatsScreen() {
     const buys = yearTrades.filter((t) => t.side === 'buy').length;
     const sells = yearTrades.filter((t) => t.side === 'sell').length;
 
-    const projById: Record<string, Project> = {};
-    projects.forEach((p) => (projById[p.id] = p));
-
     // 실현손익: 전체 이력으로 평단을 계산한 뒤(해 넘김·포켓 순환 대응),
-    // 매도 시점이 선택 연도에 속한 이벤트만 합산한다.
+    // 매도 시점이 선택 연도·시장에 속한 이벤트만 합산한다.
     const events = realizedEvents(trades).filter(
-      (ev) => year === 'all' || Number(ev.at.slice(0, 4)) === year
+      (ev) =>
+        (year === 'all' || Number(ev.at.slice(0, 4)) === year) &&
+        (market === 'all' || marketOf(ev.trade) === market)
     );
 
     const realizedByProj: Record<string, number> = {};
@@ -83,7 +100,7 @@ export default function StatsScreen() {
     const months = Object.keys(byMonth).sort();
 
     return { active, closed, buys, sells, perProject, realizedByMarket, winRate, months, byMonth };
-  }, [projects, yearTrades, trades, year]);
+  }, [projects, projById, yearTrades, trades, year, market, marketOf]);
 
   if (loading) {
     return (
@@ -131,6 +148,14 @@ export default function StatsScreen() {
           </Pressable>
         ))}
       </ScrollView>
+
+      {/* 시장별 분류 */}
+      <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+        <Text style={{ color: colors.textDim, fontSize: 12 }}>시장</Text>
+        <Chip label="전체" active={market === 'all'} onPress={() => setMarket('all')} />
+        <Chip label="한국" icon="🇰🇷" active={market === 'KRX'} onPress={() => setMarket('KRX')} />
+        <Chip label="미국" icon="🇺🇸" active={market === 'US'} onPress={() => setMarket('US')} activeColor={colors.accent} />
+      </View>
 
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
         <StatBox label="진행중 / 종료" value={`${stats.active} / ${stats.closed}`} />

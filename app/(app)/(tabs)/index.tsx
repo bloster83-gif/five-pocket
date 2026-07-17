@@ -4,13 +4,13 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  Switch,
+  ScrollView,
   Text,
   View,
 } from 'react-native';
 import { Link, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Card, Field } from '@/components/ui';
+import { Card, Chip, Field } from '@/components/ui';
 import { colors, formatMoney, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
@@ -32,7 +32,8 @@ export default function ProjectsScreen() {
   const [loading, setLoading] = useState(true);
 
   const [showSearch, setShowSearch] = useState(false);
-  const [showClosed, setShowClosed] = useState(false);
+  const [status, setStatus] = useState<'open' | 'closed' | 'all'>('open'); // 기본: 진행중만
+  const [market, setMarket] = useState<'KRX' | 'US' | null>(null); // null = 전체 시장
   const [q, setQ] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -86,7 +87,9 @@ export default function ProjectsScreen() {
 
   const filtered = useMemo(() => {
     return projects.filter((p) => {
-      if (!showClosed && p.closed_at) return false; // 기본: 진행중만
+      if (status === 'open' && p.closed_at) return false;
+      if (status === 'closed' && !p.closed_at) return false;
+      if (market && p.market !== market) return false;
       if (q.trim()) {
         const s = q.trim().toLowerCase();
         if (!p.name.toLowerCase().includes(s) && !p.symbol.toLowerCase().includes(s)) return false;
@@ -96,11 +99,11 @@ export default function ProjectsScreen() {
       if (to && created > to) return false;
       return true;
     });
-  }, [projects, showClosed, q, from, to]);
+  }, [projects, status, market, q, from, to]);
 
   return (
     <View style={{ flex: 1 }}>
-      {/* 툴바: 돋보기 (매매일지와 동일 서식) */}
+      {/* 툴바: 돋보기 + 빠른 필터 칩 */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
         <Pressable
           onPress={() => setShowSearch((s) => !s)}
@@ -115,6 +118,14 @@ export default function ProjectsScreen() {
         >
           <Text style={{ fontSize: 18 }}>🔍</Text>
         </Pressable>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
+          <Chip label="진행중" icon="🔴" active={status === 'open'} onPress={() => setStatus('open')} />
+          <Chip label="종료" icon="🔒" active={status === 'closed'} onPress={() => setStatus('closed')} activeColor={colors.sell} />
+          <Chip label="전체" active={status === 'all'} onPress={() => setStatus('all')} />
+          <View style={{ width: 1, height: 22, backgroundColor: colors.border }} />
+          <Chip label="한국" icon="🇰🇷" active={market === 'KRX'} onPress={() => setMarket(market === 'KRX' ? null : 'KRX')} />
+          <Chip label="미국" icon="🇺🇸" active={market === 'US'} onPress={() => setMarket(market === 'US' ? null : 'US')} activeColor={colors.accent} />
+        </ScrollView>
       </View>
 
       {loading ? (
@@ -139,10 +150,9 @@ export default function ProjectsScreen() {
                   <Field label="생성일 이전" value={to} onChangeText={setTo} placeholder="YYYY-MM-DD" autoCapitalize="none" />
                 </View>
               </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: colors.text }}>지난(종료) 프로젝트 보기</Text>
-                <Switch value={showClosed} onValueChange={setShowClosed} />
-              </View>
+              <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                종료된 프로젝트는 위의 "종료" 또는 "전체" 버튼으로 볼 수 있어요.
+              </Text>
             </Card>
             )
           }
@@ -150,7 +160,7 @@ export default function ProjectsScreen() {
             <Card>
               <Text style={{ color: colors.text, fontWeight: '700' }}>표시할 프로젝트가 없어요</Text>
               <Text style={{ color: colors.textDim }}>
-                아래 + 버튼으로 종목과 5분할 전략을 등록하세요. 종료한 프로젝트는 위의 “지난 프로젝트 보기”로 확인할 수 있어요.
+                아래 + 버튼으로 종목과 5분할 전략을 등록하세요. 종료한 프로젝트는 위의 “종료” 버튼으로 확인할 수 있어요.
               </Text>
             </Card>
           }

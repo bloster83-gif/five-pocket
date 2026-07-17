@@ -4,7 +4,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { confirmAction } from '@/lib/alert';
-import { Card, Field } from '@/components/ui';
+import { Card, Chip, Field } from '@/components/ui';
 import { realizedEvents } from '@/domain/pockets';
 import { colors, formatKRW, formatMoney, formatPrice, money, signColor, spacing } from '@/theme';
 import type { CashFlow, CashFlowType, Project, Trade } from '@/types/db';
@@ -32,6 +32,46 @@ export default function JournalScreen() {
   // 기본 조회 기간: 올해 1월 1일 ~ 오늘
   const [from, setFrom] = useState(`${new Date().getFullYear()}-01-01`);
   const [to, setTo] = useState(ymd(new Date()));
+  const [preset, setPreset] = useState<string | null>('올해'); // 기간 빠른 버튼
+  const [sideFilter, setSideFilter] = useState<'buy' | 'sell' | null>(null); // 매수/매도만 보기
+
+  // 기간 빠른 버튼: 한 번 탭으로 from/to 설정
+  const applyPreset = (key: string) => {
+    const today = new Date();
+    const t = ymd(today);
+    const daysAgo = (n: number) => ymd(new Date(today.getFullYear(), today.getMonth(), today.getDate() - n));
+    if (key === '오늘') {
+      setFrom(t);
+      setTo(t);
+    } else if (key === '1주') {
+      setFrom(daysAgo(6));
+      setTo(t);
+    } else if (key === '1개월') {
+      setFrom(ymd(new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())));
+      setTo(t);
+    } else if (key === '3개월') {
+      setFrom(ymd(new Date(today.getFullYear(), today.getMonth() - 3, today.getDate())));
+      setTo(t);
+    } else if (key === '올해') {
+      setFrom(`${today.getFullYear()}-01-01`);
+      setTo(t);
+    } else {
+      // 전체
+      setFrom('');
+      setTo('');
+    }
+    setPreset(key);
+  };
+
+  // 날짜를 손으로 고치면 빠른 버튼 선택 해제
+  const onChangeFrom = (v: string) => {
+    setFrom(v);
+    setPreset(null);
+  };
+  const onChangeTo = (v: string) => {
+    setTo(v);
+    setPreset(null);
+  };
 
   const load = useCallback(async () => {
     const [{ data: t }, { data: p }, { data: cf }] = await Promise.all([
@@ -76,11 +116,12 @@ export default function JournalScreen() {
     return null;
   }, [q]);
 
-  // 종목/기간 필터
+  // 종목/기간/매매구분 필터
   const filteredTrades = useMemo(() => {
     if (flowTypeQuery) return []; // 입금/출금 검색 중엔 체결은 숨김
     const s = q.trim().toLowerCase();
     return trades.filter((t) => {
+      if (sideFilter && t.side !== sideFilter) return false;
       if (s) {
         const proj = t.project_id ? projMap[t.project_id] : undefined;
         const hay = `${proj?.name ?? t.name ?? ''} ${proj?.symbol ?? t.symbol ?? ''}`.toLowerCase();
@@ -91,7 +132,7 @@ export default function JournalScreen() {
       if (to && d > to) return false;
       return true;
     });
-  }, [trades, projMap, q, from, to, flowTypeQuery]);
+  }, [trades, projMap, q, from, to, flowTypeQuery, sideFilter]);
 
   // 기간+종목 필터에 해당하는 실현손익 합산
   // (평단 계산은 전체 이력 기준, 매도 시점이 기간 안에 들면 합산)
@@ -301,6 +342,25 @@ export default function JournalScreen() {
         </Pressable>
       </View>
 
+      {/* 빠른 필터: 기간 프리셋 + 매수/매도 */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
+        {['오늘', '1주', '1개월', '3개월', '올해', '전체'].map((k) => (
+          <Chip key={k} label={k} active={preset === k} onPress={() => applyPreset(k)} />
+        ))}
+        <View style={{ width: 1, height: 22, backgroundColor: colors.border }} />
+        <Chip
+          label="매수만"
+          active={sideFilter === 'buy'}
+          onPress={() => setSideFilter(sideFilter === 'buy' ? null : 'buy')}
+        />
+        <Chip
+          label="매도만"
+          active={sideFilter === 'sell'}
+          onPress={() => setSideFilter(sideFilter === 'sell' ? null : 'sell')}
+          activeColor={colors.sell}
+        />
+      </ScrollView>
+
       {showSearch && (
         <Card>
           <Field
@@ -312,10 +372,10 @@ export default function JournalScreen() {
           />
           <View style={{ flexDirection: 'row', gap: spacing.md }}>
             <View style={{ flex: 1 }}>
-              <Field label="기간 시작" value={from} onChangeText={setFrom} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+              <Field label="기간 시작" value={from} onChangeText={onChangeFrom} placeholder="YYYY-MM-DD" autoCapitalize="none" />
             </View>
             <View style={{ flex: 1 }}>
-              <Field label="기간 끝" value={to} onChangeText={setTo} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+              <Field label="기간 끝" value={to} onChangeText={onChangeTo} placeholder="YYYY-MM-DD" autoCapitalize="none" />
             </View>
           </View>
 

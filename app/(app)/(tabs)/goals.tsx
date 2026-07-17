@@ -4,7 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
-import { Button, Card, Field, NumberField } from '@/components/ui';
+import { Button, Card, Chip, Field, NumberField } from '@/components/ui';
 import { BarChart, Legend } from '@/components/charts';
 import { colors, formatKRW, radius, spacing } from '@/theme';
 import { buildGoalRows } from '@/domain/goals';
@@ -161,6 +161,19 @@ export default function GoalsScreen() {
   const thisYearRow = displayRows.find((r) => r.year === nowYear) ?? null;
   const hasThisYearOverride = overrides[nowYear] != null;
 
+  // 표 빠른 보기: 전체 / 과거 / 올해 / 미래
+  const [tableFilter, setTableFilter] = useState<'all' | 'past' | 'now' | 'future'>('all');
+  const tableRows = useMemo(
+    () =>
+      displayRows.filter((r) => {
+        if (tableFilter === 'past') return r.year < nowYear;
+        if (tableFilter === 'now') return r.year === nowYear;
+        if (tableFilter === 'future') return r.year > nowYear;
+        return true;
+      }),
+    [displayRows, tableFilter, nowYear]
+  );
+
   // 올해 목표 수기 저장 / 자동 계산으로 복원
   const saveThisYearTarget = async () => {
     if (!uid) return;
@@ -303,6 +316,15 @@ export default function GoalsScreen() {
 
       {rows.length > 0 && (
         <>
+          {/* 빠른 보기: 표 필터 */}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: colors.textDim, fontSize: 12 }}>빠른 보기</Text>
+            <Chip label="전체" active={tableFilter === 'all'} onPress={() => setTableFilter('all')} />
+            <Chip label="과거" active={tableFilter === 'past'} onPress={() => setTableFilter('past')} activeColor={colors.accent} />
+            <Chip label="올해" icon="🔥" active={tableFilter === 'now'} onPress={() => setTableFilter('now')} />
+            <Chip label="미래" active={tableFilter === 'future'} onPress={() => setTableFilter('future')} activeColor={colors.accent} />
+          </View>
+
           {/* ★ 올해 현황 (크게 강조) */}
           {thisYearRow && (
             <Card style={{ borderColor: colors.buy, borderWidth: 2 }}>
@@ -448,7 +470,7 @@ export default function GoalsScreen() {
                   <Text style={[thCell, { width: 96 }]}>실제달성액</Text>
                   <Text style={[thCell, { width: 96 }]}>수익금액/수익률</Text>
                 </View>
-                {displayRows.map((r) => {
+                {tableRows.map((r) => {
                   const isThisYear = r.year === nowYear;
                   return (
                     <View

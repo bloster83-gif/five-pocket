@@ -109,6 +109,43 @@ export function Row({ label, value, valueColor }: { label: string; value: string
   );
 }
 
+// 빠른 검색/필터용 알약 버튼 (탭 상단 공용)
+export function Chip({
+  label,
+  active,
+  onPress,
+  icon,
+  activeColor = colors.buy,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  icon?: string;
+  activeColor?: string;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 999,
+        backgroundColor: active ? `${activeColor}24` : colors.cardAlt,
+        borderWidth: 1,
+        borderColor: active ? activeColor : colors.border,
+      }}
+    >
+      {icon ? <Text style={{ fontSize: 12 }}>{icon}</Text> : null}
+      <Text style={{ color: active ? activeColor : colors.textDim, fontWeight: '800', fontSize: 13 }}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.card,
