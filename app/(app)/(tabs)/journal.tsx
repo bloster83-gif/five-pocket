@@ -134,27 +134,51 @@ export default function JournalScreen() {
     });
   }, [trades, projMap, q, from, to, flowTypeQuery, sideFilter]);
 
-  // 기간+종목 필터에 해당하는 실현손익 합산
-  // (평단 계산은 전체 이력 기준, 매도 시점이 기간 안에 들면 합산)
-  const realizedSum = useMemo(() => {
-    if (flowTypeQuery) return null;
+  // 현재 검색 조건(종목/기간)에 해당하는 실현손익 이벤트
+  // (평단 계산은 전체 이력 기준, 매도 시점이 기간 안에 들면 포함.
+  //  '매수만' 필터 중에는 매도가 안 보이므로 실현수익도 숨긴다)
+  const filteredRealized = useMemo(() => {
+    if (flowTypeQuery || sideFilter === 'buy') return [];
     const s = q.trim().toLowerCase();
-    let sum = 0;
-    let count = 0;
-    realizedEvents(trades).forEach((ev) => {
+    return realizedEvents(trades).filter((ev) => {
       const d = ev.at.slice(0, 10);
-      if (from && d < from) return;
-      if (to && d > to) return;
+      if (from && d < from) return false;
+      if (to && d > to) return false;
       if (s) {
         const proj = ev.trade.project_id ? projMap[ev.trade.project_id] : undefined;
         const hay = `${proj?.name ?? ev.trade.name ?? ''} ${proj?.symbol ?? ev.trade.symbol ?? ''}`.toLowerCase();
-        if (!hay.includes(s)) return;
+        if (!hay.includes(s)) return false;
       }
-      sum += ev.amount;
-      count++;
+      return true;
     });
-    return { sum, count };
-  }, [trades, projMap, q, from, to, flowTypeQuery]);
+  }, [trades, projMap, q, from, to, flowTypeQuery, sideFilter]);
+
+  // 체결의 시장 판별 (통화 표기용)
+  const marketOfTrade = useCallback(
+    (t: Trade) => (t.project_id ? projMap[t.project_id]?.market : undefined) ?? t.market ?? 'US',
+    [projMap]
+  );
+
+  // 일자별·시장별 실현수익 (날짜 카드에 표시)
+  const realizedByDate = useMemo(() => {
+    const m: Record<string, Record<string, number>> = {};
+    filteredRealized.forEach((ev) => {
+      const d = ev.at.slice(0, 10);
+      const mkt = marketOfTrade(ev.trade);
+      (m[d] ??= {})[mkt] = (m[d][mkt] ?? 0) + ev.amount;
+    });
+    return m;
+  }, [filteredRealized, marketOfTrade]);
+
+  // 검색 조건 전체의 합산 실현수익 (시장별)
+  const realizedTotals = useMemo(() => {
+    const byMarket: Record<string, number> = {};
+    filteredRealized.forEach((ev) => {
+      const mkt = marketOfTrade(ev.trade);
+      byMarket[mkt] = (byMarket[mkt] ?? 0) + ev.amount;
+    });
+    return { byMarket, count: filteredRealized.length };
+  }, [filteredRealized, marketOfTrade]);
 
   // 기간 내 현금흐름 종류별 합산
   const flowSums = useMemo(() => {
@@ -392,17 +416,8 @@ export default function JournalScreen() {
               </View>
             ) : (
               <>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={{ color: colors.text, fontWeight: '800' }}>
-                    실현손익 합계 {q.trim() ? `· ${q.trim()}` : '· 전체 종목'}
-                  </Text>
-                  <Text style={{ color: signColor(realizedSum?.sum ?? 0), fontWeight: '900', fontSize: 16 }}>
-                    {realizedSum && realizedSum.sum > 0 ? '+' : ''}
-                    {formatKRW(realizedSum?.sum ?? 0)}
-                  </Text>
-                </View>
                 <Text style={{ color: colors.textDim, fontSize: 11 }}>
-                  {from || '처음'} ~ {to || '오늘'} · 매도 {realizedSum?.count ?? 0}건 기준
+                  실현수익 합계는 검색 결과 위의 “💰 실현수익” 카드에 표시됩니다.
                 </Text>
                 {!q.trim() && (
                   <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: 2, flexWrap: 'wrap' }}>
@@ -414,6 +429,29 @@ export default function JournalScreen() {
               </>
             )}
           </View>
+        </Card>
+      )}
+
+      {/* 💰 현재 검색 조건의 합산 실현수익 (항상 표시) */}
+      {!flowTypeQuery && sideFilter !== 'buy' && realizedTotals.count > 0 && (
+        <Card style={{ borderColor: colors.buy }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ color: colors.text, fontWeight: '800' }}>
+              💰 실현수익 {q.trim() ? `· ${q.trim()}` : '· 전체 종목'}
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>
+              {from || '처음'} ~ {to || '오늘'} · 매도 {realizedTotals.count}건
+            </Text>
+          </View>
+          {Object.entries(realizedTotals.byMarket).map(([mkt, v]) => (
+            <View key={mkt} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.textDim }}>{mkt === 'KRX' ? '한국 (원화)' : '미국 (달러)'}</Text>
+              <Text style={{ color: signColor(v), fontWeight: '900', fontSize: 18 }}>
+                {v > 0 ? '+' : ''}
+                {formatMoney(v, mkt)}
+              </Text>
+            </View>
+          ))}
         </Card>
       )}
 
@@ -435,7 +473,7 @@ export default function JournalScreen() {
       {view === 'list' &&
         allDates.map((d) => (
           <Card key={d}>
-            <Text style={{ color: colors.textDim, fontWeight: '800' }}>{d}</Text>
+            <DayHeader date={d} realized={realizedByDate[d]} />
             {byDate[d]?.map(renderTrade)}
             {flowsByDate[d]?.map(renderFlow)}
           </Card>
@@ -472,7 +510,7 @@ export default function JournalScreen() {
           </Card>
 
           <Card>
-            <Text style={{ color: colors.textDim, fontWeight: '800' }}>{selected}</Text>
+            <DayHeader date={selected} realized={realizedByDate[selected]} />
             {byDate[selected]?.map(renderTrade)}
             {flowsByDate[selected]?.map(renderFlow)}
             {!byDate[selected]?.length && !flowsByDate[selected]?.length && (
@@ -501,6 +539,36 @@ export default function JournalScreen() {
       >
         <Text style={{ color: '#fff', fontSize: 28, fontWeight: '800', marginTop: -2 }}>＋</Text>
       </Pressable>
+    </View>
+  );
+}
+
+// 날짜 카드 헤더: 날짜 + 그날의 실현수익 (시장별)
+function DayHeader({ date, realized }: { date: string; realized?: Record<string, number> }) {
+  const entries = realized ? Object.entries(realized).filter(([, v]) => v !== 0) : [];
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+      <Text style={{ color: colors.textDim, fontWeight: '800' }}>{date}</Text>
+      {entries.length > 0 && (
+        <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+          {entries.map(([mkt, v]) => (
+            <View
+              key={mkt}
+              style={{
+                backgroundColor: v >= 0 ? colors.buyBg : colors.sellBg,
+                borderRadius: 6,
+                paddingHorizontal: 8,
+                paddingVertical: 2,
+              }}
+            >
+              <Text style={{ color: signColor(v), fontWeight: '900', fontSize: 12 }}>
+                실현 {v > 0 ? '+' : ''}
+                {formatMoney(v, mkt)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
