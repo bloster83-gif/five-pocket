@@ -1,24 +1,27 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
 import { computePnL, estimatedShares, pnlPct, realizedEvents } from '@/domain/pockets';
-import { confirmAction, notify } from '@/lib/alert';
+import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
 import { useAutoTrader } from '@/services/autoTrader';
-import type { Pocket, Project, Trade } from '@/types/db';
+import { kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
+import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 export default function ProjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { tier } = useAuth();
+  const { tier, session } = useAuth();
 
   const [project, setProject] = useState<Project | null>(null);
   const [pockets, setPockets] = useState<Pocket[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [account, setAccount] = useState<BrokerAccount | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -33,6 +36,17 @@ export default function ProjectDetailScreen() {
     if (t) setTrades(t as Trade[]);
     setLoading(false);
   }, [id]);
+
+  // 손절 주문용 증권사 계좌 (AUTO 등급)
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    supabase
+      .from('broker_accounts')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .maybeSingle()
+      .then(({ data }) => setAccount((data as BrokerAccount) ?? null));
+  }, [session?.user?.id]);
 
   useFocusEffect(
     useCallback(() => {
@@ -110,6 +124,105 @@ export default function ProjectDetailScreen() {
       .eq('id', k.id);
     if (error) return notify('처리 실패', error.message);
     load();
+  };
+
+  // 포켓 1개 손절 (전량 매도). AUTO+계좌+네이티브면 실제 KIS 주문, 그 외엔 체결 기록만.
+  const stopLossPocket = async (k: Pocket): Promise<{ ok: boolean; msg?: string }> => {
+    if (!project || !session?.user?.id) return { ok: false };
+    const pocketTrades = trades.filter((t) => t.pocket_id === k.id);
+    const qty = Math.floor(computePnL(pocketTrades, null).totalQtyOpen);
+    if (qty <= 0) return { ok: false, msg: '보유 수량 없음' };
+    const sellPrice = price ?? k.sell_target_price ?? buyByPocket.get(k.id)?.price ?? 0;
+    if (sellPrice <= 0) return { ok: false, msg: '현재가를 확인할 수 없어요' };
+
+    // AUTO 등급 + 계좌 + 네이티브면 실제 매도 주문 전송
+    if (tier === 'auto' && account && !kisOrderBlocked(project.market)) {
+      try {
+        const input = { side: 'sell' as const, symbol: project.symbol, quantity: qty, price: sellPrice };
+        const r = project.market === 'US' ? await placeOverseasOrder(account, input) : await placeDomesticOrder(account, input);
+        supabase
+          .from('auto_orders')
+          .insert({
+            user_id: session.user.id,
+            project_id: project.id,
+            pocket_id: k.id,
+            side: 'sell',
+            symbol: project.symbol,
+            order_price: sellPrice,
+            quantity: qty,
+            status: 'sent',
+            kis_order_no: r.orderNo,
+          })
+          .then(() => {});
+      } catch (e: any) {
+        return { ok: false, msg: e?.message ?? '주문 실패' };
+      }
+    }
+
+    // 매도 체결 기록 + 포켓 상태 갱신
+    await supabase.from('trades').insert({
+      user_id: session.user.id,
+      project_id: project.id,
+      pocket_id: k.id,
+      side: 'sell',
+      price: sellPrice,
+      quantity: qty,
+      executed_at: new Date().toISOString(),
+      note: '손절',
+    });
+    await supabase.from('pockets').update({ status: 'sold' }).eq('id', k.id);
+    return { ok: true };
+  };
+
+  // 포켓 손절 확인(스와이프에서 호출)
+  const confirmStopLossPocket = (k: Pocket) => {
+    confirmAction(
+      '포켓 손절',
+      `포켓 ${k.idx + 1}을(를) 지금 전량 손절(매도)할까요?${tier === 'auto' && account ? ' 실제 매도 주문이 전송됩니다.' : ''}`,
+      async () => {
+        const r = await stopLossPocket(k);
+        await load();
+        if (!r.ok) notify('손절 실패', r.msg ?? '처리하지 못했어요.');
+      },
+      '손절'
+    );
+  };
+
+  // 프로젝트 종료 — 보유 포켓이 있으면 손절 여부를 물어봄
+  const promptClose = () => {
+    if (!project) return;
+    const held = pockets.filter((k) => k.status === 'bought');
+    if (held.length === 0) {
+      return confirmAction(
+        '프로젝트 종료',
+        `"${project.name}"을(를) 종료할까요? 종료하면 목록에서 숨겨지고, “지난 프로젝트 보기”로 다시 찾을 수 있어요.`,
+        () => setClosed(true),
+        '종료'
+      );
+    }
+    chooseAction(
+      '프로젝트 종료',
+      `보유 중인 포켓이 ${held.length}개 있어요. 전량 손절(매도) 주문을 넣고 종료할까요?`,
+      [
+        {
+          text: '손절 후 종료',
+          style: 'destructive',
+          onPress: async () => {
+            let done = 0;
+            let failMsg = '';
+            for (const k of held) {
+              const r = await stopLossPocket(k);
+              if (r.ok) done++;
+              else failMsg = r.msg ?? failMsg;
+            }
+            await setClosed(true);
+            notify('종료 완료', `${held.length}개 중 ${done}개 손절 처리했어요.${failMsg ? ` (일부 실패: ${failMsg})` : ''}`);
+          },
+        },
+        { text: '그냥 종료', onPress: () => setClosed(true) },
+        { text: '취소', style: 'cancel' },
+      ]
+    );
   };
 
   const toggleActive = async (val: boolean) => {
@@ -310,28 +423,37 @@ export default function ProjectDetailScreen() {
             <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{formatMoney(project.total_budget, mkt)}</Text>
           </View>
         )}
-        {pockets.map((k) => (
-          <PocketCard
-            key={k.id}
-            pocket={k}
-            market={mkt}
-            price={price}
-            buyIntervalPct={Number(project.buy_interval_pct)}
-            sellTargetPct={Number(project.sell_target_pct)}
-            buyTrade={buyByPocket.get(k.id) ?? null}
-            cycles={cyclesByPocket.get(k.id) ?? 0}
-            history={historyByPocket.get(k.id) ?? []}
-            realizedByTrade={realizedByTrade}
-            autoMode={tier === 'auto'}
-            autoTradeOn={project.auto_trade_enabled}
-            onRestart={() => restartPocket(k)}
-            onTrade={(side, sqty, sprice, budget) =>
-              router.push(
-                `/project/${project.id}/trade?pocket=${k.id}&idx=${k.idx}&side=${side}&sqty=${sqty}&sprice=${sprice}&budget=${budget ?? ''}&mkt=${mkt}`
-              )
-            }
-          />
-        ))}
+        {pockets.map((k) => {
+          const card = (
+            <PocketCard
+              pocket={k}
+              market={mkt}
+              price={price}
+              buyIntervalPct={Number(project.buy_interval_pct)}
+              sellTargetPct={Number(project.sell_target_pct)}
+              buyTrade={buyByPocket.get(k.id) ?? null}
+              cycles={cyclesByPocket.get(k.id) ?? 0}
+              history={historyByPocket.get(k.id) ?? []}
+              realizedByTrade={realizedByTrade}
+              autoMode={tier === 'auto'}
+              autoTradeOn={project.auto_trade_enabled}
+              onRestart={() => restartPocket(k)}
+              onTrade={(side, sqty, sprice, budget) =>
+                router.push(
+                  `/project/${project.id}/trade?pocket=${k.id}&idx=${k.idx}&side=${side}&sqty=${sqty}&sprice=${sprice}&budget=${budget ?? ''}&mkt=${mkt}`
+                )
+              }
+            />
+          );
+          // 보유중(매수 완료) 포켓만 왼쪽으로 스와이프하면 손절하기
+          return k.status === 'bought' ? (
+            <StopLossSwipe key={k.id} onStopLoss={() => confirmStopLossPocket(k)}>
+              {card}
+            </StopLossSwipe>
+          ) : (
+            <View key={k.id}>{card}</View>
+          );
+        })}
       </View>
 
       {/* 수정 / 삭제 (프로젝트 종료 버튼 바로 위) */}
@@ -366,21 +488,39 @@ export default function ProjectDetailScreen() {
           <Button title="프로젝트 재개" variant="primary" onPress={() => setClosed(false)} />
         </View>
       ) : (
-        <Button
-          title="프로젝트 종료 (매매 완료)"
-          variant="sell"
-          onPress={() =>
-            confirmAction(
-              '프로젝트 종료',
-              `"${project.name}"을(를) 종료할까요? 종료하면 목록에서 숨겨지고, “지난 프로젝트 보기”로 다시 찾을 수 있어요.`,
-              () => setClosed(true),
-              '종료'
-            )
-          }
-        />
+        <Button title="프로젝트 종료 (매매 완료)" variant="sell" onPress={promptClose} />
       )}
 
     </ScrollView>
+  );
+}
+
+// 보유 포켓을 왼쪽으로 스와이프하면 '손절하기'가 나타나고, 끝까지 밀면 손절 확인
+function StopLossSwipe({ onStopLoss, children }: { onStopLoss: () => void; children: ReactNode }) {
+  const ref = useRef<Swipeable>(null);
+  return (
+    <Swipeable
+      ref={ref}
+      friction={2}
+      rightThreshold={48}
+      overshootRight={false}
+      renderRightActions={() => (
+        <View style={{ justifyContent: 'center', alignItems: 'center', width: 96, paddingLeft: spacing.sm }}>
+          <View style={{ backgroundColor: colors.sell, borderRadius: radius.md, paddingVertical: 12, paddingHorizontal: 10, alignItems: 'center' }}>
+            <Text style={{ fontSize: 18 }}>✂️</Text>
+            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12, marginTop: 2 }}>손절하기</Text>
+          </View>
+        </View>
+      )}
+      onSwipeableOpen={(dir) => {
+        if (dir === 'right') {
+          ref.current?.close();
+          onStopLoss();
+        }
+      }}
+    >
+      {children}
+    </Swipeable>
   );
 }
 

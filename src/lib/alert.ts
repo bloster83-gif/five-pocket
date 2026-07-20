@@ -12,6 +12,25 @@ export function notify(title: string, message?: string) {
   }
 }
 
+// 3지선다 이상: 네이티브는 Alert 여러 버튼, 웹은 confirm(2지선다)로 첫 실행 옵션만.
+export function chooseAction(
+  title: string,
+  message: string,
+  options: { text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }[]
+) {
+  if (Platform.OS === 'web') {
+    const primary = options.find((o) => o.style !== 'cancel');
+    // eslint-disable-next-line no-alert
+    if (primary && window.confirm(`${title}\n\n${message}`)) primary.onPress?.();
+    return;
+  }
+  Alert.alert(
+    title,
+    message,
+    options.map((o) => ({ text: o.text, style: o.style, onPress: o.onPress }))
+  );
+}
+
 export function confirmAction(
   title: string,
   message: string,
