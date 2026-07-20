@@ -4,7 +4,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import { Button, Card, ChartIcon, Row, ScissorsIcon } from '@/components/ui';
+import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
 import { computePnL, estimatedShares, pnlPct, realizedEvents } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
@@ -513,10 +513,13 @@ function StopLossSwipe({ onStopLoss, profit, children }: { onStopLoss: () => voi
       rightThreshold={48}
       overshootRight={false}
       renderRightActions={() => (
-        <View style={{ justifyContent: 'center', alignItems: 'center', width: 96, paddingLeft: spacing.sm }}>
-          <View style={{ backgroundColor: bg, borderRadius: radius.md, paddingVertical: 12, paddingHorizontal: 10, alignItems: 'center' }}>
-            <ScissorsIcon size={20} color="#fff" />
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12, marginTop: 3 }}>{label}</Text>
+        <View style={{ justifyContent: 'center', alignItems: 'center', width: 72, paddingLeft: spacing.sm }}>
+          <View style={{ backgroundColor: bg, borderRadius: radius.md, paddingVertical: 14, paddingHorizontal: 12, alignItems: 'center' }}>
+            {label.split('').map((ch, i) => (
+              <Text key={i} style={{ color: '#fff', fontWeight: '900', fontSize: 14, lineHeight: 18 }}>
+                {ch}
+              </Text>
+            ))}
           </View>
         </View>
       )}
