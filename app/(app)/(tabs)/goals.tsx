@@ -182,6 +182,16 @@ export default function GoalsScreen() {
   const thisYearRow = displayRows.find((r) => r.year === nowYear) ?? null;
   const hasThisYearOverride = overrides[nowYear] != null;
 
+  // 올해 달성률 = 올해 벌어야 할 목표 수익(계획-이월) 대비 실제 수익(입출금 제외) 진행률.
+  // 아무 수익이 없으면 0%, 목표 성장분을 다 벌면 100%. (기존엔 이월 원금까지 달성으로 쳐서 부풀려짐)
+  const thisYearProgress = useMemo(() => {
+    if (!thisYearRow || thisYearRow.actual == null) return null;
+    const targetGrowth = thisYearRow.planned - thisYearRow.carryover; // 올해 필요한 수익(성장분)
+    const gained = thisYearRow.profit ?? 0; // 실제 수익 (입출금 제외)
+    if (targetGrowth <= 0) return gained >= 0 ? 100 : 0;
+    return Math.round((gained / targetGrowth) * 100);
+  }, [thisYearRow]);
+
   // 표 빠른 보기: 전체 / 과거 / 올해 / 미래
   const [tableFilter, setTableFilter] = useState<'all' | 'past' | 'now' | 'future'>('all');
   const tableRows = useMemo(
@@ -487,9 +497,15 @@ export default function GoalsScreen() {
                     {thisYearRow.actual != null ? fk(thisYearRow.actual) : '-'}
                   </Text>
                 </View>
-                {thisYearRow.actual != null && thisYearRow.planned > 0 && (
-                  <Text style={{ color: thisYearRow.actual >= thisYearRow.planned ? colors.buy : colors.warn, fontSize: 12, textAlign: 'right' }}>
-                    올해 목표의 {Math.round((thisYearRow.actual / thisYearRow.planned) * 100)}% 달성
+                {thisYearProgress != null && (
+                  <Text
+                    style={{
+                      color: thisYearProgress >= 100 ? colors.buy : thisYearProgress < 0 ? colors.sell : colors.warn,
+                      fontSize: 12,
+                      textAlign: 'right',
+                    }}
+                  >
+                    올해 목표 수익의 {thisYearProgress}% 달성
                   </Text>
                 )}
               </View>
