@@ -154,34 +154,13 @@ export default function ProjectDetailScreen() {
         options={{
           title: project.name,
           headerRight: () => (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginRight: spacing.sm }}>
-              {/* 수정 */}
-              <Pressable onPress={() => router.push(`/project/${project.id}/edit`)} hitSlop={8} style={headerIconStyle}>
-                <Text style={{ fontSize: 16 }}>✏️</Text>
-              </Pressable>
-              {/* 삭제 */}
-              <Pressable
-                onPress={() =>
-                  confirmAction(
-                    '프로젝트 삭제',
-                    `"${project.name}"과(와) 모든 포켓·거래 기록이 삭제됩니다. 계속할까요?`,
-                    async () => {
-                      await supabase.from('projects').delete().eq('id', project.id);
-                      router.replace('/');
-                    },
-                    '삭제'
-                  )
-                }
-                hitSlop={8}
-                style={[headerIconStyle, { borderColor: colors.danger }]}
-              >
-                <Text style={{ fontSize: 16 }}>🗑️</Text>
-              </Pressable>
-              {/* 차트 */}
-              <Pressable onPress={() => router.push(`/project/${project.id}/chart`)} hitSlop={8} style={headerIconStyle}>
-                <ChartIcon size={16} />
-              </Pressable>
-            </View>
+            <Pressable
+              onPress={() => router.push(`/project/${project.id}/chart`)}
+              hitSlop={10}
+              style={{ ...headerIconStyle, marginRight: spacing.sm }}
+            >
+              <ChartIcon size={16} />
+            </Pressable>
           ),
         }}
       />
@@ -301,6 +280,30 @@ export default function ProjectDetailScreen() {
             }
           />
         ))}
+      </View>
+
+      {/* 수정 / 삭제 (프로젝트 종료 버튼 바로 위) */}
+      <View style={{ flexDirection: 'row', gap: spacing.md }}>
+        <View style={{ flex: 1 }}>
+          <Button title="✏️ 수정" variant="ghost" onPress={() => router.push(`/project/${project.id}/edit`)} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Button
+            title="🗑️ 삭제"
+            variant="danger"
+            onPress={() =>
+              confirmAction(
+                '프로젝트 삭제',
+                `"${project.name}"과(와) 모든 포켓·거래 기록이 삭제됩니다. 계속할까요?`,
+                async () => {
+                  await supabase.from('projects').delete().eq('id', project.id);
+                  router.replace('/');
+                },
+                '삭제'
+              )
+            }
+          />
+        </View>
       </View>
 
       {project.closed_at ? (

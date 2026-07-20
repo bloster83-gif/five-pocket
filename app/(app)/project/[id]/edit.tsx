@@ -8,9 +8,9 @@ import { colors, formatPrice, money, spacing } from '@/theme';
 import { buildPocketSeeds, normalizeWeights, POCKET_COUNT } from '@/domain/pockets';
 import type { Pocket, Project } from '@/types/db';
 
-// 프로젝트 수정 — 종목/시장은 고정.
-//  - 거래가 하나도 없으면: 이름·전략·예산·포켓비중 모두 수정 가능
-//  - 거래가 한 건이라도 있으면: 전략이 꼬이므로 이름만 수정 가능 (전략/예산은 잠금)
+// 프로젝트 수정 — 종목/시장/이름은 고정(이름=종목명).
+//  - 거래가 하나도 없으면: 전략·예산·포켓비중 수정 가능
+//  - 거래가 한 건이라도 있으면: 전략이 꼬이므로 수정 불가 (읽기 전용)
 export default function EditProjectScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -21,7 +21,6 @@ export default function EditProjectScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [name, setName] = useState('');
   const [basePrice, setBasePrice] = useState('');
   const [buyInterval, setBuyInterval] = useState('5');
   const [sellTarget, setSellTarget] = useState('10');
@@ -39,7 +38,6 @@ export default function EditProjectScreen() {
     if (p) {
       const proj = p as Project;
       setProject(proj);
-      setName(proj.name);
       setBasePrice(String(proj.base_price));
       setBuyInterval(String(proj.buy_interval_pct));
       setSellTarget(String(proj.sell_target_pct));
@@ -81,33 +79,21 @@ export default function EditProjectScreen() {
     setWeights(next);
   };
 
-  // 거래가 하나라도 있으면 전략/예산 수정 잠금 (이름만 변경 가능)
+  // 거래가 하나라도 있으면 수정 불가 (전략 잠금). 이름은 종목명이라 항상 고정.
   const locked = tradeCount > 0;
 
   const onSave = async () => {
     if (!project) return;
-    if (!name.trim()) return notify('입력 필요', '프로젝트 이름을 입력하세요.');
-
-    setSaving(true);
-
-    if (locked) {
-      // 거래 있음 → 이름만 저장
-      const { error } = await supabase.from('projects').update({ name: name.trim() }).eq('id', project.id);
-      setSaving(false);
-      if (error) return notify('저장 실패', error.message);
-      notify('저장 완료', '이름이 수정됐어요. (거래가 있어 전략은 변경할 수 없어요)');
-      return router.back();
-    }
+    if (locked) return; // 잠김: 저장 버튼 자체가 없음
 
     if (!parsed.basePrice || parsed.basePrice <= 0) {
-      setSaving(false);
       return notify('입력 필요', '기준가를 올바르게 입력하세요.');
     }
 
+    setSaving(true);
     const { error: perr } = await supabase
       .from('projects')
       .update({
-        name: name.trim(),
         base_price: parsed.basePrice,
         buy_interval_pct: parsed.buyIntervalPct,
         sell_target_pct: parsed.sellTargetPct,
@@ -155,19 +141,19 @@ export default function EditProjectScreen() {
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }} keyboardShouldPersistTaps="handled">
       {locked && (
         <Card style={{ borderColor: colors.warn }}>
-          <Text style={{ color: colors.warn, fontWeight: '800' }}>🔒 전략은 수정할 수 없어요</Text>
+          <Text style={{ color: colors.warn, fontWeight: '800' }}>🔒 수정할 수 없어요</Text>
           <Text style={{ color: colors.textDim, fontSize: 12 }}>
             이미 매매(체결 {tradeCount}건)가 시작된 프로젝트라, 전략·예산을 바꾸면 손익 계산이 꼬여요.
-            이름만 변경할 수 있습니다. 전략을 바꾸려면 새 프로젝트를 만들어 주세요.
+            전략을 바꾸려면 새 프로젝트를 만들어 주세요.
           </Text>
         </Card>
       )}
 
       <Card>
-        <Text style={{ color: colors.textDim }}>
-          {project.symbol} · {market === 'KRX' ? '한국(원화)' : '미국(달러)'} (종목은 변경할 수 없어요)
+        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{project.name}</Text>
+        <Text style={{ color: colors.textDim, fontSize: 12 }}>
+          {project.symbol} · {market === 'KRX' ? '한국(원화)' : '미국(달러)'} · 종목/이름은 변경할 수 없어요
         </Text>
-        <Field label="프로젝트 이름" value={name} onChangeText={setName} placeholder="예: 삼성전자 분할매수" />
         <View style={{ opacity: dim }}>
           <NumberField
             label={`기준가 (${market === 'KRX' ? '원' : '달러'})`}
@@ -222,7 +208,11 @@ export default function EditProjectScreen() {
         })}
       </Card>
 
-      <Button title={locked ? '이름 저장' : '수정 저장'} onPress={onSave} loading={saving} />
+      {locked ? (
+        <Button title="닫기" variant="ghost" onPress={() => router.back()} />
+      ) : (
+        <Button title="수정 저장" onPress={onSave} loading={saving} />
+      )}
       <View style={{ height: spacing.xl }} />
     </ScrollView>
   );
