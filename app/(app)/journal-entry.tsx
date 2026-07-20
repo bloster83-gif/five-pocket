@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
@@ -15,13 +15,15 @@ const todayStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1
 export default function JournalEntryScreen() {
   const router = useRouter();
   const { session } = useAuth();
+  // 통합 입력 메뉴에서 넘어온 매매구분 초기값 (?side=buy|sell)
+  const { side: sideParam } = useLocalSearchParams<{ side?: string }>();
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SymbolResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [selected, setSelected] = useState<SymbolResult | null>(null);
 
-  const [side, setSide] = useState<TradeSide>('buy');
+  const [side, setSide] = useState<TradeSide>(sideParam === 'sell' ? 'sell' : 'buy');
   const [price, setPrice] = useState('');
   const [qty, setQty] = useState('');
   const [date, setDate] = useState(todayStr());

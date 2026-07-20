@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
@@ -20,8 +20,12 @@ const TYPES: { key: CashFlowType; label: string; color: string }[] = [
 export default function CashFlowScreen() {
   const router = useRouter();
   const { session } = useAuth();
+  // 통합 입력 메뉴에서 넘어온 종류 초기값 (?type=deposit|withdrawal|dividend)
+  const { type: typeParam } = useLocalSearchParams<{ type?: string }>();
 
-  const [type, setType] = useState<CashFlowType>('deposit');
+  const [type, setType] = useState<CashFlowType>(
+    typeParam === 'withdrawal' || typeParam === 'dividend' ? typeParam : 'deposit'
+  );
   const [amount, setAmount] = useState('');
   const [market, setMarket] = useState<Market>('KRX');
   const [date, setDate] = useState(todayStr());

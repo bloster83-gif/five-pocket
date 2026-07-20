@@ -25,6 +25,7 @@ export default function JournalScreen() {
   const [projMap, setProjMap] = useState<Record<string, Project>>({});
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'calendar'>('list');
+  const [addOpen, setAddOpen] = useState(false); // ＋ 통합 입력 메뉴
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selected, setSelected] = useState(ymd(new Date()));
   const [showSearch, setShowSearch] = useState(false);
@@ -358,29 +359,20 @@ export default function JournalScreen() {
       <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 90 }}>
 
       {/* 검색/필터 바 (내용 카드와 구분되는 어두운 바 서식) */}
-      <FilterBar>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-          <Pressable
-            onPress={() => setShowSearch((s) => !s)}
-            style={{
-              width: 40,
-              height: 36,
-              borderRadius: 10,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: showSearch ? colors.buy : colors.card,
-            }}
-          >
-            <Text style={{ fontSize: 16 }}>🔍</Text>
-          </Pressable>
-          <View style={{ flex: 1 }} />
-          <Pressable
-            onPress={() => router.push('/journal-entry')}
-            style={{ backgroundColor: colors.buy, borderRadius: 10, paddingHorizontal: 14, height: 36, justifyContent: 'center' }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '800' }}>＋ 체결 추가</Text>
-          </Pressable>
-        </View>
+      <FilterBar style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Pressable
+          onPress={() => setShowSearch((s) => !s)}
+          style={{
+            width: 40,
+            height: 36,
+            borderRadius: 10,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: showSearch ? colors.buy : colors.card,
+          }}
+        >
+          <Text style={{ fontSize: 16 }}>🔍</Text>
+        </Pressable>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
           {['오늘', '1주', '1개월', '3개월', '올해', '전체'].map((k) => (
             <Chip key={k} label={k} active={preset === k} onPress={() => applyPreset(k)} />
@@ -536,23 +528,65 @@ export default function JournalScreen() {
       )}
       </ScrollView>
 
-      {/* 우측 아래 FAB: 입금/출금/배당금 */}
+      {/* ＋ 메뉴 열렸을 때 배경 (누르면 닫힘) */}
+      {addOpen && (
+        <Pressable
+          onPress={() => setAddOpen(false)}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.55)' }}
+        />
+      )}
+
+      {/* 통합 수기 입력 메뉴: 매수/매도/입금/출금/배당금 */}
+      {addOpen && (
+        <View style={{ position: 'absolute', right: spacing.lg, bottom: spacing.lg + 70, gap: spacing.sm, alignItems: 'flex-end' }}>
+          {(
+            [
+              { label: '📈 매수 입력', color: colors.buy, to: '/journal-entry?side=buy' },
+              { label: '📉 매도 입력', color: colors.sell, to: '/journal-entry?side=sell' },
+              { label: '💵 입금', color: colors.primary, to: '/cash-flow?type=deposit' },
+              { label: '🏧 출금', color: colors.warn, to: '/cash-flow?type=withdrawal' },
+              { label: '🎁 배당금', color: colors.accent, to: '/cash-flow?type=dividend' },
+            ] as const
+          ).map((m) => (
+            <Pressable
+              key={m.label}
+              onPress={() => {
+                setAddOpen(false);
+                router.push(m.to);
+              }}
+              style={{
+                backgroundColor: m.color,
+                borderRadius: 999,
+                paddingHorizontal: 18,
+                paddingVertical: 12,
+                minWidth: 150,
+                alignItems: 'center',
+                elevation: 4,
+              }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '900', fontSize: 15 }}>{m.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {/* 우측 아래 ＋ 버튼: 모든 수기 입력의 통합 입구 */}
       <Pressable
-        onPress={() => router.push('/cash-flow')}
+        onPress={() => setAddOpen((o) => !o)}
         style={{
           position: 'absolute',
           right: spacing.lg,
           bottom: spacing.lg,
-          backgroundColor: colors.accent,
+          backgroundColor: addOpen ? colors.textDim : colors.buy,
           width: 58,
           height: 58,
           borderRadius: 29,
           alignItems: 'center',
           justifyContent: 'center',
-          elevation: 4,
+          elevation: 5,
         }}
       >
-        <Text style={{ color: '#fff', fontSize: 28, fontWeight: '800', marginTop: -2 }}>＋</Text>
+        <Text style={{ color: '#fff', fontSize: 28, fontWeight: '800', marginTop: -2 }}>{addOpen ? '✕' : '＋'}</Text>
       </Pressable>
     </View>
   );
