@@ -4,7 +4,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-rou
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { Button, Card, ChartIcon, Row } from '@/components/ui';
-import { colors, formatMoney, formatPrice, money, pocketColor, signColor, spacing } from '@/theme';
+import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
 import { computePnL, estimatedShares, pnlPct } from '@/domain/pockets';
 import { confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
@@ -262,12 +262,20 @@ export default function ProjectDetailScreen() {
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>
           5포켓 · 매수간격 {project.buy_interval_pct}% · 매도목표 {project.sell_target_pct}%
         </Text>
+        {project.total_budget != null && (
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.cardAlt, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+            <Text style={{ color: colors.textDim }}>💰 프로젝트 예산</Text>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{formatMoney(project.total_budget, mkt)}</Text>
+          </View>
+        )}
         {pockets.map((k) => (
           <PocketCard
             key={k.id}
             pocket={k}
             market={mkt}
             price={price}
+            buyIntervalPct={Number(project.buy_interval_pct)}
+            sellTargetPct={Number(project.sell_target_pct)}
             buyTrade={buyByPocket.get(k.id) ?? null}
             cycles={cyclesByPocket.get(k.id) ?? 0}
             autoMode={tier === 'auto'}
@@ -373,6 +381,8 @@ function PocketCard({
   pocket: k,
   market,
   price,
+  buyIntervalPct,
+  sellTargetPct,
   buyTrade,
   cycles,
   autoMode,
@@ -383,6 +393,8 @@ function PocketCard({
   pocket: Pocket;
   market: string;
   price: number | null;
+  buyIntervalPct: number; // 매수 간격 % (포켓별 -할인율 표시용)
+  sellTargetPct: number; // 매도 목표 % (매도가 +표시용)
   buyTrade: Trade | null;
   cycles: number;
   autoMode: boolean; // AUTO 등급 → 자동체결 안내 + 수동 입력 버튼을 작게
@@ -390,6 +402,8 @@ function PocketCard({
   onRestart: () => void;
   onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number) => void;
 }) {
+  // 포켓별 기준가 대비 할인율 (포켓1=0%=기준가, 포켓2=-5%, …)
+  const buyDiscPct = Math.round(k.idx * buyIntervalPct * 100) / 100;
   const buyReady = k.status === 'waiting' && price != null && price <= k.buy_target_price;
   const sellReady =
     k.status === 'bought' && k.sell_target_price != null && price != null && price >= k.sell_target_price;
@@ -435,9 +449,16 @@ function PocketCard({
 
       {k.status === 'waiting' && (
         <>
-          {/* 매수 목표가 크게 (빨강) */}
+          {/* 매수 목표가 크게 (빨강) + 기준가 대비 할인율 배지 */}
           <View style={{ marginTop: spacing.xs }}>
-            <Text style={{ color: colors.textDim, fontSize: 12 }}>매수 목표가</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={{ color: colors.textDim, fontSize: 12 }}>💰 매수 목표가</Text>
+              <View style={{ backgroundColor: colors.cardAlt, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 1 }}>
+                <Text style={{ color: k.idx === 0 ? colors.textDim : colors.buy, fontSize: 11, fontWeight: '800' }}>
+                  {k.idx === 0 ? '기준가' : `기준가 -${buyDiscPct}%`}
+                </Text>
+              </View>
+            </View>
             <Text style={{ color: colors.buy, fontSize: 26, fontWeight: '900' }}>
               {formatPrice(k.buy_target_price, market)}
             </Text>
@@ -473,9 +494,14 @@ function PocketCard({
 
       {k.status === 'bought' && (
         <>
-          {/* 매도 목표가 크게 (파랑) — 매수 후엔 매도가 핵심 */}
+          {/* 매도 목표가 크게 (파랑) + 매수가 대비 +수익률 배지 */}
           <View style={{ marginTop: spacing.xs }}>
-            <Text style={{ color: colors.textDim, fontSize: 12 }}>매도 목표가</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={{ color: colors.textDim, fontSize: 12 }}>매도 목표가</Text>
+              <View style={{ backgroundColor: colors.sellBg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 1 }}>
+                <Text style={{ color: colors.sell, fontSize: 11, fontWeight: '800' }}>매수가 +{sellTargetPct}%</Text>
+              </View>
+            </View>
             <Text style={{ color: colors.sell, fontSize: 26, fontWeight: '900' }}>
               {k.sell_target_price != null ? formatPrice(k.sell_target_price, market) : '-'}
             </Text>
