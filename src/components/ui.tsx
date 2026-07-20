@@ -9,6 +9,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
+import Svg, { Circle, Line } from 'react-native-svg';
 import { colors, radius, rawNumeric, spacing, withCommas } from '@/theme';
 
 export function Card({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
@@ -119,6 +120,19 @@ export function ChartIcon({ size = 18 }: { size?: number }) {
       <View style={{ width: w, height: size, backgroundColor: colors.buy, borderRadius: 2 }} />
       <View style={{ width: w, height: size * 0.7, backgroundColor: colors.primary, borderRadius: 2 }} />
     </View>
+  );
+}
+
+// 가위(손절) 아이콘 — 기본 흰색. 파란 손절 버튼 위에서 통일감 있게 표시.
+export function ScissorsIcon({ size = 20, color = '#fff' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Circle cx={6} cy={17} r={3} stroke={color} strokeWidth={2} fill="none" />
+      <Circle cx={18} cy={17} r={3} stroke={color} strokeWidth={2} fill="none" />
+      <Line x1={8.2} y1={14.8} x2={20} y2={4} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={15.8} y1={14.8} x2={4} y2={4} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Circle cx={12} cy={10.6} r={1.1} fill={color} />
+    </Svg>
   );
 }
 

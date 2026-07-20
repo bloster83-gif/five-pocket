@@ -4,7 +4,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import { Button, Card, ChartIcon, Row } from '@/components/ui';
+import { Button, Card, ChartIcon, Row, ScissorsIcon } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
 import { computePnL, estimatedShares, pnlPct, realizedEvents } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
@@ -507,8 +507,8 @@ function StopLossSwipe({ onStopLoss, children }: { onStopLoss: () => void; child
       renderRightActions={() => (
         <View style={{ justifyContent: 'center', alignItems: 'center', width: 96, paddingLeft: spacing.sm }}>
           <View style={{ backgroundColor: colors.sell, borderRadius: radius.md, paddingVertical: 12, paddingHorizontal: 10, alignItems: 'center' }}>
-            <Text style={{ fontSize: 18 }}>✂️</Text>
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12, marginTop: 2 }}>손절하기</Text>
+            <ScissorsIcon size={20} color="#fff" />
+            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12, marginTop: 3 }}>손절하기</Text>
           </View>
         </View>
       )}

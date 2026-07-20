@@ -5,7 +5,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
-import { Card, Chip, Field, FilterBar } from '@/components/ui';
+import { Card, Chip, Field, FilterBar, ScissorsIcon } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
 import { computePnL, estimatedShares } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
@@ -500,8 +500,8 @@ function StopLossSwipe({ onStopLoss, children }: { onStopLoss: () => void; child
       renderRightActions={() => (
         <View style={{ justifyContent: 'center', alignItems: 'center', width: 96, paddingLeft: spacing.sm }}>
           <View style={{ backgroundColor: colors.sell, borderRadius: radius.md, paddingVertical: 12, paddingHorizontal: 10, alignItems: 'center' }}>
-            <Text style={{ fontSize: 18 }}>✂️</Text>
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12, marginTop: 2 }}>손절하기</Text>
+            <ScissorsIcon size={20} color="#fff" />
+            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12, marginTop: 3 }}>손절하기</Text>
           </View>
         </View>
       )}
