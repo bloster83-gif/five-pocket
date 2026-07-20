@@ -71,7 +71,7 @@ export default function LoginScreen() {
       >
         <View style={{ gap: spacing.xs, alignItems: 'center', marginBottom: spacing.sm }}>
           <Text style={{ color: colors.buy, fontSize: 30, fontWeight: '900' }}>5 Pocket Diary</Text>
-          <Text style={{ color: colors.textDim }}>5분할 매수·매도 일지</Text>
+          <Text style={{ color: colors.textDim }}>5분할 매수·매도 전략</Text>
         </View>
 
         {!hasSupabaseConfig && (
