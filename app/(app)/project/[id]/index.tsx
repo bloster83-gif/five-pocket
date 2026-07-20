@@ -510,20 +510,49 @@ export default function ProjectDetailScreen() {
   );
 }
 
-// 깜박이는 강조 효과 (매수/매도 포인트 도달·실패 안내용)
-function Blink({ children }: { children: ReactNode }) {
+// 포켓 강조 애니메이션
+//  full   : 포켓 전체가 깜박임 (매수/매도 포인트 도달)
+//  border : 외곽선만 깜박임 (도달했으나 자동 매매 실패)
+//  none   : 애니메이션 없음
+function PocketAlert({ mode, accent, children }: { mode: 'full' | 'border' | 'none'; accent: string; children: ReactNode }) {
   const op = useRef(new Animated.Value(1)).current;
   useEffect(() => {
+    if (mode === 'none') {
+      op.setValue(1);
+      return;
+    }
     const anim = Animated.loop(
       Animated.sequence([
-        Animated.timing(op, { toValue: 0.2, duration: 550, useNativeDriver: true }),
+        Animated.timing(op, { toValue: mode === 'full' ? 0.35 : 0.1, duration: 550, useNativeDriver: true }),
         Animated.timing(op, { toValue: 1, duration: 550, useNativeDriver: true }),
       ])
     );
     anim.start();
     return () => anim.stop();
-  }, [op]);
-  return <Animated.View style={{ opacity: op }}>{children}</Animated.View>;
+  }, [mode, op]);
+
+  if (mode === 'full') return <Animated.View style={{ opacity: op }}>{children}</Animated.View>;
+  if (mode === 'border')
+    return (
+      <View>
+        {children}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            borderWidth: 2.5,
+            borderColor: accent,
+            borderRadius: radius.lg,
+            opacity: op,
+          }}
+        />
+      </View>
+    );
+  return <>{children}</>;
 }
 
 // 보유 포켓을 왼쪽으로 스와이프하면 익절/손절이 나타나고, 끝까지 밀면 확인
@@ -662,7 +691,14 @@ function PocketCard({
     borderLeftColor: pocketColor(k.idx),
   };
 
+  // 도달 시 포켓 전체 깜박임, 도달했으나 실패 시 외곽선만 깜박임
+  const reached = k.status === 'waiting' ? buyReady : k.status === 'bought' ? sellReady : false;
+  const failed = k.status === 'waiting' ? !!buyFailMsg : k.status === 'bought' ? !!sellFailMsg : false;
+  const alertMode: 'full' | 'border' | 'none' = failed ? 'border' : reached ? 'full' : 'none';
+  const alertAccent = k.status === 'bought' ? colors.sell : colors.buy;
+
   return (
+    <PocketAlert mode={alertMode} accent={alertAccent}>
     <Card style={cardStyle as any}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -702,14 +738,12 @@ function PocketCard({
             <Row label="매수 가능 수량" value={`${money(buyableQty, 0)}주`} valueColor={colors.buy} />
           )}
           {(buyReady || buyFailMsg) && (
-            <Blink>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
-                <Text style={{ color: colors.buy, fontWeight: '900', fontSize: 15 }}>● 매수포인트 도달</Text>
-                {buyFailMsg && (
-                  <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 12 }}>· 매수 실패: {buyFailMsg}</Text>
-                )}
-              </View>
-            </Blink>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+              <Text style={{ color: colors.buy, fontWeight: '900', fontSize: 15 }}>● 매수포인트 도달</Text>
+              {buyFailMsg && (
+                <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 12 }}>· 매수 실패: {buyFailMsg}</Text>
+              )}
+            </View>
           )}
           {autoMode ? (
             <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
@@ -767,14 +801,12 @@ function PocketCard({
             </Text>
           </View>
           {(sellReady || sellFailMsg) && (
-            <Blink>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
-                <Text style={{ color: colors.sell, fontWeight: '900', fontSize: 15 }}>● 매도포인트 도달</Text>
-                {sellFailMsg && (
-                  <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 12 }}>· 매도 실패: {sellFailMsg}</Text>
-                )}
-              </View>
-            </Blink>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+              <Text style={{ color: colors.sell, fontWeight: '900', fontSize: 15 }}>● 매도포인트 도달</Text>
+              {sellFailMsg && (
+                <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 12 }}>· 매도 실패: {sellFailMsg}</Text>
+              )}
+            </View>
           )}
           {autoMode ? (
             <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
@@ -855,5 +887,6 @@ function PocketCard({
         </View>
       )}
     </Card>
+    </PocketAlert>
   );
 }
