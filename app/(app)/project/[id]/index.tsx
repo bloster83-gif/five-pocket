@@ -154,23 +154,34 @@ export default function ProjectDetailScreen() {
         options={{
           title: project.name,
           headerRight: () => (
-            <Pressable
-              onPress={() => router.push(`/project/${project.id}/chart`)}
-              hitSlop={10}
-              style={{
-                width: 38,
-                height: 38,
-                borderRadius: 19,
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: spacing.sm,
-                backgroundColor: colors.cardAlt,
-                borderWidth: 1,
-                borderColor: colors.border,
-              }}
-            >
-              <ChartIcon size={16} />
-            </Pressable>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginRight: spacing.sm }}>
+              {/* 수정 */}
+              <Pressable onPress={() => router.push(`/project/${project.id}/edit`)} hitSlop={8} style={headerIconStyle}>
+                <Text style={{ fontSize: 16 }}>✏️</Text>
+              </Pressable>
+              {/* 삭제 */}
+              <Pressable
+                onPress={() =>
+                  confirmAction(
+                    '프로젝트 삭제',
+                    `"${project.name}"과(와) 모든 포켓·거래 기록이 삭제됩니다. 계속할까요?`,
+                    async () => {
+                      await supabase.from('projects').delete().eq('id', project.id);
+                      router.replace('/');
+                    },
+                    '삭제'
+                  )
+                }
+                hitSlop={8}
+                style={[headerIconStyle, { borderColor: colors.danger }]}
+              >
+                <Text style={{ fontSize: 16 }}>🗑️</Text>
+              </Pressable>
+              {/* 차트 */}
+              <Pressable onPress={() => router.push(`/project/${project.id}/chart`)} hitSlop={8} style={headerIconStyle}>
+                <ChartIcon size={16} />
+              </Pressable>
+            </View>
           ),
         }}
       />
@@ -314,24 +325,21 @@ export default function ProjectDetailScreen() {
         />
       )}
 
-      <Button
-        title="이 프로젝트 삭제"
-        variant="danger"
-        onPress={() =>
-          confirmAction(
-            '프로젝트 삭제',
-            `"${project.name}"과(와) 모든 포켓·거래 기록이 삭제됩니다. 계속할까요?`,
-            async () => {
-              await supabase.from('projects').delete().eq('id', project.id);
-              router.replace('/');
-            },
-            '삭제'
-          )
-        }
-      />
     </ScrollView>
   );
 }
+
+// 헤더 우측 아이콘 버튼 공통 스타일 (수정·삭제·차트)
+const headerIconStyle = {
+  width: 34,
+  height: 34,
+  borderRadius: 17,
+  alignItems: 'center' as const,
+  justifyContent: 'center' as const,
+  backgroundColor: colors.cardAlt,
+  borderWidth: 1,
+  borderColor: colors.border,
+};
 
 // 자동매매 중일 때 보이는 작은 수동 입력 버튼
 function ManualEntryButton({ onPress }: { onPress: () => void }) {
