@@ -20,6 +20,7 @@ Expo(React Native) + Supabase 기반 **5분할 매수·매도 일지** 앱. 멀�
 - `src/domain/pockets.ts` — 핵심 순수함수: 포켓 목표가, `computePnL`(포켓 순환 대응: 포지션 0이면 원가 리셋), `realizedEvents`(매도 1건별 실현손익).
 - `src/domain/goals.ts` — 인생목표 CAGR. 실제달성액 = 이월 ± 입출금 + 배당금 + 실현손익 (매매일지 자동 연동, 수동입력 없음).
 - `src/services/prices/` — 시세 추상화. 기본 Yahoo(키 불필요, 15분 지연, 웹은 CORS 막힘→실기기에서만 라이브). `EXPO_PUBLIC_USE_MOCK=1`로 목업. 한글 종목검색은 Naver(`src/services/symbols.ts`) — Yahoo는 한글 쿼리 400 에러.
+- **미국주식 실시간 시세**: priceTracker가 US 프로젝트 + KIS 계좌 연결 + 네이티브면 `getOverseasPrice`(kis.ts, tr HHDFS00000300, 거래소 NAS/NYS/AMS 자동탐색)로 실시간에 가까운 시세를 우선 사용, 실패 시 Yahoo 폴백. 자동 주문은 여전히 KRX만(해외 주문 미구현).
 - 웹(react-native-web)에서 `Alert.alert`는 아무것도 안 뜸 → `src/lib/alert.ts`의 `notify`/`confirmAction` 사용.
 
 ## DB (Supabase)

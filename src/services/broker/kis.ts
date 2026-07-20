@@ -153,6 +153,60 @@ export async function placeDomesticOrder(
   return { orderNo: json.output?.ODNO ?? '', message: json.msg1 ?? '주문 전송 완료' };
 }
 
+// --------------------------- 해외주식 실시간 시세 ---------------------------
+
+// 미국 거래소 코드 (나스닥/뉴욕/아멕스). 종목별로 되는 거래소를 캐시해 재사용.
+const US_EXCHANGES = ['NAS', 'NYS', 'AMS'] as const;
+const exchangeCache = new Map<string, string>();
+
+export interface OverseasQuote {
+  price: number;
+  previousClose?: number;
+  currency: 'USD';
+}
+
+/**
+ * 미국주식 현재가 조회 (KIS 해외주식 현재가, tr_id HHDFS00000300).
+ * Yahoo(15분 지연) 대신 KIS 실시간에 가까운 시세를 준다. 거래소 코드는 자동 탐색.
+ */
+export async function getOverseasPrice(account: BrokerAccount, symbol: string): Promise<OverseasQuote> {
+  const token = await getValidToken(account);
+  const sym = symbol.replace(/\.(KS|KQ)$/i, '').trim().toUpperCase();
+
+  const tryExchange = async (excd: string): Promise<OverseasQuote | null> => {
+    const u = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/overseas-price/v1/quotations/price`);
+    u.searchParams.set('AUTH', '');
+    u.searchParams.set('EXCD', excd);
+    u.searchParams.set('SYMB', sym);
+    const res = await fetch(u.toString(), {
+      headers: {
+        authorization: `Bearer ${token}`,
+        appkey: account.app_key,
+        appsecret: account.app_secret,
+        tr_id: 'HHDFS00000300',
+        custtype: 'P',
+      },
+    });
+    const json = await res.json();
+    const last = Number(json?.output?.last);
+    if (json?.rt_cd === '0' && last > 0) {
+      return { price: last, previousClose: Number(json.output?.base) || undefined, currency: 'USD' };
+    }
+    return null;
+  };
+
+  const cached = exchangeCache.get(sym);
+  const order = cached ? [cached, ...US_EXCHANGES.filter((e) => e !== cached)] : [...US_EXCHANGES];
+  for (const excd of order) {
+    const q = await tryExchange(excd);
+    if (q) {
+      exchangeCache.set(sym, excd);
+      return q;
+    }
+  }
+  throw new Error('해외 시세를 불러오지 못했어요. (해외주식 서비스 신청 여부를 확인하세요)');
+}
+
 // --------------------------- 잔고 조회 ---------------------------
 
 // 국내주식 잔고조회 TR ID

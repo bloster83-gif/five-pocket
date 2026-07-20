@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { notifyNow } from '@/lib/notifications';
 import { evaluateSignals, type PriceSignal } from '@/domain/pockets';
-import type { Pocket, Project } from '@/types/db';
+import type { BrokerAccount, Pocket, Project } from '@/types/db';
+import { getOverseasPrice } from './broker/kis';
 import { priceProvider } from './prices';
 
 export type TrackerStatus = 'loading' | 'live' | 'error';
@@ -56,10 +58,35 @@ export function usePriceTracker(
     setStatus('loading');
     setError(null);
 
+    // 미국주식 + KIS 계좌 연결 시 실시간 시세용 계좌 로드 (네이티브만)
+    // undefined=아직 안 불러옴, null=없음
+    let account: BrokerAccount | null | undefined = undefined;
+    const isUS = project.market === 'US' && Platform.OS !== 'web';
+
     const poll = async () => {
       if (!alive) return;
       try {
-        const q = await priceProvider.getQuote(project.symbol);
+        // 미국주식: KIS 해외 실시간 시세 우선, 실패하면 Yahoo 로 폴백
+        let q: { price: number; currency?: string; previousClose?: number; at: number } | null = null;
+        if (isUS) {
+          if (account === undefined) {
+            const { data } = await supabase
+              .from('broker_accounts')
+              .select('*')
+              .eq('user_id', project.user_id)
+              .maybeSingle();
+            account = (data as BrokerAccount) ?? null;
+          }
+          if (account) {
+            try {
+              const oq = await getOverseasPrice(account, project.symbol);
+              q = { price: oq.price, currency: oq.currency, previousClose: oq.previousClose, at: Date.now() };
+            } catch {
+              /* KIS 실패 → Yahoo 폴백 */
+            }
+          }
+        }
+        if (!q) q = await priceProvider.getQuote(project.symbol);
         if (!alive) return;
         setPrice(q.price);
         setCurrency(q.currency ?? null);
