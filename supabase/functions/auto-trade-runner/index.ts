@@ -185,6 +185,13 @@ Deno.serve(async (req: Request) => {
     { auth: { persistSession: false, autoRefreshToken: false } }
   );
 
+  // 0) 기간제 AUTO 등급 만료 처리 — 만료된 회원은 diary 로 강등 (자동매매 차단)
+  await admin
+    .from('profiles')
+    .update({ tier: 'diary', tier_expires_at: null })
+    .eq('tier', 'auto')
+    .lt('tier_expires_at', new Date().toISOString());
+
   // 1) 자동매매 대상 프로젝트 (KRX, 진행중, 추적 ON)
   const { data: projects, error: pErr } = await admin
     .from('projects')
@@ -199,11 +206,18 @@ Deno.serve(async (req: Request) => {
   // 2) AUTO 등급 회원 + KIS 계좌만
   const userIds = [...new Set(projects.map((p) => p.user_id))];
   const [{ data: profiles }, { data: accounts }] = await Promise.all([
-    admin.from('profiles').select('id,tier,expo_push_token').in('id', userIds),
+    admin.from('profiles').select('id,tier,tier_expires_at,expo_push_token').in('id', userIds),
     admin.from('broker_accounts').select('*').in('user_id', userIds),
   ]);
   const autoUsers = new Map(
-    (profiles ?? []).filter((p) => p.tier === 'auto').map((p) => [p.id, p])
+    (profiles ?? [])
+      .filter(
+        (p) =>
+          p.tier === 'auto' &&
+          // 기간제 인증: 만료 시각이 지났으면 제외 (강등 쿼리가 놓친 경우 이중 방어)
+          (!p.tier_expires_at || new Date(p.tier_expires_at).getTime() > Date.now())
+      )
+      .map((p) => [p.id, p])
   );
   const accByUser = new Map((accounts ?? []).map((a) => [a.user_id, a as BrokerAccount]));
 

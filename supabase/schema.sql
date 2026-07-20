@@ -19,9 +19,23 @@ create table if not exists public.profiles (
   email           text,
   expo_push_token text,
   tier            text not null default 'diary' check (tier in ('diary', 'auto')),
+  tier_expires_at timestamptz, -- AUTO 등급 만료 시각 (null = 무기한). 만료 시 diary 로 자동 강등
   is_admin        boolean not null default false,
   created_at      timestamptz not null default now()
 );
+
+-- 만료된 AUTO 회원을 diary 로 강등 (pg_cron 매시간 실행 권장 — 마이그레이션 g 참고)
+create or replace function public.expire_auto_tiers()
+returns void
+language sql
+security definer set search_path = public
+as $$
+  update public.profiles
+  set tier = 'diary', tier_expires_at = null
+  where tier = 'auto'
+    and tier_expires_at is not null
+    and tier_expires_at < now();
+$$;
 
 -- 회원가입 시 profiles 행 자동 생성
 create or replace function public.handle_new_user()

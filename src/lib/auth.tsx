@@ -36,12 +36,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
     if (data) {
       // 마이그레이션(20260716e) 전 DB에는 tier/is_admin 컬럼이 없을 수 있어 기본값으로 방어
-      setProfile({
+      const p = {
         tier: 'diary',
+        tier_expires_at: null,
         is_admin: false,
         email: null,
         ...(data as Partial<Profile>),
-      } as Profile);
+      } as Profile;
+      // AUTO 기간 만료 감지 → 즉시 diary 로 강등 (서버 cron 이 놓쳐도 앱에서 방어)
+      if (p.tier === 'auto' && p.tier_expires_at && new Date(p.tier_expires_at).getTime() <= Date.now()) {
+        p.tier = 'diary';
+        p.tier_expires_at = null;
+        supabase
+          .from('profiles')
+          .update({ tier: 'diary', tier_expires_at: null })
+          .eq('id', userId)
+          .then(() => {});
+      }
+      setProfile(p);
     } else {
       setProfile(null);
     }
@@ -84,13 +96,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
   };
 
+  // 화면을 켜둔 채 만료 시각이 지나도 자동매매가 돌지 않도록 렌더 시점에 재검사
+  const tierExpired =
+    profile?.tier === 'auto' &&
+    !!profile.tier_expires_at &&
+    new Date(profile.tier_expires_at).getTime() <= Date.now();
+
   return (
     <AuthContext.Provider
       value={{
         session,
         loading,
         profile,
-        tier: profile?.tier ?? 'diary',
+        tier: profile?.tier === 'auto' && !tierExpired ? 'auto' : 'diary',
         isAdmin: profile?.is_admin ?? false,
         refreshProfile,
         signIn,

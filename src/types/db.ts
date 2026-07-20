@@ -14,6 +14,7 @@ export interface Profile {
   email: string | null;
   expo_push_token: string | null;
   tier: MemberTier;
+  tier_expires_at: string | null; // AUTO 등급 만료 시각 (null = 무기한)
   is_admin: boolean;
   created_at: string;
 }

@@ -20,6 +20,25 @@ const TIER_META: Record<MemberTier, { label: string; color: string; bg: string; 
   auto: { label: 'AUTO', color: colors.buy, bg: colors.buyBg, desc: '자동 매매 (인증)' },
 };
 
+// AUTO 인증 기간 옵션
+const AUTO_DURATIONS = [
+  { label: '1개월', months: 1 },
+  { label: '6개월', months: 6 },
+  { label: '1년', months: 12 },
+] as const;
+
+// n개월 뒤 시각
+function addMonths(n: number): Date {
+  const d = new Date();
+  d.setMonth(d.getMonth() + n);
+  return d;
+}
+
+// 만료까지 남은 일수 (D-day)
+function daysLeft(iso: string): number {
+  return Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000));
+}
+
 export default function AdminScreen() {
   const { isAdmin, session } = useAuth();
   const [users, setUsers] = useState<Profile[]>([]);
@@ -38,7 +57,7 @@ export default function AdminScreen() {
     } else if (data) {
       setUsers(
         (data as Partial<Profile>[]).map(
-          (p) => ({ tier: 'diary', is_admin: false, email: null, ...p }) as Profile
+          (p) => ({ tier: 'diary', tier_expires_at: null, is_admin: false, email: null, ...p }) as Profile
         )
       );
     }
@@ -62,37 +81,44 @@ export default function AdminScreen() {
     [users, filter]
   );
 
-  const setTier = async (u: Profile, tier: MemberTier) => {
-    if (u.tier === tier) return;
+  // 등급 적용 (auto 는 만료 시각과 함께 저장)
+  const applyTier = async (u: Profile, tier: MemberTier, expiresAt: string | null) => {
     setSavingId(u.id);
-    const { error } = await supabase.from('profiles').update({ tier }).eq('id', u.id);
+    const { error } = await supabase
+      .from('profiles')
+      .update({ tier, tier_expires_at: expiresAt })
+      .eq('id', u.id);
     setSavingId(null);
     if (error) {
       if (isMissingSchema(error)) {
         setMigrationNeeded(true);
-        return notify('DB 준비 필요', '마이그레이션(20260716e)을 Supabase에서 먼저 실행하세요.');
+        return notify('DB 준비 필요', '마이그레이션(20260716e, 20260716g)을 Supabase에서 먼저 실행하세요.');
       }
       return notify('변경 실패', error.message);
     }
-    setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, tier } : x)));
+    setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, tier, tier_expires_at: expiresAt } : x)));
   };
 
-  const onSetTier = (u: Profile, tier: MemberTier) => {
-    if (tier === 'auto') {
-      confirmAction(
-        'AUTO 등급 인증',
-        `"${u.display_name ?? u.email ?? u.id}" 님을 AUTO 등급으로 인증할까요?\n자동 매수/매도 기능이 활성화됩니다.`,
-        () => setTier(u, tier),
-        '인증'
-      );
-    } else {
-      confirmAction(
-        'Diary 등급으로 변경',
-        `"${u.display_name ?? u.email ?? u.id}" 님을 Diary 등급(수동 매매)으로 되돌릴까요?`,
-        () => setTier(u, tier),
-        '변경'
-      );
-    }
+  // AUTO 인증 (기간 지정) — 이미 AUTO 인 회원에게 누르면 만료일이 오늘 기준으로 연장됨
+  const onGrantAuto = (u: Profile, months: number, label: string) => {
+    const expiry = addMonths(months);
+    const name = u.display_name ?? u.email ?? u.id;
+    confirmAction(
+      `AUTO 등급 인증 (${label})`,
+      `"${name}" 님을 AUTO 등급으로 인증할까요?\n\n만료일: ${expiry.toISOString().slice(0, 10)}\n만료되면 자동으로 Diary 등급으로 돌아가고 자동매매도 중지됩니다.`,
+      () => applyTier(u, 'auto', expiry.toISOString()),
+      '인증'
+    );
+  };
+
+  const onRevertDiary = (u: Profile) => {
+    if (u.tier === 'diary') return;
+    confirmAction(
+      'Diary 등급으로 변경',
+      `"${u.display_name ?? u.email ?? u.id}" 님을 Diary 등급(수동 매매)으로 되돌릴까요?\n자동매매가 즉시 중지됩니다.`,
+      () => applyTier(u, 'diary', null),
+      '변경'
+    );
   };
 
   if (!isAdmin) {
@@ -193,40 +219,63 @@ export default function AdminScreen() {
                   가입 {u.created_at?.slice(0, 10) ?? '-'}
                 </Text>
               </View>
-              <View style={{ backgroundColor: meta.bg, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
-                <Text style={{ color: meta.color, fontWeight: '900', fontSize: 13 }}>{meta.label}</Text>
+              <View style={{ alignItems: 'flex-end', gap: 3 }}>
+                <View style={{ backgroundColor: meta.bg, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
+                  <Text style={{ color: meta.color, fontWeight: '900', fontSize: 13 }}>{meta.label}</Text>
+                </View>
+                {u.tier === 'auto' && (
+                  <Text style={{ color: colors.warn, fontSize: 11, fontWeight: '700' }}>
+                    {u.tier_expires_at
+                      ? `만료 ${u.tier_expires_at.slice(0, 10)} · D-${daysLeft(u.tier_expires_at)}`
+                      : '무기한'}
+                  </Text>
+                )}
               </View>
             </View>
 
-            {/* 등급 변경 버튼 */}
+            {/* 등급 변경: Diary 복귀 + AUTO 기간 인증 버튼 */}
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-              {(['diary', 'auto'] as MemberTier[]).map((t) => {
-                const on = u.tier === t;
-                const m = TIER_META[t];
-                return (
-                  <Pressable
-                    key={t}
-                    disabled={on || savingId === u.id}
-                    onPress={() => onSetTier(u, t)}
-                    style={{
-                      flex: 1,
-                      alignItems: 'center',
-                      paddingVertical: 10,
-                      borderRadius: radius.md,
-                      backgroundColor: on ? m.bg : colors.cardAlt,
-                      borderWidth: 1,
-                      borderColor: on ? m.color : colors.border,
-                      opacity: savingId === u.id ? 0.5 : 1,
-                    }}
-                  >
-                    <Text style={{ color: on ? m.color : colors.textDim, fontWeight: '800', fontSize: 13 }}>
-                      {on ? '✓ ' : ''}
-                      {m.label}
-                    </Text>
-                    <Text style={{ color: colors.textDim, fontSize: 10 }}>{m.desc}</Text>
-                  </Pressable>
-                );
-              })}
+              <Pressable
+                disabled={u.tier === 'diary' || savingId === u.id}
+                onPress={() => onRevertDiary(u)}
+                style={{
+                  flex: 1,
+                  alignItems: 'center',
+                  paddingVertical: 10,
+                  borderRadius: radius.md,
+                  backgroundColor: u.tier === 'diary' ? colors.cardAlt : 'transparent',
+                  borderWidth: 1,
+                  borderColor: u.tier === 'diary' ? colors.textDim : colors.border,
+                  opacity: savingId === u.id ? 0.5 : 1,
+                }}
+              >
+                <Text style={{ color: u.tier === 'diary' ? colors.text : colors.textDim, fontWeight: '800', fontSize: 13 }}>
+                  {u.tier === 'diary' ? '✓ Diary' : 'Diary 복귀'}
+                </Text>
+                <Text style={{ color: colors.textDim, fontSize: 10 }}>수동 매매</Text>
+              </Pressable>
+              {AUTO_DURATIONS.map((d) => (
+                <Pressable
+                  key={d.months}
+                  disabled={savingId === u.id}
+                  onPress={() => onGrantAuto(u, d.months, d.label)}
+                  style={{
+                    flex: 1,
+                    alignItems: 'center',
+                    paddingVertical: 10,
+                    borderRadius: radius.md,
+                    backgroundColor: u.tier === 'auto' ? colors.buyBg : colors.cardAlt,
+                    borderWidth: 1,
+                    borderColor: u.tier === 'auto' ? colors.buy : colors.border,
+                    opacity: savingId === u.id ? 0.5 : 1,
+                  }}
+                >
+                  <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>{d.label}</Text>
+                  <Text style={{ color: colors.textDim, fontSize: 10 }}>
+                    {u.tier === 'auto' ? 'AUTO 연장' : 'AUTO 인증'}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
           </Card>
         );

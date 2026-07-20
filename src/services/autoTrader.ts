@@ -43,7 +43,7 @@ export function useAutoTrader(
   trades: Trade[],
   onExecuted?: () => void
 ): UseAutoTraderResult {
-  const { session, tier } = useAuth();
+  const { session, tier, profile } = useAuth();
   const [lastEvent, setLastEvent] = useState<AutoTradeEvent | null>(null);
 
   // 최신 값 참조 (폴링 콜백에서 stale closure 방지)
@@ -53,6 +53,8 @@ export function useAutoTrader(
   tradesRef.current = trades;
   const tierRef = useRef(tier);
   tierRef.current = tier;
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
 
   // KIS 계좌 캐시: undefined = 아직 안 불러옴, null = 없음
   const accountRef = useRef<BrokerAccount | null | undefined>(undefined);
@@ -72,6 +74,9 @@ export function useAutoTrader(
         if (!proj || !uid) return;
         // Diary 등급이거나 자동매매가 꺼진 프로젝트면 아무 것도 하지 않음 (수동 버전 그대로)
         if (tierRef.current !== 'auto' || !proj.auto_trade_enabled) return;
+        // AUTO 기간 만료 검사 — 앱을 켜둔 채 만료 시각이 지나도 주문을 차단
+        const exp = profileRef.current?.tier_expires_at;
+        if (exp && new Date(exp).getTime() <= Date.now()) return;
 
         const key = `${sig.pocket.id}:${sig.kind}`;
         if (inFlightRef.current.has(key)) return;

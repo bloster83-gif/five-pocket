@@ -7,10 +7,12 @@ function TabIcon({ emoji, color }: { emoji: string; color: string }) {
   return <Text style={{ fontSize: 20, opacity: color === colors.buy ? 1 : 0.6 }}>{emoji}</Text>;
 }
 
-// 헤더 왼쪽: 내 등급 배지 (Diary / AUTO)
+// 헤더 왼쪽: 내 등급 배지 (Diary / AUTO). AUTO 는 남은 기간(D-day)도 표시
 function TierBadge() {
-  const { tier } = useAuth();
+  const { tier, profile } = useAuth();
   const isAuto = tier === 'auto';
+  const exp = isAuto ? profile?.tier_expires_at : null;
+  const dday = exp ? Math.max(0, Math.ceil((new Date(exp).getTime() - Date.now()) / 86400000)) : null;
   return (
     <View
       style={{
@@ -24,7 +26,7 @@ function TierBadge() {
       }}
     >
       <Text style={{ color: isAuto ? colors.buy : colors.textDim, fontWeight: '900', fontSize: 11 }}>
-        {isAuto ? 'AUTO' : 'Diary'}
+        {isAuto ? `AUTO${dday != null ? ` D-${dday}` : ''}` : 'Diary'}
       </Text>
     </View>
   );

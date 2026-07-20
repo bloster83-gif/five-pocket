@@ -11,7 +11,7 @@ Expo(React Native) + Supabase 기반 **5분할 매수·매도 일지** 앱. 멀�
 - `app/(app)/(tabs)/` — 5탭: index(프로젝트)·pockets(포켓)·journal(매매일지)·goals(인생목표)·stats(통계). 모든 탭 헤더 중앙 "5 Pocket Diary", 헤더 좌측 등급 배지, 우측 👑(관리자만).
 - `app/(app)/project/[id]/` — 상세(포켓 5개 고정)·trade(체결입력)·chart(캔들+매매마커).
 - `app/(app)/admin.tsx` — 관리자 회원 관리(등급 Diary↔AUTO 변경). `app/(app)/broker.tsx` — 한투(KIS) 계좌 설정.
-- **회원 등급**: profiles.tier = 'diary'(기본, 수동) | 'auto'(관리자 인증, 자동매매). useAuth()의 tier/isAdmin 사용.
+- **회원 등급**: profiles.tier = 'diary'(기본, 수동) | 'auto'(관리자 인증, 자동매매). useAuth()의 tier/isAdmin 사용. AUTO는 기간제(tier_expires_at, 1개월/6개월/1년) — 만료 시 diary 자동 강등(마이그레이션 g의 pg_cron + 러너 + 앱 3중 검사). useAuth().tier는 만료 반영된 유효 등급을 반환.
 - **자동매매**: `src/services/autoTrader.ts`(신호→KIS 지정가 주문→auto_orders/trades 기록→포켓 상태 갱신) + `src/services/broker/kis.ts`(토큰 캐시·국내주식 현금주문, 모의/실전). AUTO 등급 + project.auto_trade_enabled + KRX + 네이티브에서만 동작. Diary 등급은 기존 수동 흐름 유지.
 - **24시간 무인 자동매매**: `supabase/functions/auto-trade-runner/`(Deno) — pg_cron(마이그레이션 f)이 평일 매 1분 호출. 장시간(09:00~15:30 KST) 가드 + 포켓·방향별 10분 중복주문 가드. 클라이언트 autoTrader와 로직 동일하게 유지할 것.
 - **네이버 로그인**: `supabase/functions/naver-auth/`(Edge Function, Deno — tsconfig에서 제외됨) + `src/lib/oauth.ts`의 signInWithNaver/completeNaverWebLogin.
