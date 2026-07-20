@@ -17,7 +17,7 @@ import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatMoney, formatPrice, radius, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
-import type { Project, Trade } from '@/types/db';
+import type { Pocket, Project, Trade } from '@/types/db';
 
 const fmtDate = (iso: string | null) => (iso ? iso.slice(0, 10) : '-');
 
@@ -35,6 +35,7 @@ export default function ProjectsScreen() {
   const { tier } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [metrics, setMetrics] = useState<Record<string, Metric>>({});
+  const [pocketsByProject, setPocketsByProject] = useState<Record<string, Pocket[]>>({});
   const [loading, setLoading] = useState(true);
 
   const [showSearch, setShowSearch] = useState(false);
@@ -45,12 +46,20 @@ export default function ProjectsScreen() {
   const [to, setTo] = useState('');
 
   const load = useCallback(async () => {
-    const [{ data: projData }, { data: tradeData }] = await Promise.all([
+    const [{ data: projData }, { data: tradeData }, { data: pocketData }] = await Promise.all([
       supabase.from('projects').select('*').order('created_at', { ascending: false }),
       supabase.from('trades').select('*'),
+      supabase.from('pockets').select('*').order('idx'),
     ]);
     const projs = (projData as Project[]) ?? [];
     setProjects(projs);
+
+    // 포켓을 프로젝트별로 묶기 (신호등 표시용)
+    const pk: Record<string, Pocket[]> = {};
+    ((pocketData as Pocket[]) ?? []).forEach((p) => {
+      (pk[p.project_id] ??= []).push(p);
+    });
+    setPocketsByProject(pk);
     setLoading(false);
 
     // 프로젝트별 보유 포지션 계산 + 현재가로 평가총액/평가손익
@@ -313,22 +322,9 @@ export default function ProjectsScreen() {
                       </View>
                     </View>
                   )}
-                  {/* 자동매매 토글 (AUTO 등급 · 진행중 · 한국/미국주식) */}
+                  {/* 자동매매 토글 (작게, 우측 정렬) — AUTO 등급 · 진행중 · 한국/미국주식 */}
                   {tier === 'auto' && !closed && (item.market === 'KRX' || item.market === 'US') && (
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginTop: spacing.sm,
-                        backgroundColor: item.auto_trade_enabled ? colors.buyBg : colors.cardAlt,
-                        borderRadius: 10,
-                        paddingHorizontal: 12,
-                        paddingVertical: 4,
-                        borderWidth: 1,
-                        borderColor: item.auto_trade_enabled ? colors.buy : colors.border,
-                      }}
-                    >
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 4, marginTop: spacing.sm }}>
                       <Text
                         style={{
                           color: item.auto_trade_enabled ? colors.buy : colors.textDim,
@@ -341,8 +337,56 @@ export default function ProjectsScreen() {
                       <Switch
                         value={item.auto_trade_enabled}
                         onValueChange={(v) => toggleAuto(item, v)}
-                        style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+                        style={{ transform: [{ scaleX: 0.65 }, { scaleY: 0.65 }] }}
                       />
+                    </View>
+                  )}
+
+                  {/* 예산 + 포켓 신호등 (매수=빨강, 매도=파랑, 대기=빈원) */}
+                  {!closed && (
+                    <View
+                      style={{
+                        marginTop: spacing.sm,
+                        backgroundColor: colors.cardAlt,
+                        borderRadius: radius.md,
+                        padding: spacing.md,
+                        gap: spacing.sm,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: colors.textDim, fontSize: 12 }}>💰 예산</Text>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>
+                          {item.total_budget != null ? formatMoney(item.total_budget, m?.market ?? item.market) : '-'}
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        {[0, 1, 2, 3, 4].map((idx) => {
+                          const pk = pocketsByProject[item.id]?.find((p) => p.idx === idx);
+                          const st = pk?.status; // 'waiting' | 'bought' | 'sold'
+                          const fill = st === 'bought' ? colors.buy : st === 'sold' ? colors.sell : 'transparent';
+                          const border = st === 'bought' ? colors.buy : st === 'sold' ? colors.sell : colors.border;
+                          return (
+                            <View key={idx} style={{ alignItems: 'center', gap: 3, flex: 1 }}>
+                              <View
+                                style={{
+                                  width: 22,
+                                  height: 22,
+                                  borderRadius: 11,
+                                  backgroundColor: fill,
+                                  borderWidth: 2,
+                                  borderColor: border,
+                                }}
+                              />
+                              <Text style={{ color: colors.textDim, fontSize: 10, fontWeight: '700' }}>{idx + 1}</Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: spacing.md }}>
+                        <LightLegend color={colors.buy} label="매수" />
+                        <LightLegend color={colors.sell} label="매도" />
+                        <LightLegend color="transparent" label="대기" border />
+                      </View>
                     </View>
                   )}
 
@@ -375,6 +419,25 @@ export default function ProjectsScreen() {
           <Text style={{ color: '#FFFFFF', fontSize: 30, fontWeight: '800', marginTop: -2 }}>+</Text>
         </Pressable>
       </Link>
+    </View>
+  );
+}
+
+// 포켓 신호등 범례 — 작은 원 + 라벨
+function LightLegend({ color, label, border }: { color: string; label: string; border?: boolean }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+      <View
+        style={{
+          width: 11,
+          height: 11,
+          borderRadius: 6,
+          backgroundColor: color,
+          borderWidth: border ? 1.5 : 0,
+          borderColor: colors.border,
+        }}
+      />
+      <Text style={{ color: colors.textDim, fontSize: 11 }}>{label}</Text>
     </View>
   );
 }
