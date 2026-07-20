@@ -159,9 +159,12 @@ export default function PocketsScreen() {
         </Pressable>
         <Chip label="한국" icon="🇰🇷" active={market === 'KRX'} onPress={() => setMarket(market === 'KRX' ? null : 'KRX')} />
         <Chip label="미국" icon="🇺🇸" active={market === 'US'} onPress={() => setMarket(market === 'US' ? null : 'US')} activeColor={colors.accent} />
+        {!showSearch && (onlyHolding || onlyRealized || q.trim() !== '') && (
+          <Text style={{ color: colors.warn, fontSize: 11, fontWeight: '700' }}>● 필터 적용중</Text>
+        )}
       </View>
 
-      {/* 종목 검색 입력 */}
+      {/* 종목 검색 입력 + 상태 필터 */}
       {showSearch && (
         <Card>
           <Field
@@ -171,6 +174,14 @@ export default function PocketsScreen() {
             placeholder="예: 삼성, AAPL"
             autoCapitalize="none"
           />
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ color: colors.buy, fontWeight: '700' }}>보유중만 보기 (매수 상태)</Text>
+            <Switch value={onlyHolding} onValueChange={setOnlyHolding} />
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ color: colors.sell, fontWeight: '700' }}>실현 완료만 보기 (매도 이력)</Text>
+            <Switch value={onlyRealized} onValueChange={setOnlyRealized} />
+          </View>
         </Card>
       )}
 
@@ -184,18 +195,6 @@ export default function PocketsScreen() {
             <Row key={mkt} label={mkt === 'KRX' ? '한국 (원화)' : '미국 (달러)'} value={formatMoney(v, mkt)} />
           ))
         )}
-      </Card>
-
-      {/* 필터 스위치 */}
-      <Card>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ color: colors.buy, fontWeight: '700' }}>보유중만 보기 (매수 상태)</Text>
-          <Switch value={onlyHolding} onValueChange={setOnlyHolding} />
-        </View>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ color: colors.sell, fontWeight: '700' }}>실현 완료만 보기 (매도 이력)</Text>
-          <Switch value={onlyRealized} onValueChange={setOnlyRealized} />
-        </View>
       </Card>
 
       {filtered.length === 0 && (
