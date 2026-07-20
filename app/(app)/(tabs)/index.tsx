@@ -5,11 +5,14 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  Switch,
   Text,
   View,
 } from 'react-native';
 import { Link, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
+import { notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatMoney, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
@@ -27,6 +30,7 @@ interface Metric {
 
 export default function ProjectsScreen() {
   const router = useRouter();
+  const { tier } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [metrics, setMetrics] = useState<Record<string, Metric>>({});
   const [loading, setLoading] = useState(true);
@@ -84,6 +88,23 @@ export default function ProjectsScreen() {
       load();
     }, [load])
   );
+
+  // 목록에서 바로 자동매매 on/off (AUTO 등급 전용)
+  const toggleAuto = async (p: Project, val: boolean) => {
+    setProjects((prev) => prev.map((x) => (x.id === p.id ? { ...x, auto_trade_enabled: val } : x)));
+    const { error } = await supabase.from('projects').update({ auto_trade_enabled: val }).eq('id', p.id);
+    if (error) {
+      // 실패 시 롤백
+      setProjects((prev) =>
+        prev.map((x) => (x.id === p.id ? { ...x, auto_trade_enabled: p.auto_trade_enabled } : x))
+      );
+      if (/42703|auto_trade_enabled|does not exist|schema cache|PGRST204/i.test(`${error.code} ${error.message}`)) {
+        notify('DB 준비 필요', '마이그레이션(20260716e)을 Supabase에서 실행하면 켜집니다.');
+      } else {
+        notify('처리 실패', error.message);
+      }
+    }
+  };
 
   const filtered = useMemo(() => {
     return projects.filter((p) => {
@@ -261,6 +282,39 @@ export default function ProjectsScreen() {
                       )}
                     </View>
                   )}
+                  {/* 자동매매 토글 (AUTO 등급 · 진행중 · 한국주식만) */}
+                  {tier === 'auto' && !closed && item.market === 'KRX' && (
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginTop: spacing.sm,
+                        backgroundColor: item.auto_trade_enabled ? colors.buyBg : colors.cardAlt,
+                        borderRadius: 10,
+                        paddingHorizontal: 12,
+                        paddingVertical: 4,
+                        borderWidth: 1,
+                        borderColor: item.auto_trade_enabled ? colors.buy : colors.border,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: item.auto_trade_enabled ? colors.buy : colors.textDim,
+                          fontWeight: '800',
+                          fontSize: 12,
+                        }}
+                      >
+                        🤖 자동매매 {item.auto_trade_enabled ? 'ON' : 'OFF'}
+                      </Text>
+                      <Switch
+                        value={item.auto_trade_enabled}
+                        onValueChange={(v) => toggleAuto(item, v)}
+                        style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+                      />
+                    </View>
+                  )}
+
                   <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs }}>
                     <Text style={{ color: colors.textDim, fontSize: 12 }}>생성 {fmtDate(item.created_at)}</Text>
                     {closed && <Text style={{ color: colors.textDim, fontSize: 12 }}>종료 {fmtDate(item.closed_at)}</Text>}
