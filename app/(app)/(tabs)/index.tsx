@@ -262,21 +262,30 @@ export default function ProjectsScreen() {
                         )}
                       </View>
                     </View>
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 4,
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: 999,
-                        backgroundColor: closed ? 'rgba(59,130,246,0.18)' : 'rgba(245,69,92,0.15)',
-                      }}
-                    >
-                      <Text style={{ fontSize: 12 }}>{closed ? '🔒' : '🔴'}</Text>
-                      <Text style={{ color: closed ? colors.sell : colors.buy, fontSize: 12, fontWeight: '800' }}>
-                        {closed ? '종료' : '진행중'}
-                      </Text>
+                    <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 4,
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
+                          borderRadius: 999,
+                          backgroundColor: closed ? 'rgba(59,130,246,0.18)' : 'rgba(245,69,92,0.15)',
+                        }}
+                      >
+                        <Text style={{ fontSize: 12 }}>{closed ? '🔒' : '🔴'}</Text>
+                        <Text style={{ color: closed ? colors.sell : colors.buy, fontSize: 12, fontWeight: '800' }}>
+                          {closed ? '종료' : '진행중'}
+                        </Text>
+                      </View>
+                      {/* 기준가 (전략 기준점) */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={{ color: colors.textDim, fontSize: 11 }}>기준가</Text>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                          {formatPrice(item.base_price, m?.market ?? item.market)}
+                        </Text>
+                      </View>
                     </View>
                   </View>
 
