@@ -148,17 +148,17 @@ export function Chip({
       style={{
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 4,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
+        gap: 3,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
         borderRadius: 999,
         backgroundColor: active ? `${activeColor}24` : colors.card,
         borderWidth: 1,
         borderColor: active ? activeColor : colors.border,
       }}
     >
-      {icon ? <Text style={{ fontSize: 12 }}>{icon}</Text> : null}
-      <Text style={{ color: active ? activeColor : colors.textDim, fontWeight: '800', fontSize: 13 }}>
+      {icon ? <Text style={{ fontSize: 11 }}>{icon}</Text> : null}
+      <Text numberOfLines={1} style={{ color: active ? activeColor : colors.textDim, fontWeight: '800', fontSize: 12 }}>
         {label}
       </Text>
     </Pressable>

@@ -19,13 +19,17 @@ function TierBadge() {
         marginLeft: spacing.md,
         backgroundColor: isAuto ? colors.buyBg : colors.cardAlt,
         borderRadius: 999,
-        paddingHorizontal: 10,
+        paddingHorizontal: 8,
         paddingVertical: 3,
         borderWidth: 1,
         borderColor: isAuto ? colors.buy : colors.border,
+        maxWidth: 110,
       }}
     >
-      <Text style={{ color: isAuto ? colors.buy : colors.textDim, fontWeight: '900', fontSize: 11 }}>
+      <Text
+        numberOfLines={1}
+        style={{ color: isAuto ? colors.buy : colors.textDim, fontWeight: '900', fontSize: 10 }}
+      >
         {isAuto ? `AUTO${dday != null ? ` D-${dday}` : ''}` : 'Diary'}
       </Text>
     </View>
