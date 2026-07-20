@@ -36,6 +36,7 @@ export default function GoalsScreen() {
 
   const [trades, setTrades] = useState<Trade[]>([]);
   const [flows, setFlows] = useState<CashFlow[]>([]);
+  const [projMarket, setProjMarket] = useState<Record<string, string>>({}); // project_id → market
 
   // 연도별 목표금액 수기 수정 (goal_target_overrides)
   const [overrides, setOverrides] = useState<Record<number, number>>({});
@@ -45,12 +46,18 @@ export default function GoalsScreen() {
 
   const load = useCallback(async () => {
     if (!uid) return;
-    const [{ data: g, error: gErr }, { data: t }, { data: cf }, { data: ov }] = await Promise.all([
+    const [{ data: g, error: gErr }, { data: t }, { data: cf }, { data: ov }, { data: pj }] = await Promise.all([
       supabase.from('life_goals').select('*').eq('user_id', uid).maybeSingle(),
       supabase.from('trades').select('*').order('executed_at'),
       supabase.from('cash_flows').select('*'),
       supabase.from('goal_target_overrides').select('*').eq('user_id', uid),
+      supabase.from('projects').select('id, market'),
     ]);
+    if (pj) {
+      const m: Record<string, string> = {};
+      (pj as { id: string; market: string }[]).forEach((p) => (m[p.id] = p.market));
+      setProjMarket(m);
+    }
     if (ov) {
       const m: Record<number, number> = {};
       (ov as { year: number; amount: number }[]).forEach((o) => (m[o.year] = Number(o.amount)));
@@ -90,38 +97,48 @@ export default function GoalsScreen() {
   const unit = goalUnit(nums.targetAsset);
   const fk = (v: number | null | undefined) => formatGoalKRW(v, unit);
 
-  // 매매일지 → 연도별 순입출금 (입금-출금, 배당 제외) — 원화 기준 합산
+  // 인생목표는 원화 기준. 미국(달러) 금액은 고정환율로 원화 환산해 합산.
+  const USD_KRW = 1500;
+  const toKRW = (amount: number, market: string | null | undefined) =>
+    market === 'US' ? amount * USD_KRW : amount; // 알 수 없으면(원화 등) 환산 안 함
+
+  // 매매일지 → 연도별 순입출금 (입금-출금, 배당 제외) — 원화 환산 합산
   const depositNetByYear = useMemo(() => {
     const m: Record<number, number> = {};
     flows.forEach((cf) => {
       if (cf.type === 'dividend') return;
       const y = Number(cf.occurred_at.slice(0, 4));
       const sign = cf.type === 'withdrawal' ? -1 : 1;
-      m[y] = (m[y] ?? 0) + sign * Number(cf.amount);
+      m[y] = (m[y] ?? 0) + sign * toKRW(Number(cf.amount), cf.market);
     });
     return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flows]);
 
-  // 매매일지 → 연도별 배당금 (수익으로 분류)
+  // 매매일지 → 연도별 배당금 (수익으로 분류) — 원화 환산
   const dividendByYear = useMemo(() => {
     const m: Record<number, number> = {};
     flows.forEach((cf) => {
       if (cf.type !== 'dividend') return;
       const y = Number(cf.occurred_at.slice(0, 4));
-      m[y] = (m[y] ?? 0) + Number(cf.amount);
+      m[y] = (m[y] ?? 0) + toKRW(Number(cf.amount), cf.market);
     });
     return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flows]);
 
-  // 매매일지 → 연도별 실현손익
+  // 매매일지 → 연도별 실현손익 — 미국주식은 원화 환산해서 합산
   const realizedByYear = useMemo(() => {
     const m: Record<number, number> = {};
     realizedEvents(trades).forEach((ev) => {
       const y = Number(ev.at.slice(0, 4));
-      m[y] = (m[y] ?? 0) + ev.amount;
+      // 프로젝트 체결은 프로젝트 시장, 독립 체결은 trade.market
+      const mkt = ev.trade.project_id ? projMarket[ev.trade.project_id] : ev.trade.market;
+      m[y] = (m[y] ?? 0) + toKRW(ev.amount, mkt);
     });
     return m;
-  }, [trades]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trades, projMarket]);
 
   // 실제달성액 자동 계산: 이월 + 입출금 + 배당금 + 실현손익 (올해까지)
   const actualsAuto = useMemo(() => {
@@ -531,6 +548,7 @@ export default function GoalsScreen() {
             <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 4 }}>
               * 입출금·배당금·실현손익은 매매일지 기록에서 자동 합산 (원화 기준).
               실제달성액 = 최초금액 ± 입출금 + 배당금 + 실현손익. 수익금액에는 배당금이 포함됩니다.
+              {'\n'}* 미국주식·달러 금액은 고정환율 1달러 = 1,500원으로 환산해 합산합니다.
             </Text>
           </Card>
         </>
