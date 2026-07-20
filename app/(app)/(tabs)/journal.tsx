@@ -570,26 +570,6 @@ export default function JournalScreen() {
         </View>
       )}
 
-      {/* ＋ 버튼 옆 '수기입력' 라벨 (닫혀 있을 때만) */}
-      {!addOpen && (
-        <View
-          style={{
-            position: 'absolute',
-            right: spacing.lg + 66,
-            bottom: spacing.lg + 15,
-            backgroundColor: colors.card,
-            borderRadius: 999,
-            paddingHorizontal: 12,
-            paddingVertical: 6,
-            borderWidth: 1,
-            borderColor: colors.border,
-          }}
-          pointerEvents="none"
-        >
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✍️ 수기입력</Text>
-        </View>
-      )}
-
       {/* 우측 아래 ＋ 버튼: 모든 수기 입력의 통합 입구 */}
       <Pressable
         onPress={() => setAddOpen((o) => !o)}

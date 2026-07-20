@@ -109,6 +109,9 @@ export default function CashFlowScreen() {
           {TYPES.find((t) => t.key === type)!.label} 기록 저장
         </Text>
       </Pressable>
+      <Text style={{ color: colors.textDim, fontSize: 12, textAlign: 'center', marginTop: spacing.xs }}>
+        ✍️ 수기입력한 내용은 자동매매에 포함되지 않고, 매매일지·통계에만 반영돼요.
+      </Text>
     </ScrollView>
   );
 }
