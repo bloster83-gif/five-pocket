@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Button, Card, Field, Row } from '@/components/ui';
 import { StatsContent } from '@/components/StatsContent';
-import { colors, formatMoney, money, radius, signColor, spacing } from '@/theme';
+import { colors, formatMoney, radius, signColor, spacing } from '@/theme';
 import { formatPhone, isValidPhone, onlyDigits, sendPhoneOtp, verifyPhoneOtp } from '@/lib/phoneAuth';
 import { getDomesticBalance, getOverseasBalance, kisOrderBlocked, type KisBalance, type KisHolding } from '@/services/broker/kis';
 import type { BrokerAccount } from '@/types/db';
@@ -71,6 +71,10 @@ export default function MyScreen() {
   };
 
   const tierExpiry = profile?.tier === 'auto' && profile?.tier_expires_at ? profile.tier_expires_at.slice(0, 10) : null;
+
+  // 미국 보유 요약 (달러) — 종목별 상세는 '자세히 보기' 페이지에서
+  const usEval = usHoldings.reduce((s, h) => s + h.evalAmount, 0);
+  const usPnl = usHoldings.reduce((s, h) => s + h.pnl, 0);
 
   const startEdit = () => {
     setEditName(profile?.full_name ?? profile?.display_name ?? '');
@@ -299,15 +303,23 @@ export default function MyScreen() {
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>💼 보유주식 현황</Text>
           {account && (
-            <Pressable
-              onPress={loadBalance}
-              disabled={balLoading}
-              style={{ backgroundColor: colors.cardAlt, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}
-            >
-              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
-                {balLoading ? '조회중…' : balance ? '새로고침' : '조회'}
-              </Text>
-            </Pressable>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Pressable
+                onPress={loadBalance}
+                disabled={balLoading}
+                style={{ backgroundColor: colors.cardAlt, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                  {balLoading ? '조회중…' : balance ? '새로고침' : '조회'}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => router.push('/holdings')}
+                style={{ backgroundColor: colors.buy, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>자세히 보기 →</Text>
+              </Pressable>
+            </View>
           )}
         </View>
 
@@ -338,40 +350,33 @@ export default function MyScreen() {
               <Text style={{ color: colors.textDim, fontSize: 13 }}>보유 중인 종목이 없어요.</Text>
             ) : (
               <View style={{ gap: spacing.sm, marginTop: spacing.xs }}>
-                {[...balance.holdings, ...usHoldings].map((h) => {
-                  const mkt = h.market;
-                  const cur = mkt === 'US' ? '$' : '₩';
-                  return (
-                    <View
-                      key={`${mkt}-${h.symbol}`}
-                      style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}
-                    >
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
-                          <Text style={{ fontSize: 11 }}>{mkt === 'US' ? '🇺🇸' : '🇰🇷'}</Text>
-                          <Text style={{ color: colors.text, fontWeight: '800' }} numberOfLines={1}>{h.name}</Text>
-                        </View>
-                        <Text style={{ color: signColor(h.pnl), fontWeight: '800' }}>
-                          {h.pnl > 0 ? '+' : ''}
-                          {formatMoney(h.pnl, mkt)} ({h.pnlRate > 0 ? '+' : ''}
-                          {h.pnlRate}%)
-                        </Text>
-                      </View>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <Text style={{ color: colors.textDim, fontSize: 12 }}>
-                          {money(h.quantity, 0)}주 · 평단 {cur}
-                          {money(h.avgPrice, mkt === 'US' ? 2 : 0)}
-                        </Text>
-                        <Text style={{ color: colors.textDim, fontSize: 12 }}>평가 {formatMoney(h.evalAmount, mkt)}</Text>
-                      </View>
-                    </View>
-                  );
-                })}
+                {/* 국내/미국 요약만 (종목 상세는 '자세히 보기'에서) */}
+                <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ fontSize: 13 }}>🇰🇷</Text>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>국내 {balance.holdings.length}종목</Text>
+                  </View>
+                  <Text style={{ color: colors.textDim, fontSize: 13 }}>평가 {formatMoney(balance.totalEval, 'KRX')}</Text>
+                </View>
+                <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ fontSize: 13 }}>🇺🇸</Text>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>미국 {usHoldings.length}종목</Text>
+                  </View>
+                  {usHoldings.length > 0 ? (
+                    <Text style={{ color: signColor(usPnl), fontSize: 13, fontWeight: '700' }}>
+                      평가 {formatMoney(usEval, 'US')} ({usPnl > 0 ? '+' : ''}
+                      {formatMoney(usPnl, 'US')})
+                    </Text>
+                  ) : (
+                    <Text style={{ color: colors.textDim, fontSize: 13 }}>없음</Text>
+                  )}
+                </View>
               </View>
             )}
             <Text style={{ color: colors.textDim, fontSize: 11 }}>
-              * {account.is_virtual ? '모의투자' : '실전'} 계좌 실시간 잔고 · 폰(네이티브)에서만 조회돼요.
-              {usHoldings.length > 0 ? ' 상단 요약(평가금액·손익·예수금)은 국내(원화) 기준입니다.' : ''}
+              * {account.is_virtual ? '모의투자' : '실전'} 계좌 실시간 잔고 · 폰(네이티브)에서만 조회돼요. 종목별 상세는 오른쪽
+              위 ‘자세히 보기’에서 확인하세요.
             </Text>
           </>
         ) : (
