@@ -691,10 +691,10 @@ function PocketCard({
     borderLeftColor: pocketColor(k.idx),
   };
 
-  // 도달 시 포켓 전체 깜박임, 도달했으나 실패 시 외곽선만 깜박임
+  // 매수/매도 포인트 도달·실패 모두 외곽선 깜박임으로 강조 (실패 시 사유 문구는 고정 표시)
   const reached = k.status === 'waiting' ? buyReady : k.status === 'bought' ? sellReady : false;
   const failed = k.status === 'waiting' ? !!buyFailMsg : k.status === 'bought' ? !!sellFailMsg : false;
-  const alertMode: 'full' | 'border' | 'none' = failed ? 'border' : reached ? 'full' : 'none';
+  const alertMode: 'full' | 'border' | 'none' = reached || failed ? 'border' : 'none';
   const alertAccent = k.status === 'bought' ? colors.sell : colors.buy;
 
   return (

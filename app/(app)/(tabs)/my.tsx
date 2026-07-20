@@ -54,24 +54,21 @@ export default function MyScreen() {
     if (blocked) return setBalError(blocked);
     setBalLoading(true);
     setBalError(null);
-    try {
-      // 국내 잔고(원화) 조회 — 실패하면 에러
-      const dom = await getDomesticBalance(account);
-      setBalance(dom);
-      // 해외 잔고(달러) 조회 — 실패해도 국내는 그대로 (해외 미신청 등)
-      try {
-        const ov = await getOverseasBalance(account);
+    // 국내·해외를 동시에 조회(병렬)해서 미국주식이 국내 조회를 기다리지 않고 빠르게 반영되게 함.
+    const pDom = getDomesticBalance(account)
+      .then((dom) => setBalance(dom))
+      .catch((e) => setBalError(e?.message ?? '잔고를 불러오지 못했어요.'));
+    const pOv = getOverseasBalance(account)
+      .then((ov) => {
         setUsHoldings(ov.holdings);
         setUsBal({ cash: ov.cash, totalEval: ov.totalEval, totalPnl: ov.totalPnl });
-      } catch {
+      })
+      .catch(() => {
         setUsHoldings([]);
         setUsBal({ cash: 0, totalEval: 0, totalPnl: 0 });
-      }
-    } catch (e: any) {
-      setBalError(e?.message ?? '잔고를 불러오지 못했어요.');
-    } finally {
-      setBalLoading(false);
-    }
+      });
+    await Promise.allSettled([pDom, pOv]);
+    setBalLoading(false);
   };
 
   const tierExpiry = profile?.tier === 'auto' && profile?.tier_expires_at ? profile.tier_expires_at.slice(0, 10) : null;

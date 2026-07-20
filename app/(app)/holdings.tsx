@@ -35,22 +35,21 @@ export default function HoldingsScreen() {
       setLoading(false);
       return;
     }
-    try {
-      const dom = await getDomesticBalance(acc);
-      setBalance(dom);
-      try {
-        const ov = await getOverseasBalance(acc);
+    // 국내·해외 병렬 조회 (미국주식이 국내 조회를 기다리지 않고 빠르게 반영)
+    const pDom = getDomesticBalance(acc)
+      .then((dom) => setBalance(dom))
+      .catch((e) => setError(e?.message ?? '잔고를 불러오지 못했어요.'));
+    const pOv = getOverseasBalance(acc)
+      .then((ov) => {
         setUsHoldings(ov.holdings);
         setUsCash(ov.cash);
-      } catch {
+      })
+      .catch(() => {
         setUsHoldings([]);
         setUsCash(0);
-      }
-    } catch (e: any) {
-      setError(e?.message ?? '잔고를 불러오지 못했어요.');
-    } finally {
-      setLoading(false);
-    }
+      });
+    await Promise.allSettled([pDom, pOv]);
+    setLoading(false);
   }, [session?.user?.id]);
 
   // 진입할 때마다 최신 잔고로 새로고침
