@@ -266,43 +266,13 @@ export default function ProjectsScreen() {
                           </Text>
                         </View>
                       )}
-                      {/* 손익 배지들 */}
-                      <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
+                      {/* 손익 배지들 — 좌측 색막대 + 큰 금액 + 화살표 */}
+                      <View style={{ gap: spacing.sm }}>
                         {m.value != null && m.value > 0 && (
-                          <View
-                            style={{
-                              flex: 1,
-                              minWidth: 120,
-                              backgroundColor: (m.pnl ?? 0) >= 0 ? colors.buyBg : colors.sellBg,
-                              borderRadius: 8,
-                              paddingHorizontal: 10,
-                              paddingVertical: 6,
-                            }}
-                          >
-                            <Text style={{ color: colors.textDim, fontSize: 11 }}>평가 손익 (미실현)</Text>
-                            <Text style={{ color: signColor(m.pnl ?? 0), fontWeight: '900', fontSize: 15 }}>
-                              {(m.pnl ?? 0) > 0 ? '+' : ''}
-                              {formatMoney(m.pnl, m.market)}
-                            </Text>
-                          </View>
+                          <PnlBadge label="평가 손익 (미실현)" amount={m.pnl ?? 0} market={m.market} />
                         )}
                         {m.realized !== 0 && (
-                          <View
-                            style={{
-                              flex: 1,
-                              minWidth: 120,
-                              backgroundColor: m.realized >= 0 ? colors.buyBg : colors.sellBg,
-                              borderRadius: 8,
-                              paddingHorizontal: 10,
-                              paddingVertical: 6,
-                            }}
-                          >
-                            <Text style={{ color: colors.textDim, fontSize: 11 }}>실현 손익 ✓ (확정)</Text>
-                            <Text style={{ color: signColor(m.realized), fontWeight: '900', fontSize: 15 }}>
-                              {m.realized > 0 ? '+' : ''}
-                              {formatMoney(m.realized, m.market)}
-                            </Text>
-                          </View>
+                          <PnlBadge label="실현 손익 (확정) ✓" amount={m.realized} market={m.market} />
                         )}
                       </View>
                     </View>
@@ -369,6 +339,35 @@ export default function ProjectsScreen() {
           <Text style={{ color: '#FFFFFF', fontSize: 30, fontWeight: '800', marginTop: -2 }}>+</Text>
         </Pressable>
       </Link>
+    </View>
+  );
+}
+
+// 손익 배지 — 좌측 색막대 + 라벨 + 큰 금액(화살표). 이익=빨강 / 손실=파랑
+function PnlBadge({ label, amount, market }: { label: string; amount: number; market: string }) {
+  const up = amount >= 0;
+  const c = up ? colors.buy : colors.sell;
+  const bg = up ? colors.buyBg : colors.sellBg;
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: bg,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: c,
+        overflow: 'hidden',
+      }}
+    >
+      <View style={{ width: 5, alignSelf: 'stretch', backgroundColor: c }} />
+      <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12 }}>
+        <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '700' }}>{label}</Text>
+        <Text style={{ color: c, fontWeight: '900', fontSize: 18 }}>
+          {up ? '▲ +' : '▼ '}
+          {formatMoney(amount, market)}
+        </Text>
+      </View>
     </View>
   );
 }
