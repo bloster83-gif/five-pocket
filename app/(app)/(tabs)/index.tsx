@@ -141,8 +141,8 @@ export default function ProjectsScreen() {
             <Text style={{ fontSize: 16 }}>🔍</Text>
           </Pressable>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
-            <Chip label="진행중" icon="🔴" active={status === 'open'} onPress={() => setStatus('open')} />
-            <Chip label="종료" icon="🔒" active={status === 'closed'} onPress={() => setStatus('closed')} activeColor={colors.sell} />
+            <Chip label="프로젝트진행중" icon="🔴" active={status === 'open'} onPress={() => setStatus('open')} />
+            <Chip label="프로젝트종료" icon="🔒" active={status === 'closed'} onPress={() => setStatus('closed')} activeColor={colors.sell} />
             <Chip label="전체" active={status === 'all'} onPress={() => setStatus('all')} />
             <View style={{ width: 1, height: 22, backgroundColor: colors.border }} />
             <Chip label="한국" icon="🇰🇷" active={market === 'KRX'} onPress={() => setMarket(market === 'KRX' ? null : 'KRX')} />
