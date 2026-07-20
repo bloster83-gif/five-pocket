@@ -1,6 +1,7 @@
 // =====================================================================
 // 인생목표 계산 (순수 함수)
 //  - 현재나이·목표나이·시작자산·목표자산 → 필요한 연 수익률(CAGR)
+//  - 최초금액은 "현재나이 직전(-1세) 말" 잔액으로 보고, 현재나이(첫 해)부터 목표 수익률이 반영됨
 //  - 나이(연도)별 계획 목표금액. 실제 달성액을 입력하면 그 시점부터 목표까지 재계산(리베이스)
 //  - 연도별: 년초이월금액 / 입출금 / 실제달성액 / 수익금액(입출금 제외) / 수익률
 //      수익금액 = 실제달성액 - 년초이월 - 입출금
@@ -35,7 +36,9 @@ export function buildGoalRows(
   dividends: Record<number, number> = {}
 ): { rows: GoalRow[]; annualReturn: number; forwardReturn: number } {
   const years = Math.max(targetAge - currentAge, 0);
-  const r0 = requiredAnnualReturn(startAsset, targetAsset, years);
+  // 최초금액 = 현재나이 직전(-1세) 말 잔액으로 본다.
+  // 그래서 현재나이(첫 해)부터 이미 1년치 성장이 반영되고, 목표나이까지 성장 기간은 years+1.
+  const r0 = requiredAnnualReturn(startAsset, targetAsset, years + 1);
 
   // 가장 최근 실제값 = 리베이스 기준점
   let lastIdx = -1;
@@ -50,7 +53,8 @@ export function buildGoalRows(
 
   const planned: number[] = [];
   for (let i = 0; i <= years; i++) {
-    if (lastIdx < 0 || i < lastIdx) planned.push(Math.round(startAsset * Math.pow(1 + r0, i)));
+    // 실제값 이전 구간은 최초금액에서 (i+1)년 성장, 이후 구간은 마지막 실제값에서 성장
+    if (lastIdx < 0 || i < lastIdx) planned.push(Math.round(startAsset * Math.pow(1 + r0, i + 1)));
     else planned.push(Math.round(lastAmount * Math.pow(1 + rFwd, i - lastIdx)));
   }
 
