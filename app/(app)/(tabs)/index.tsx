@@ -472,15 +472,14 @@ function ProjectSwipe({
   const action = (bg: string, l1: string, l2: string, side: 'left' | 'right') => (
     <View
       style={{
-        justifyContent: 'center',
-        width: 92,
-        paddingRight: side === 'left' ? spacing.sm : 0,
-        paddingLeft: side === 'right' ? spacing.sm : 0,
+        width: 96,
+        paddingRight: side === 'left' ? spacing.md : 0,
+        paddingLeft: side === 'right' ? spacing.md : 0,
       }}
     >
-      <View style={{ backgroundColor: bg, borderRadius: radius.md, paddingVertical: 14, alignItems: 'center' }}>
-        <Text style={{ color: '#fff', fontWeight: '900', fontSize: 13, lineHeight: 17 }}>{l1}</Text>
-        <Text style={{ color: '#fff', fontWeight: '900', fontSize: 13, lineHeight: 17 }}>{l2}</Text>
+      <View style={{ flex: 1, backgroundColor: bg, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ color: '#fff', fontWeight: '900', fontSize: 14, lineHeight: 19 }}>{l1}</Text>
+        <Text style={{ color: '#fff', fontWeight: '900', fontSize: 14, lineHeight: 19 }}>{l2}</Text>
       </View>
     </View>
   );

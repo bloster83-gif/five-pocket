@@ -5,6 +5,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-rou
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { Button, Card, ChartIcon, Row } from '@/components/ui';
+import { BottomTabsBar } from '@/components/BottomTabsBar';
 import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
 import { computePnL, estimatedShares, pnlPct, realizedEvents } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
@@ -281,6 +282,7 @@ export default function ProjectDetailScreen() {
   const marketLabel = mkt === 'KRX' ? '한국' : '미국';
 
   return (
+    <View style={{ flex: 1 }}>
     <ScrollView
       contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 }}
       refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.primary} />}
@@ -507,6 +509,8 @@ export default function ProjectDetailScreen() {
       )}
 
     </ScrollView>
+    <BottomTabsBar active="index" />
+    </View>
   );
 }
 
@@ -568,10 +572,10 @@ function StopLossSwipe({ onStopLoss, profit, children }: { onStopLoss: () => voi
       rightThreshold={48}
       overshootRight={false}
       renderRightActions={() => (
-        <View style={{ justifyContent: 'center', alignItems: 'center', width: 72, paddingLeft: spacing.sm }}>
-          <View style={{ backgroundColor: bg, borderRadius: radius.md, paddingVertical: 14, paddingHorizontal: 12, alignItems: 'center' }}>
+        <View style={{ width: 80, paddingLeft: spacing.sm }}>
+          <View style={{ flex: 1, backgroundColor: bg, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
             {label.split('').map((ch, i) => (
-              <Text key={i} style={{ color: '#fff', fontWeight: '900', fontSize: 14, lineHeight: 18 }}>
+              <Text key={i} style={{ color: '#fff', fontWeight: '900', fontSize: 15, lineHeight: 19 }}>
                 {ch}
               </Text>
             ))}

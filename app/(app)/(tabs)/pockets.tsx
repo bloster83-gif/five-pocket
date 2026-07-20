@@ -505,10 +505,10 @@ function StopLossSwipe({ onStopLoss, profit, children }: { onStopLoss: () => voi
       rightThreshold={48}
       overshootRight={false}
       renderRightActions={() => (
-        <View style={{ justifyContent: 'center', alignItems: 'center', width: 72, paddingLeft: spacing.sm }}>
-          <View style={{ backgroundColor: bg, borderRadius: radius.md, paddingVertical: 14, paddingHorizontal: 12, alignItems: 'center' }}>
+        <View style={{ width: 80, paddingLeft: spacing.sm }}>
+          <View style={{ flex: 1, backgroundColor: bg, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
             {label.split('').map((ch, i) => (
-              <Text key={i} style={{ color: '#fff', fontWeight: '900', fontSize: 14, lineHeight: 18 }}>
+              <Text key={i} style={{ color: '#fff', fontWeight: '900', fontSize: 15, lineHeight: 19 }}>
                 {ch}
               </Text>
             ))}
