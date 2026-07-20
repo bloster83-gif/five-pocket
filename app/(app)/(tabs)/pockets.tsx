@@ -289,58 +289,48 @@ export default function PocketsScreen() {
                 </View>
               </View>
 
-              {/* 실시간 현재가 + 목표가 (대기: 매수목표 / 보유: 매수가→매도목표) */}
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Text style={{ color: colors.textDim, fontSize: 11 }}>현재가</Text>
-                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
-                    {price != null ? formatPrice(price, proj.market) : '—'}
+              {/* 실시간 현재가 (한 줄) */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>현재가</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                  {price != null ? formatPrice(price, proj.market) : '—'}
+                </Text>
+                {changePct != null && (
+                  <Text style={{ color: signColor(changePct), fontWeight: '800', fontSize: 12 }}>
+                    {changePct > 0 ? '▲' : changePct < 0 ? '▼' : ''}
+                    {changePct > 0 ? '+' : ''}
+                    {changePct}%
                   </Text>
-                  {changePct != null && (
-                    <Text style={{ color: signColor(changePct), fontWeight: '800', fontSize: 12 }}>
-                      {changePct > 0 ? '▲' : changePct < 0 ? '▼' : ''}
-                      {changePct > 0 ? '+' : ''}
-                      {changePct}%
-                    </Text>
-                  )}
-                </View>
-                {k.status === 'waiting' && (
-                  <>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <Text style={{ color: colors.textDim, fontSize: 11 }}>매수목표</Text>
-                      <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>
-                        {formatPrice(k.buy_target_price, proj.market)}
-                      </Text>
-                    </View>
-                    {k.budget != null && (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <Text style={{ color: colors.textDim, fontSize: 11 }}>목표수량</Text>
-                        <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>
-                          {money(estimatedShares(k.budget, k.buy_target_price), 0)}주
-                        </Text>
-                      </View>
-                    )}
-                  </>
-                )}
-                {k.status === 'bought' && (
-                  <>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <Text style={{ color: colors.textDim, fontSize: 11 }}>매수가</Text>
-                      <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>
-                        {formatPrice(pnl.avgOpenPrice, proj.market)}
-                      </Text>
-                    </View>
-                    {k.sell_target_price != null && (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <Text style={{ color: colors.textDim, fontSize: 11 }}>매도목표</Text>
-                        <Text style={{ color: colors.sell, fontWeight: '800', fontSize: 13 }}>
-                          {formatPrice(k.sell_target_price, proj.market)}
-                        </Text>
-                      </View>
-                    )}
-                  </>
                 )}
               </View>
+
+              {/* 목표 정보 — 현재가 아래. 대기: 매수목표+목표수량 / 보유: 매도목표만(매수가는 아래 박스 평균매수가로 표시) */}
+              {k.status === 'waiting' && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={{ color: colors.textDim, fontSize: 11 }}>매수목표</Text>
+                    <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>
+                      {formatPrice(k.buy_target_price, proj.market)}
+                    </Text>
+                  </View>
+                  {k.budget != null && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Text style={{ color: colors.textDim, fontSize: 11 }}>목표수량</Text>
+                      <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>
+                        {money(estimatedShares(k.budget, k.buy_target_price), 0)}주
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+              {k.status === 'bought' && k.sell_target_price != null && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text style={{ color: colors.textDim, fontSize: 11 }}>매도목표</Text>
+                  <Text style={{ color: colors.sell, fontWeight: '800', fontSize: 13 }}>
+                    {formatPrice(k.sell_target_price, proj.market)}
+                  </Text>
+                </View>
+              )}
 
               {/* 보유 중이면 보유수량·평균매수가를 강조 박스로 */}
               {pnl.totalQtyOpen > 0 && (
