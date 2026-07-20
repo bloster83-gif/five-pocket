@@ -74,16 +74,7 @@ Deno.serve(async (req: Request) => {
       const { data: userData } = await userClient.auth.getUser();
       const uid = userData?.user?.id;
       if (uid) {
-        // 다른 사람이 이미 인증한 번호는 도용 방지로 거부
-        const { data: dup } = await admin
-          .from('profiles')
-          .select('id')
-          .eq('phone', phone)
-          .eq('phone_verified', true)
-          .neq('id', uid)
-          .maybeSingle();
-        if (dup) return json({ error: '이미 다른 계정에 등록된 번호예요.' }, 409);
-
+        // 번호 중복은 허용 (여러 계정이 같은 번호로 인증 가능)
         await admin.from('profiles').update({ phone, phone_verified: true }).eq('id', uid);
         await admin.from('phone_otps').delete().eq('phone', phone);
         return json({ ok: true, profileUpdated: true });

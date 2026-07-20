@@ -59,6 +59,14 @@ Deno.serve(async (req: Request) => {
   }
   if (!appRedirect) return new Response('state 가 올바르지 않습니다.', { status: 400 });
 
+  // 네이버가 code 대신 error 를 돌려준 경우 그 사유를 앱으로 전달 (디버깅용)
+  const naverErr = url.searchParams.get('error');
+  if (naverErr) {
+    const desc = url.searchParams.get('error_description') ?? naverErr;
+    const sep = appRedirect.includes('?') ? '&' : '?';
+    return Response.redirect(`${appRedirect}${sep}naver_error=${encodeURIComponent(desc)}`, 302);
+  }
+
   const back = (params: Record<string, string>) => {
     const sep = appRedirect!.includes('?') ? '&' : '?';
     const qs = Object.entries(params)
