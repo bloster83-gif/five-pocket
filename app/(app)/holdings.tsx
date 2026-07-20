@@ -13,6 +13,7 @@ export default function HoldingsScreen() {
   const [account, setAccount] = useState<BrokerAccount | null | undefined>(undefined);
   const [balance, setBalance] = useState<KisBalance | null>(null);
   const [usHoldings, setUsHoldings] = useState<KisHolding[]>([]);
+  const [usCash, setUsCash] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,9 +38,12 @@ export default function HoldingsScreen() {
       const dom = await getDomesticBalance(acc);
       setBalance(dom);
       try {
-        setUsHoldings(await getOverseasBalance(acc));
+        const ov = await getOverseasBalance(acc);
+        setUsHoldings(ov.holdings);
+        setUsCash(ov.cash);
       } catch {
         setUsHoldings([]);
+        setUsCash(0);
       }
     } catch (e: any) {
       setError(e?.message ?? '잔고를 불러오지 못했어요.');
@@ -55,6 +59,17 @@ export default function HoldingsScreen() {
   const krHoldings = balance?.holdings ?? [];
   const usEval = usHoldings.reduce((s, h) => s + h.evalAmount, 0);
   const usPnl = usHoldings.reduce((s, h) => s + h.pnl, 0);
+  const USD_KRW = 1500;
+  const pctOf = (pnl: number, eval_: number) => {
+    const cost = eval_ - pnl;
+    return cost > 0 ? Math.round((pnl / cost) * 10000) / 100 : null;
+  };
+  const krEval = balance?.totalEval ?? 0;
+  const krPnl = balance?.totalPnl ?? 0;
+  const krCash = balance?.cash ?? 0;
+  const krRate = pctOf(krPnl, krEval);
+  const usRate = pctOf(usPnl, usEval);
+  const totalAssetKRW = krEval + krCash + (usEval + usCash) * USD_KRW;
 
   if (loading) {
     return (
@@ -98,14 +113,44 @@ export default function HoldingsScreen() {
             <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{formatMoney(balance?.totalEval ?? 0, 'KRX')}</Text>
           </View>
           <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
-            <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익</Text>
-            <Text style={{ color: signColor(balance?.totalPnl ?? 0), fontWeight: '900', fontSize: 16 }}>
-              {(balance?.totalPnl ?? 0) > 0 ? '+' : ''}
-              {formatMoney(balance?.totalPnl ?? 0, 'KRX')}
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익{krRate != null ? ` (${krRate > 0 ? '+' : ''}${krRate}%)` : ''}</Text>
+            <Text style={{ color: signColor(krPnl), fontWeight: '900', fontSize: 16 }}>
+              {krPnl > 0 ? '+' : ''}
+              {formatMoney(krPnl, 'KRX')}
             </Text>
           </View>
         </View>
-        <Row label="예수금 (주문가능현금)" value={formatMoney(balance?.cash ?? 0, 'KRX')} />
+        <Row label="예수금 (주문가능·원화)" value={formatMoney(krCash, 'KRX')} />
+        <Row label="국내 보유 종목" value={`${krHoldings.length}종목`} />
+      </Card>
+
+      {/* 미국(달러) 요약 */}
+      <Card>
+        <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>🇺🇸 미국 (달러)</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.md }}>
+          <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>평가금액</Text>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{formatMoney(usEval, 'US')}</Text>
+          </View>
+          <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익{usRate != null ? ` (${usRate > 0 ? '+' : ''}${usRate}%)` : ''}</Text>
+            <Text style={{ color: signColor(usPnl), fontWeight: '900', fontSize: 16 }}>
+              {usPnl > 0 ? '+' : ''}
+              {formatMoney(usPnl, 'US')}
+            </Text>
+          </View>
+        </View>
+        <Row label="예수금 (주문가능·달러)" value={formatMoney(usCash, 'US')} />
+        <Row label="미국 보유 종목" value={`${usHoldings.length}종목`} />
+      </Card>
+
+      {/* 총자산 (원화 환산) */}
+      <Card style={{ borderColor: colors.primary, borderWidth: 1.5 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>💰 총 자산 (원화 환산)</Text>
+          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 20 }}>{formatMoney(totalAssetKRW, 'KRX')}</Text>
+        </View>
+        <Text style={{ color: colors.textDim, fontSize: 11 }}>국내(평가+예수금) + 미국(평가+예수금)×1,500원 고정환율</Text>
       </Card>
 
       {/* 국내 종목 상세 */}

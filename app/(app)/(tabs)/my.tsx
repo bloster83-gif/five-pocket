@@ -46,6 +46,7 @@ export default function MyScreen() {
   );
 
   const [usHoldings, setUsHoldings] = useState<KisHolding[]>([]);
+  const [usBal, setUsBal] = useState<{ cash: number; totalEval: number; totalPnl: number }>({ cash: 0, totalEval: 0, totalPnl: 0 });
 
   const loadBalance = async () => {
     if (!account) return;
@@ -59,9 +60,12 @@ export default function MyScreen() {
       setBalance(dom);
       // 해외 잔고(달러) 조회 — 실패해도 국내는 그대로 (해외 미신청 등)
       try {
-        setUsHoldings(await getOverseasBalance(account));
+        const ov = await getOverseasBalance(account);
+        setUsHoldings(ov.holdings);
+        setUsBal({ cash: ov.cash, totalEval: ov.totalEval, totalPnl: ov.totalPnl });
       } catch {
         setUsHoldings([]);
+        setUsBal({ cash: 0, totalEval: 0, totalPnl: 0 });
       }
     } catch (e: any) {
       setBalError(e?.message ?? '잔고를 불러오지 못했어요.');
@@ -72,9 +76,22 @@ export default function MyScreen() {
 
   const tierExpiry = profile?.tier === 'auto' && profile?.tier_expires_at ? profile.tier_expires_at.slice(0, 10) : null;
 
-  // 미국 보유 요약 (달러) — 종목별 상세는 '자세히 보기' 페이지에서
-  const usEval = usHoldings.reduce((s, h) => s + h.evalAmount, 0);
-  const usPnl = usHoldings.reduce((s, h) => s + h.pnl, 0);
+  // 시장별 요약 (원화/달러) — 종목별 상세는 '자세히 보기' 페이지에서
+  const USD_KRW = 1500; // 앱 공통 고정환율
+  const pctOf = (pnl: number, eval_: number) => {
+    const cost = eval_ - pnl;
+    return cost > 0 ? Math.round((pnl / cost) * 10000) / 100 : null;
+  };
+  const krEval = balance?.totalEval ?? 0;
+  const krPnl = balance?.totalPnl ?? 0;
+  const krCash = balance?.cash ?? 0;
+  const krRate = pctOf(krPnl, krEval);
+  const usEval = usBal.totalEval;
+  const usPnl = usBal.totalPnl;
+  const usCash = usBal.cash;
+  const usRate = pctOf(usPnl, usEval);
+  // 전체 총자산(원화 환산) = 국내(평가+예수금) + 미국(평가+예수금)*환율
+  const totalAssetKRW = krEval + krCash + (usEval + usCash) * USD_KRW;
 
   const startEdit = () => {
     setEditName(profile?.full_name ?? profile?.display_name ?? '');
@@ -331,52 +348,52 @@ export default function MyScreen() {
           <Text style={{ color: colors.warn, fontSize: 12 }}>{balError}</Text>
         ) : balance ? (
           <>
+            {/* 🇰🇷 국내 (원화) */}
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🇰🇷 국내 (원화)</Text>
             <View style={{ flexDirection: 'row', gap: spacing.md }}>
-              <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
-                <Text style={{ color: colors.textDim, fontSize: 11 }}>평가금액</Text>
-                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{formatMoney(balance.totalEval, 'KRX')}</Text>
-              </View>
-              <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
-                <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익</Text>
-                <Text style={{ color: signColor(balance.totalPnl), fontWeight: '900', fontSize: 16 }}>
-                  {balance.totalPnl > 0 ? '+' : ''}
-                  {formatMoney(balance.totalPnl, 'KRX')}
-                </Text>
-              </View>
+              <Stat label="평가금액" value={formatMoney(krEval, 'KRX')} />
+              <Stat
+                label={`평가손익${krRate != null ? ` (${krRate > 0 ? '+' : ''}${krRate}%)` : ''}`}
+                value={`${krPnl > 0 ? '+' : ''}${formatMoney(krPnl, 'KRX')}`}
+                color={signColor(krPnl)}
+              />
             </View>
-            <Row label="예수금 (주문가능현금)" value={formatMoney(balance.cash, 'KRX')} />
+            <Row label="예수금 (주문가능·원화)" value={formatMoney(krCash, 'KRX')} />
+            <Row label="국내 보유 종목" value={`${balance.holdings.length}종목`} />
 
-            {balance.holdings.length === 0 && usHoldings.length === 0 ? (
-              <Text style={{ color: colors.textDim, fontSize: 13 }}>보유 중인 종목이 없어요.</Text>
-            ) : (
-              <View style={{ gap: spacing.sm, marginTop: spacing.xs }}>
-                {/* 국내/미국 요약만 (종목 상세는 '자세히 보기'에서) */}
-                <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={{ fontSize: 13 }}>🇰🇷</Text>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>국내 {balance.holdings.length}종목</Text>
-                  </View>
-                  <Text style={{ color: colors.textDim, fontSize: 13 }}>평가 {formatMoney(balance.totalEval, 'KRX')}</Text>
-                </View>
-                <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={{ fontSize: 13 }}>🇺🇸</Text>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>미국 {usHoldings.length}종목</Text>
-                  </View>
-                  {usHoldings.length > 0 ? (
-                    <Text style={{ color: signColor(usPnl), fontSize: 13, fontWeight: '700' }}>
-                      평가 {formatMoney(usEval, 'US')} ({usPnl > 0 ? '+' : ''}
-                      {formatMoney(usPnl, 'US')})
-                    </Text>
-                  ) : (
-                    <Text style={{ color: colors.textDim, fontSize: 13 }}>없음</Text>
-                  )}
-                </View>
+            {/* 🇺🇸 미국 (달러) */}
+            <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🇺🇸 미국 (달러)</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.md }}>
+                <Stat label="평가금액" value={formatMoney(usEval, 'US')} />
+                <Stat
+                  label={`평가손익${usRate != null ? ` (${usRate > 0 ? '+' : ''}${usRate}%)` : ''}`}
+                  value={`${usPnl > 0 ? '+' : ''}${formatMoney(usPnl, 'US')}`}
+                  color={signColor(usPnl)}
+                />
               </View>
-            )}
+              <Row label="예수금 (주문가능·달러)" value={formatMoney(usCash, 'US')} />
+              <Row label="미국 보유 종목" value={`${usHoldings.length}종목`} />
+            </View>
+
+            {/* 💰 전체 (원화 환산) */}
+            <View
+              style={{
+                borderTopWidth: 1,
+                borderTopColor: colors.border,
+                paddingTop: spacing.sm,
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14 }}>💰 총 자산 (원화 환산)</Text>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>{formatMoney(totalAssetKRW, 'KRX')}</Text>
+            </View>
+
             <Text style={{ color: colors.textDim, fontSize: 11 }}>
               * {account.is_virtual ? '모의투자' : '실전'} 계좌 실시간 잔고 · 폰(네이티브)에서만 조회돼요. 종목별 상세는 오른쪽
-              위 ‘자세히 보기’에서 확인하세요.
+              위 ‘자세히 보기’에서. 달러 예수금은 계좌 설정에 따라 $0으로 보일 수 있어요. 총자산은 1달러=1,500원 고정환율 환산.
             </Text>
           </>
         ) : (
@@ -409,5 +426,15 @@ export default function MyScreen() {
         <Text style={{ color: colors.textDim, fontWeight: '700' }}>로그아웃</Text>
       </Pressable>
     </ScrollView>
+  );
+}
+
+// 평가금액/평가손익 등 강조 숫자 박스
+function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
+      <Text style={{ color: colors.textDim, fontSize: 11 }}>{label}</Text>
+      <Text style={{ color: color ?? colors.text, fontWeight: '900', fontSize: 16 }}>{value}</Text>
+    </View>
   );
 }

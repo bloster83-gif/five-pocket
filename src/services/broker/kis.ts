@@ -358,8 +358,15 @@ export async function getDomesticBalance(account: BrokerAccount): Promise<KisBal
 // 해외주식 잔고조회 TR ID (미국)
 const OVERSEAS_BALANCE_TR = { real: 'TTTS3012R', virtual: 'VTTS3012R' } as const;
 
-/** 미국주식 잔고(보유종목 + 달러 평가). 실패해도 국내 조회에 영향 없게 별도 함수. */
-export async function getOverseasBalance(account: BrokerAccount): Promise<KisHolding[]> {
+export interface KisOverseasBalance {
+  holdings: KisHolding[];
+  cash: number; // 외화 예수금(달러, best-effort)
+  totalEval: number; // 평가금액 합계(달러)
+  totalPnl: number; // 평가손익 합계(달러)
+}
+
+/** 미국주식 잔고(보유종목 + 달러 평가·예수금). 실패해도 국내 조회에 영향 없게 별도 함수. */
+export async function getOverseasBalance(account: BrokerAccount): Promise<KisOverseasBalance> {
   const token = await getValidToken(account);
   const trId = OVERSEAS_BALANCE_TR[account.is_virtual ? 'virtual' : 'real'];
 
@@ -389,7 +396,7 @@ export async function getOverseasBalance(account: BrokerAccount): Promise<KisHol
     throw new Error(json.msg1 ?? `해외 잔고 조회 실패 (HTTP ${res.status})`);
   }
 
-  return ((json.output1 ?? []) as any[])
+  const holdings: KisHolding[] = ((json.output1 ?? []) as any[])
     .filter((h) => Number(h.ovrs_cblc_qty) > 0)
     .map((h) => ({
       symbol: h.ovrs_pdno,
@@ -402,4 +409,11 @@ export async function getOverseasBalance(account: BrokerAccount): Promise<KisHol
       pnlRate: Number(h.evlu_pfls_rt),
       market: 'US' as const,
     }));
+
+  // output2 는 단일 객체(요약). 외화 예수금은 계좌에 따라 필드가 없을 수 있어 best-effort.
+  const s = (Array.isArray(json.output2) ? json.output2[0] : json.output2) ?? {};
+  const cash = Number(s.frcr_dncl_amt1 ?? s.frcr_dncl_amt_2 ?? s.frcr_dncl_amt ?? 0);
+  const totalEval = holdings.reduce((a, h) => a + h.evalAmount, 0);
+  const totalPnl = holdings.reduce((a, h) => a + h.pnl, 0);
+  return { holdings, cash, totalEval, totalPnl };
 }
