@@ -99,19 +99,14 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="stats"
-        options={{
-          title: '통계',
-          tabBarIcon: ({ color }) => <TabIcon emoji="📊" color={color} />,
-        }}
-      />
-      <Tabs.Screen
         name="my"
         options={{
           title: 'MY',
           tabBarIcon: ({ color }) => <TabIcon emoji="👤" color={color} />,
         }}
       />
+      {/* 통계 화면은 MY 탭 안으로 합쳐짐 — 탭바에서 숨김 */}
+      <Tabs.Screen name="stats" options={{ href: null }} />
     </Tabs>
   );
 }

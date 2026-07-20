@@ -3,10 +3,11 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import { confirmAction } from '@/lib/alert';
-import { Card, Row } from '@/components/ui';
+import { confirmAction, notify } from '@/lib/alert';
+import { Button, Card, Field, Row } from '@/components/ui';
+import { StatsContent } from '@/components/StatsContent';
 import { colors, formatMoney, money, radius, signColor, spacing } from '@/theme';
-import { formatPhone } from '@/lib/phoneAuth';
+import { formatPhone, isValidPhone, onlyDigits, sendPhoneOtp, verifyPhoneOtp } from '@/lib/phoneAuth';
 import { getDomesticBalance, kisOrderBlocked, type KisBalance } from '@/services/broker/kis';
 import type { BrokerAccount } from '@/types/db';
 
@@ -18,6 +19,18 @@ export default function MyScreen() {
   const [balance, setBalance] = useState<KisBalance | null>(null);
   const [balLoading, setBalLoading] = useState(false);
   const [balError, setBalError] = useState<string | null>(null);
+
+  // 내 정보 수정
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  // 휴대폰 변경(재인증)
+  const [newPhone, setNewPhone] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [phoneBusy, setPhoneBusy] = useState(false);
+  const [devHint, setDevHint] = useState<string | null>(null);
+  const [phoneMsg, setPhoneMsg] = useState<string | null>(null);
 
   const loadAccount = useCallback(async () => {
     if (!session?.user?.id) return;
@@ -48,6 +61,64 @@ export default function MyScreen() {
   };
 
   const tierExpiry = profile?.tier === 'auto' && profile?.tier_expires_at ? profile.tier_expires_at.slice(0, 10) : null;
+
+  const startEdit = () => {
+    setEditName(profile?.full_name ?? profile?.display_name ?? '');
+    setNewPhone(profile?.phone ? formatPhone(profile.phone) : '');
+    setOtpSent(false);
+    setOtpCode('');
+    setDevHint(null);
+    setPhoneMsg(null);
+    setEditing(true);
+  };
+
+  const saveName = async () => {
+    if (!session?.user?.id) return;
+    if (!editName.trim()) return notify('입력 필요', '실명을 입력하세요.');
+    setSavingName(true);
+    const { error } = await supabase
+      .from('profiles')
+      .update({ full_name: editName.trim(), display_name: editName.trim() })
+      .eq('id', session.user.id);
+    setSavingName(false);
+    if (error) return notify('저장 실패', error.message);
+    await refreshProfile();
+    notify('저장 완료', '이름이 변경됐어요.');
+  };
+
+  // 휴대폰 변경: 새 번호로 인증번호 발송 → 확인되면 서버가 프로필 갱신
+  const sendNewPhoneOtp = async () => {
+    setPhoneMsg(null);
+    if (!isValidPhone(newPhone)) return setPhoneMsg('올바른 휴대폰 번호를 입력하세요.');
+    setPhoneBusy(true);
+    try {
+      const res = await sendPhoneOtp(newPhone);
+      setOtpSent(true);
+      setDevHint(res.devMode && res.devCode ? `테스트 코드: ${res.devCode}` : null);
+    } catch (e: any) {
+      setPhoneMsg(e?.message ?? '인증번호 발송 실패');
+    } finally {
+      setPhoneBusy(false);
+    }
+  };
+
+  const verifyNewPhone = async () => {
+    setPhoneMsg(null);
+    if (onlyDigits(otpCode).length !== 6) return setPhoneMsg('인증번호 6자리를 입력하세요.');
+    setPhoneBusy(true);
+    try {
+      await verifyPhoneOtp(newPhone, otpCode); // 서버가 내 프로필 phone/phone_verified 갱신
+      await refreshProfile();
+      setOtpSent(false);
+      setOtpCode('');
+      setDevHint(null);
+      notify('변경 완료', '휴대폰 번호가 인증·변경됐어요.');
+    } catch (e: any) {
+      setPhoneMsg(e?.message ?? '인증 실패');
+    } finally {
+      setPhoneBusy(false);
+    }
+  };
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 48 }}>
@@ -95,16 +166,96 @@ export default function MyScreen() {
 
       {/* 내 정보 */}
       <Card>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>내 정보</Text>
-        <Row label="실명" value={profile?.full_name ?? '-'} />
-        <Row label="이메일" value={profile?.email ?? '-'} />
-        <Row
-          label="휴대폰"
-          value={profile?.phone ? `${formatPhone(profile.phone)}${profile.phone_verified ? '  ✓' : ''}` : '미등록'}
-          valueColor={profile?.phone_verified ? colors.primary : colors.textDim}
-        />
-        <Row label="회원 등급" value={tier === 'auto' ? 'AUTO (자동매매)' : 'Diary (수동)'} />
-        {tierExpiry && <Row label="AUTO 만료일" value={tierExpiry} valueColor={colors.warn} />}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>내 정보</Text>
+          <Pressable onPress={() => (editing ? setEditing(false) : startEdit())}>
+            <Text style={{ color: colors.accent, fontWeight: '800', fontSize: 13 }}>{editing ? '닫기' : '✏️ 수정'}</Text>
+          </Pressable>
+        </View>
+
+        {!editing ? (
+          <>
+            <Row label="실명" value={profile?.full_name ?? '-'} />
+            <Row label="이메일" value={profile?.email ?? '-'} />
+            <Row
+              label="휴대폰"
+              value={profile?.phone ? `${formatPhone(profile.phone)}${profile.phone_verified ? '  ✓' : ''}` : '미등록'}
+              valueColor={profile?.phone_verified ? colors.primary : colors.textDim}
+            />
+            <Row label="회원 등급" value={tier === 'auto' ? 'AUTO (자동매매)' : 'Diary (수동)'} />
+            {tierExpiry && <Row label="AUTO 만료일" value={tierExpiry} valueColor={colors.warn} />}
+          </>
+        ) : (
+          <View style={{ gap: spacing.sm }}>
+            {/* 실명 수정 */}
+            <Field label="실명" value={editName} onChangeText={setEditName} placeholder="홍길동" />
+            <Button title="이름 저장" onPress={saveName} loading={savingName} />
+
+            {/* 이메일은 변경 불가 안내 */}
+            <Text style={{ color: colors.textDim, fontSize: 12 }}>이메일: {profile?.email ?? '-'} (변경 불가)</Text>
+
+            {/* 휴대폰 변경(재인증) */}
+            <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.xs }}>
+              <Text style={{ color: colors.textDim, fontSize: 13 }}>휴대폰 번호 변경 (재인증)</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+                <View style={{ flex: 1 }}>
+                  <Field
+                    label=""
+                    value={newPhone}
+                    onChangeText={(t) => setNewPhone(formatPhone(t))}
+                    keyboardType="phone-pad"
+                    placeholder="010-1234-5678"
+                  />
+                </View>
+                <Pressable
+                  onPress={sendNewPhoneOtp}
+                  disabled={phoneBusy || !isValidPhone(newPhone)}
+                  style={{
+                    height: 48,
+                    paddingHorizontal: 14,
+                    borderRadius: 10,
+                    justifyContent: 'center',
+                    backgroundColor: !isValidPhone(newPhone) ? colors.cardAlt : colors.primary,
+                  }}
+                >
+                  <Text style={{ color: !isValidPhone(newPhone) ? colors.textDim : '#08131f', fontWeight: '800', fontSize: 13 }}>
+                    {phoneBusy ? '…' : otpSent ? '재전송' : '인증번호'}
+                  </Text>
+                </Pressable>
+              </View>
+              {otpSent && (
+                <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Field
+                      label=""
+                      value={otpCode}
+                      onChangeText={(t) => setOtpCode(onlyDigits(t).slice(0, 6))}
+                      keyboardType="number-pad"
+                      placeholder="인증번호 6자리"
+                    />
+                  </View>
+                  <Pressable
+                    onPress={verifyNewPhone}
+                    disabled={phoneBusy || onlyDigits(otpCode).length !== 6}
+                    style={{
+                      height: 48,
+                      paddingHorizontal: 14,
+                      borderRadius: 10,
+                      justifyContent: 'center',
+                      backgroundColor: onlyDigits(otpCode).length === 6 ? colors.buy : colors.cardAlt,
+                    }}
+                  >
+                    <Text style={{ color: onlyDigits(otpCode).length === 6 ? '#fff' : colors.textDim, fontWeight: '800', fontSize: 13 }}>
+                      인증확인
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
+              {devHint && <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>🔧 {devHint}</Text>}
+              {phoneMsg && <Text style={{ color: colors.danger, fontSize: 12 }}>{phoneMsg}</Text>}
+            </View>
+          </View>
+        )}
       </Card>
 
       {/* 증권사 계좌 */}
@@ -212,6 +363,11 @@ export default function MyScreen() {
           <Text style={{ color: colors.textDim, fontSize: 13 }}>‘조회’를 누르면 실제 계좌의 보유주식을 불러와요.</Text>
         )}
       </Card>
+
+      {/* 통계 (MY 탭에 통합) */}
+      <View style={{ borderTopWidth: 1, borderTopColor: colors.border, marginTop: spacing.sm, paddingTop: spacing.lg }}>
+        <StatsContent />
+      </View>
 
       {/* 관리자 바로가기 */}
       {isAdmin && (
