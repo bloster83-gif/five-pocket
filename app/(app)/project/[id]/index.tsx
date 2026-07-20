@@ -290,6 +290,7 @@ export default function ProjectDetailScreen() {
             price={price}
             buyTrade={buyByPocket.get(k.id) ?? null}
             cycles={cyclesByPocket.get(k.id) ?? 0}
+            autoMode={tier === 'auto' && project.auto_trade_enabled}
             onRestart={() => restartPocket(k)}
             onTrade={(side, sqty, sprice) =>
               router.push(
@@ -341,6 +342,25 @@ export default function ProjectDetailScreen() {
   );
 }
 
+// 자동매매 중일 때 보이는 작은 수동 입력 버튼
+function ManualEntryButton({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        backgroundColor: colors.cardAlt,
+      }}
+    >
+      <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '700' }}>✍️ 수동으로 입력</Text>
+    </Pressable>
+  );
+}
+
 // ---------------------------------------------------------------
 // 포켓 카드 — 상태에 따라 표시가 달라진다.
 //  waiting: 매수 목표가 강조(빨강) + 매수 체결 버튼
@@ -353,6 +373,7 @@ function PocketCard({
   price,
   buyTrade,
   cycles,
+  autoMode,
   onRestart,
   onTrade,
 }: {
@@ -361,6 +382,7 @@ function PocketCard({
   price: number | null;
   buyTrade: Trade | null;
   cycles: number;
+  autoMode: boolean; // AUTO 등급 + 자동매매 ON → 수동 입력 버튼을 작게
   onRestart: () => void;
   onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number) => void;
 }) {
@@ -425,14 +447,21 @@ function PocketCard({
           {buyReady && (
             <Text style={{ color: colors.buy, fontWeight: '800', marginTop: 2 }}>● 지금 매수 포인트 도달</Text>
           )}
-          <View style={{ marginTop: spacing.sm }}>
-            <Button
-              title="＋ 매수 체결 입력"
-              variant="buy"
-              large
-              onPress={() => onTrade('buy', buyableQty, price ?? k.buy_target_price)}
-            />
-          </View>
+          {autoMode ? (
+            <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.textDim, fontSize: 12 }}>🤖 목표가 도달 시 자동 매수</Text>
+              <ManualEntryButton onPress={() => onTrade('buy', buyableQty, price ?? k.buy_target_price)} />
+            </View>
+          ) : (
+            <View style={{ marginTop: spacing.sm }}>
+              <Button
+                title="＋ 매수 체결 입력"
+                variant="buy"
+                large
+                onPress={() => onTrade('buy', buyableQty, price ?? k.buy_target_price)}
+              />
+            </View>
+          )}
         </>
       )}
 
@@ -454,14 +483,21 @@ function PocketCard({
           {sellReady && (
             <Text style={{ color: colors.sell, fontWeight: '800', marginTop: 2 }}>● 지금 매도 포인트 도달</Text>
           )}
-          <View style={{ marginTop: spacing.sm }}>
-            <Button
-              title="＋ 매도 체결 입력"
-              variant="sell"
-              large
-              onPress={() => onTrade('sell', buyTrade?.quantity ?? 0, price ?? k.sell_target_price ?? 0)}
-            />
-          </View>
+          {autoMode ? (
+            <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.textDim, fontSize: 12 }}>🤖 목표가 도달 시 자동 매도</Text>
+              <ManualEntryButton onPress={() => onTrade('sell', buyTrade?.quantity ?? 0, price ?? k.sell_target_price ?? 0)} />
+            </View>
+          ) : (
+            <View style={{ marginTop: spacing.sm }}>
+              <Button
+                title="＋ 매도 체결 입력"
+                variant="sell"
+                large
+                onPress={() => onTrade('sell', buyTrade?.quantity ?? 0, price ?? k.sell_target_price ?? 0)}
+              />
+            </View>
+          )}
         </>
       )}
 

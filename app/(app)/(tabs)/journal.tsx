@@ -257,6 +257,8 @@ export default function JournalScreen() {
     const mkt = proj?.market ?? t.market ?? 'US';
     const displayName = proj?.name ?? t.name ?? t.symbol ?? '—';
     const isBuy = t.side === 'buy';
+    // 자동매매 엔진이 기록한 체결은 note 가 '자동주문'으로 시작 (앱/서버 러너 공통)
+    const isAutoOrder = !!t.note && t.note.startsWith('자동주문');
     return (
       <Swipeable
         key={t.id}
@@ -282,6 +284,19 @@ export default function JournalScreen() {
               >
                 <Text style={{ color: isBuy ? colors.buy : colors.sell, fontWeight: '800', fontSize: 12 }}>
                   {isBuy ? '매수' : '매도'}
+                </Text>
+              </View>
+              {/* 자동주문 / 수동주문 구분 배지 */}
+              <View
+                style={{
+                  paddingHorizontal: 6,
+                  paddingVertical: 2,
+                  borderRadius: 6,
+                  backgroundColor: isAutoOrder ? 'rgba(91,141,239,0.16)' : colors.cardAlt,
+                }}
+              >
+                <Text style={{ color: isAutoOrder ? colors.accent : colors.textDim, fontWeight: '800', fontSize: 10 }}>
+                  {isAutoOrder ? '🤖 자동주문' : '수동주문'}
                 </Text>
               </View>
               <Text style={{ color: colors.text, fontWeight: '700', flexShrink: 1 }} numberOfLines={1}>
