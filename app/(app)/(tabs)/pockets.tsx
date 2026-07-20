@@ -162,6 +162,7 @@ export default function PocketsScreen() {
       }
     }
 
+    const note = sellPrice >= openPnl.avgOpenPrice ? '익절' : '손절';
     await supabase.from('trades').insert({
       user_id: session.user.id,
       project_id: proj.id,
@@ -170,22 +171,23 @@ export default function PocketsScreen() {
       price: sellPrice,
       quantity: qty,
       executed_at: new Date().toISOString(),
-      note: '손절',
+      note,
     });
     await supabase.from('pockets').update({ status: 'sold' }).eq('id', k.id);
     return { ok: true };
   };
 
-  const confirmStopLossPocket = (k: Pocket, proj: Project) => {
+  const confirmStopLossPocket = (k: Pocket, proj: Project, profit: boolean) => {
+    const word = profit ? '익절' : '손절';
     confirmAction(
-      '포켓 손절',
-      `${proj.name} 포켓 ${k.idx + 1}을(를) 지금 전량 손절(매도)할까요?${tier === 'auto' && account ? ' 실제 매도 주문이 전송됩니다.' : ''}`,
+      `포켓 ${word}`,
+      `${proj.name} 포켓 ${k.idx + 1}을(를) 지금 전량 ${word}(매도)할까요?${tier === 'auto' && account ? ' 실제 매도 주문이 전송됩니다.' : ''}`,
       async () => {
         const r = await stopLossPocket(k, proj);
         await load();
-        if (!r.ok) notify('손절 실패', r.msg ?? '처리하지 못했어요.');
+        if (!r.ok) notify(`${word} 실패`, r.msg ?? '처리하지 못했어요.');
       },
-      '손절'
+      word
     );
   };
 
@@ -337,6 +339,8 @@ export default function PocketsScreen() {
         const quote = prices[proj.symbol];
         const price = quote?.price ?? null;
         const changePct = quote?.changePct ?? null;
+        // 현재가 >= 평균매수가면 이익(익절), 아니면 손실(손절)
+        const inProfit = price != null && pnl.avgOpenPrice > 0 && price >= pnl.avgOpenPrice;
         const open = expanded === k.id;
         const statusMeta =
           k.status === 'bought'
@@ -476,7 +480,7 @@ export default function PocketsScreen() {
         );
         // 보유중(매수 완료) 포켓만 왼쪽으로 스와이프하면 손절하기
         return k.status === 'bought' ? (
-          <StopLossSwipe key={k.id} onStopLoss={() => confirmStopLossPocket(k, proj)}>
+          <StopLossSwipe key={k.id} profit={inProfit} onStopLoss={() => confirmStopLossPocket(k, proj, inProfit)}>
             {cardEl}
           </StopLossSwipe>
         ) : (
@@ -488,9 +492,12 @@ export default function PocketsScreen() {
   );
 }
 
-// 보유 포켓을 왼쪽으로 스와이프하면 '손절하기'가 나타나고, 끝까지 밀면 손절 확인
-function StopLossSwipe({ onStopLoss, children }: { onStopLoss: () => void; children: ReactNode }) {
+// 보유 포켓을 왼쪽으로 스와이프하면 익절/손절이 나타나고, 끝까지 밀면 확인
+// 이익이면 '익절하기'(빨강), 손실이면 '손절하기'(파랑)
+function StopLossSwipe({ onStopLoss, profit, children }: { onStopLoss: () => void; profit: boolean; children: ReactNode }) {
   const ref = useRef<Swipeable>(null);
+  const label = profit ? '익절하기' : '손절하기';
+  const bg = profit ? colors.buy : colors.sell;
   return (
     <Swipeable
       ref={ref}
@@ -499,9 +506,9 @@ function StopLossSwipe({ onStopLoss, children }: { onStopLoss: () => void; child
       overshootRight={false}
       renderRightActions={() => (
         <View style={{ justifyContent: 'center', alignItems: 'center', width: 96, paddingLeft: spacing.sm }}>
-          <View style={{ backgroundColor: colors.sell, borderRadius: radius.md, paddingVertical: 12, paddingHorizontal: 10, alignItems: 'center' }}>
+          <View style={{ backgroundColor: bg, borderRadius: radius.md, paddingVertical: 12, paddingHorizontal: 10, alignItems: 'center' }}>
             <ScissorsIcon size={20} color="#fff" />
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12, marginTop: 3 }}>손절하기</Text>
+            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12, marginTop: 3 }}>{label}</Text>
           </View>
         </View>
       )}
