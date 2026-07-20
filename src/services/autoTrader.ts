@@ -16,7 +16,7 @@ import { useAuth } from '@/lib/auth';
 import { notifyNow } from '@/lib/notifications';
 import { estimatedShares, sellTargetFromFill, type PriceSignal } from '@/domain/pockets';
 import { computePnL } from '@/domain/pockets';
-import { kisOrderBlocked, placeDomesticOrder } from '@/services/broker/kis';
+import { kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import type { BrokerAccount, Project, Trade } from '@/types/db';
 
 export interface AutoTradeEvent {
@@ -113,13 +113,12 @@ export function useAutoTrader(
             if (qty <= 0) throw new Error('보유 수량이 없어 매도 주문을 건너뛰었어요.');
           }
 
-          // KIS 주문 전송
-          const result = await placeDomesticOrder(account, {
-            side: sig.kind,
-            symbol: proj.symbol,
-            quantity: qty,
-            price: limitPrice,
-          });
+          // KIS 주문 전송 (한국=국내주문, 미국=해외주문)
+          const orderInput = { side: sig.kind, symbol: proj.symbol, quantity: qty, price: limitPrice };
+          const result =
+            proj.market === 'US'
+              ? await placeOverseasOrder(account, orderInput)
+              : await placeDomesticOrder(account, orderInput);
 
           // 주문 이력 저장
           await supabase.from('auto_orders').insert({

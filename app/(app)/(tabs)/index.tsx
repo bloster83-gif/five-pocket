@@ -285,8 +285,8 @@ export default function ProjectsScreen() {
                       )}
                     </View>
                   )}
-                  {/* 자동매매 토글 (AUTO 등급 · 진행중 · 한국주식만) */}
-                  {tier === 'auto' && !closed && item.market === 'KRX' && (
+                  {/* 자동매매 토글 (AUTO 등급 · 진행중 · 한국/미국주식) */}
+                  {tier === 'auto' && !closed && (item.market === 'KRX' || item.market === 'US') && (
                     <View
                       style={{
                         flexDirection: 'row',

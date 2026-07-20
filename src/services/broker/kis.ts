@@ -35,8 +35,8 @@ export function kisOrderBlocked(market: string | null): string | null {
   if (Platform.OS === 'web') {
     return '웹 브라우저에서는 한국투자증권 API가 차단(CORS)돼요. 폰(Expo Go/빌드)에서 실행해 주세요.';
   }
-  if (market !== 'KRX') {
-    return '자동주문은 현재 한국주식(KRX)만 지원해요.';
+  if (market !== 'KRX' && market !== 'US') {
+    return '자동주문은 한국·미국 주식만 지원해요.';
   }
   return null;
 }
@@ -205,6 +205,70 @@ export async function getOverseasPrice(account: BrokerAccount, symbol: string): 
     }
   }
   throw new Error('해외 시세를 불러오지 못했어요. (해외주식 서비스 신청 여부를 확인하세요)');
+}
+
+/** 종목의 미국 거래소 코드(NAS/NYS/AMS)를 확정 (캐시에 없으면 시세 조회로 탐색) */
+export async function resolveUsExchange(account: BrokerAccount, symbol: string): Promise<string> {
+  const sym = symbol.replace(/\.(KS|KQ)$/i, '').trim().toUpperCase();
+  if (exchangeCache.has(sym)) return exchangeCache.get(sym)!;
+  await getOverseasPrice(account, symbol); // 성공하면 exchangeCache 채워짐
+  return exchangeCache.get(sym) ?? 'NAS';
+}
+
+// --------------------------- 해외주식 주문 ---------------------------
+
+// 해외주식 현금주문 TR ID (미국 주간거래)
+const OVERSEAS_ORDER_TR = {
+  real: { buy: 'TTTT1002U', sell: 'TTTT1006U' },
+  virtual: { buy: 'VTTT1002U', sell: 'VTTT1001U' },
+} as const;
+// 시세 거래소코드(NAS/NYS/AMS) → 주문 거래소코드(NASD/NYSE/AMEX)
+const ORDER_EXCH: Record<string, string> = { NAS: 'NASD', NYS: 'NYSE', AMS: 'AMEX' };
+
+/**
+ * 미국주식 지정가 주문 (해외주식 현금주문).
+ * 거래소는 시세 캐시로 자동 확정. 가격은 달러(USD).
+ */
+export async function placeOverseasOrder(
+  account: BrokerAccount,
+  input: KisOrderInput
+): Promise<KisOrderResult> {
+  const token = await getValidToken(account);
+  const sym = toKisSymbol(input.symbol).toUpperCase();
+  const priceExch = await resolveUsExchange(account, sym);
+  const ovrsExcg = ORDER_EXCH[priceExch] ?? 'NASD';
+  const trId = OVERSEAS_ORDER_TR[account.is_virtual ? 'virtual' : 'real'][input.side];
+  const qty = Math.floor(input.quantity);
+  if (qty <= 0) throw new Error('주문 수량이 0입니다.');
+
+  const body = {
+    CANO: account.account_no,
+    ACNT_PRDT_CD: account.account_product_code,
+    OVRS_EXCG_CD: ovrsExcg,
+    PDNO: sym,
+    ORD_QTY: String(qty),
+    OVRS_ORD_UNPR: input.price.toFixed(2), // 달러 지정가
+    ORD_SVR_DVSN_CD: '0',
+    ORD_DVSN: '00', // 지정가
+  };
+
+  const res = await fetch(`${kisBaseUrl(account.is_virtual)}/uapi/overseas-stock/v1/trading/order`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      authorization: `Bearer ${token}`,
+      appkey: account.app_key,
+      appsecret: account.app_secret,
+      tr_id: trId,
+      custtype: 'P',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  if (!res.ok || json.rt_cd !== '0') {
+    throw new Error(json.msg1 ?? `해외 주문 실패 (HTTP ${res.status})`);
+  }
+  return { orderNo: json.output?.ODNO ?? '', message: json.msg1 ?? '해외 주문 전송 완료' };
 }
 
 // --------------------------- 잔고 조회 ---------------------------
