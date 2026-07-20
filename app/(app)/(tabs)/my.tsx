@@ -330,7 +330,7 @@ export default function MyScreen() {
           </Text>
           {tier !== 'auto' && (
             <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
-              오토 회원 업그레이드는 30,000원 입금 후 승인돼요. 눌러서 계좌·자세한 차이를 확인하세요.
+              오토 회원은 1개월 30,000원부터(6·12개월 할인). 눌러서 이용료·계좌·차이를 확인하세요.
             </Text>
           )}
         </Card>

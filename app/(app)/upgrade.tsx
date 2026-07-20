@@ -43,19 +43,48 @@ export default function UpgradeScreen() {
         </View>
       </Card>
 
+      {/* 이용료 (기간별) */}
+      <Card>
+        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>이용료 (기간 선택)</Text>
+        {[
+          { period: '1개월', price: '30,000원', note: null as string | null },
+          { period: '6개월', price: '170,000원', note: '5% 할인' },
+          { period: '12개월', price: '324,000원', note: '10% 할인' },
+        ].map((p) => (
+          <View
+            key={p.period}
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              backgroundColor: colors.cardAlt,
+              borderRadius: radius.md,
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.sm,
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{p.period}</Text>
+              {p.note && (
+                <View style={{ backgroundColor: colors.buyBg, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 }}>
+                  <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 11 }}>{p.note}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>{p.price}</Text>
+          </View>
+        ))}
+        <Text style={{ color: colors.textDim, fontSize: 11 }}>기간이 길수록 할인이 적용돼요. 만료 시 다이어리 등급으로 자동 전환됩니다.</Text>
+      </Card>
+
       {/* 업그레이드 방법 */}
       <Card style={{ borderColor: colors.primary, borderWidth: 1.5 }}>
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>업그레이드 방법</Text>
         <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 20 }}>
-          아래 계좌로 <Text style={{ color: colors.buy, fontWeight: '900' }}>30,000원</Text>을 입금해 주세요. 입금 확인 후 관리자
-          승인으로 AUTO 등급으로 전환됩니다.
+          원하는 기간의 이용료를 아래 계좌로 입금해 주세요. 입금 확인 후 관리자 승인으로 AUTO 등급으로 전환됩니다.
         </Text>
 
         <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={{ color: colors.textDim, fontSize: 13 }}>입금 금액</Text>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>₩30,000</Text>
-          </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
             <Text style={{ color: colors.textDim, fontSize: 13 }}>은행</Text>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>토스뱅크</Text>

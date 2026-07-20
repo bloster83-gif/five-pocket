@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { Card, Row } from '@/components/ui';
@@ -52,9 +53,12 @@ export default function HoldingsScreen() {
     }
   }, [session?.user?.id]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // 진입할 때마다 최신 잔고로 새로고침
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   const krHoldings = balance?.holdings ?? [];
   const usEval = usHoldings.reduce((s, h) => s + h.evalAmount, 0);
@@ -104,6 +108,18 @@ export default function HoldingsScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 60 }}>
+      {/* 총자산 (원화 환산) — 맨 위 + 새로고침 */}
+      <Card style={{ borderColor: colors.primary, borderWidth: 1.5 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>💰 총 자산 (원화 환산)</Text>
+          <Pressable onPress={load} style={{ backgroundColor: colors.cardAlt, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>↻ 새로고침</Text>
+          </Pressable>
+        </View>
+        <Text style={{ color: colors.text, fontWeight: '900', fontSize: 26 }}>{formatMoney(totalAssetKRW, 'KRX')}</Text>
+        <Text style={{ color: colors.textDim, fontSize: 11 }}>국내(평가+예수금) + 미국(평가+예수금)×1,500원 고정환율</Text>
+      </Card>
+
       {/* 국내(원화) 요약 */}
       <Card>
         <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>🇰🇷 국내 (원화)</Text>
@@ -142,15 +158,6 @@ export default function HoldingsScreen() {
         </View>
         <Row label="예수금 (주문가능·달러)" value={formatMoney(usCash, 'US')} />
         <Row label="미국 보유 종목" value={`${usHoldings.length}종목`} />
-      </Card>
-
-      {/* 총자산 (원화 환산) */}
-      <Card style={{ borderColor: colors.primary, borderWidth: 1.5 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>💰 총 자산 (원화 환산)</Text>
-          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 20 }}>{formatMoney(totalAssetKRW, 'KRX')}</Text>
-        </View>
-        <Text style={{ color: colors.textDim, fontSize: 11 }}>국내(평가+예수금) + 미국(평가+예수금)×1,500원 고정환율</Text>
       </Card>
 
       {/* 국내 종목 상세 */}
