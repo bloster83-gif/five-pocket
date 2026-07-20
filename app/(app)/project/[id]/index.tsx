@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Pressable, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -439,6 +439,16 @@ export default function ProjectDetailScreen() {
               realizedByTrade={realizedByTrade}
               autoMode={tier === 'auto'}
               autoTradeOn={project.auto_trade_enabled}
+              buyFailMsg={
+                lastEvent && !lastEvent.ok && lastEvent.kind === 'buy' && lastEvent.pocketIdx === k.idx
+                  ? lastEvent.message
+                  : null
+              }
+              sellFailMsg={
+                lastEvent && !lastEvent.ok && lastEvent.kind === 'sell' && lastEvent.pocketIdx === k.idx
+                  ? lastEvent.message
+                  : null
+              }
               onRestart={() => restartPocket(k)}
               onTrade={(side, sqty, sprice, budget) =>
                 router.push(
@@ -498,6 +508,22 @@ export default function ProjectDetailScreen() {
 
     </ScrollView>
   );
+}
+
+// 깜박이는 강조 효과 (매수/매도 포인트 도달·실패 안내용)
+function Blink({ children }: { children: ReactNode }) {
+  const op = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(op, { toValue: 0.2, duration: 550, useNativeDriver: true }),
+        Animated.timing(op, { toValue: 1, duration: 550, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [op]);
+  return <Animated.View style={{ opacity: op }}>{children}</Animated.View>;
 }
 
 // 보유 포켓을 왼쪽으로 스와이프하면 익절/손절이 나타나고, 끝까지 밀면 확인
@@ -584,6 +610,8 @@ function PocketCard({
   realizedByTrade,
   autoMode,
   autoTradeOn,
+  buyFailMsg,
+  sellFailMsg,
   onRestart,
   onTrade,
 }: {
@@ -598,6 +626,8 @@ function PocketCard({
   realizedByTrade: Map<string, number>; // 매도 체결 id → 실현손익
   autoMode: boolean; // AUTO 등급 → 자동체결 안내 + 수동 입력 버튼을 작게
   autoTradeOn: boolean; // 이 프로젝트의 자동매매 스위치 상태 (안내 문구용)
+  buyFailMsg: string | null; // 자동 매수 실패 사유 (있으면 깜박이며 표시)
+  sellFailMsg: string | null; // 자동 매도 실패 사유
   onRestart: () => void;
   onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number, budget?: number) => void;
 }) {
@@ -671,8 +701,15 @@ function PocketCard({
           {k.budget != null && (
             <Row label="매수 가능 수량" value={`${money(buyableQty, 0)}주`} valueColor={colors.buy} />
           )}
-          {buyReady && (
-            <Text style={{ color: colors.buy, fontWeight: '800', marginTop: 2 }}>● 지금 매수 포인트 도달</Text>
+          {(buyReady || buyFailMsg) && (
+            <Blink>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                <Text style={{ color: colors.buy, fontWeight: '900', fontSize: 15 }}>● 매수포인트 도달</Text>
+                {buyFailMsg && (
+                  <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 12 }}>· 매수 실패: {buyFailMsg}</Text>
+                )}
+              </View>
+            </Blink>
           )}
           {autoMode ? (
             <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
@@ -729,8 +766,15 @@ function PocketCard({
               {k.sell_target_price != null ? formatPrice(k.sell_target_price, market) : '-'}
             </Text>
           </View>
-          {sellReady && (
-            <Text style={{ color: colors.sell, fontWeight: '800', marginTop: 2 }}>● 지금 매도 포인트 도달</Text>
+          {(sellReady || sellFailMsg) && (
+            <Blink>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                <Text style={{ color: colors.sell, fontWeight: '900', fontSize: 15 }}>● 매도포인트 도달</Text>
+                {sellFailMsg && (
+                  <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 12 }}>· 매도 실패: {sellFailMsg}</Text>
+                )}
+              </View>
+            </Blink>
           )}
           {autoMode ? (
             <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
