@@ -14,7 +14,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
-import { colors, formatMoney, signColor, spacing } from '@/theme';
+import { colors, formatMoney, radius, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
 import type { Project, Trade } from '@/types/db';
@@ -248,41 +248,63 @@ export default function ProjectsScreen() {
                     </View>
                   </View>
                   {m && ((m.value != null && m.value > 0) || m.realized !== 0) && (
-                    <View style={{ marginTop: spacing.sm, gap: 3 }}>
+                    <View
+                      style={{
+                        marginTop: spacing.sm,
+                        backgroundColor: colors.cardAlt,
+                        borderRadius: radius.md,
+                        padding: spacing.md,
+                        gap: spacing.sm,
+                      }}
+                    >
+                      {/* 평가 총액 크게 */}
                       {m.value != null && m.value > 0 && (
-                        <>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                            <Text style={{ color: colors.textDim }}>평가 총액</Text>
-                            <Text style={{ color: colors.text, fontWeight: '800' }}>{formatMoney(m.value, m.market)}</Text>
-                          </View>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                            <Text style={{ color: colors.textDim }}>평가 손익</Text>
-                            <Text style={{ color: signColor(m.pnl ?? 0), fontWeight: '800' }}>
-                              {m.pnl != null && m.pnl > 0 ? '+' : ''}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                          <Text style={{ color: colors.textDim, fontSize: 12 }}>평가 총액</Text>
+                          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 20 }}>
+                            {formatMoney(m.value, m.market)}
+                          </Text>
+                        </View>
+                      )}
+                      {/* 손익 배지들 */}
+                      <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
+                        {m.value != null && m.value > 0 && (
+                          <View
+                            style={{
+                              flex: 1,
+                              minWidth: 120,
+                              backgroundColor: (m.pnl ?? 0) >= 0 ? colors.buyBg : colors.sellBg,
+                              borderRadius: 8,
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                            }}
+                          >
+                            <Text style={{ color: colors.textDim, fontSize: 11 }}>평가 손익 (미실현)</Text>
+                            <Text style={{ color: signColor(m.pnl ?? 0), fontWeight: '900', fontSize: 15 }}>
+                              {(m.pnl ?? 0) > 0 ? '+' : ''}
                               {formatMoney(m.pnl, m.market)}
                             </Text>
                           </View>
-                        </>
-                      )}
-                      {m.realized !== 0 && (
-                        // 실현손익: 확정 수익이라 배지 서식으로 구분
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Text style={{ color: colors.textDim }}>실현 손익 ✓</Text>
+                        )}
+                        {m.realized !== 0 && (
                           <View
                             style={{
+                              flex: 1,
+                              minWidth: 120,
                               backgroundColor: m.realized >= 0 ? colors.buyBg : colors.sellBg,
-                              borderRadius: 6,
-                              paddingHorizontal: 8,
-                              paddingVertical: 2,
+                              borderRadius: 8,
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
                             }}
                           >
-                            <Text style={{ color: signColor(m.realized), fontWeight: '900' }}>
+                            <Text style={{ color: colors.textDim, fontSize: 11 }}>실현 손익 ✓ (확정)</Text>
+                            <Text style={{ color: signColor(m.realized), fontWeight: '900', fontSize: 15 }}>
                               {m.realized > 0 ? '+' : ''}
                               {formatMoney(m.realized, m.market)}
                             </Text>
                           </View>
-                        </View>
-                      )}
+                        )}
+                      </View>
                     </View>
                   )}
                   {/* 자동매매 토글 (AUTO 등급 · 진행중 · 한국/미국주식) */}
