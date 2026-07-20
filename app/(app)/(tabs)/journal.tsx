@@ -356,7 +356,7 @@ export default function JournalScreen() {
   return (
     <View style={{ flex: 1 }}>
       {HeaderToggle}
-      <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 90 }}>
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
 
       {/* 검색/필터 바 (내용 카드와 구분되는 어두운 바 서식) */}
       <FilterBar style={{ flexDirection: 'row', alignItems: 'center' }}>

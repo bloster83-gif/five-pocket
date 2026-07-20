@@ -61,7 +61,7 @@ export default function CashFlowScreen() {
   const accent = TYPES.find((t) => t.key === type)!.color;
 
   return (
-    <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }} keyboardShouldPersistTaps="handled">
+    <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
       <Card>
         <Text style={{ color: colors.textDim }}>종류</Text>
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>

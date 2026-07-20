@@ -159,7 +159,10 @@ export default function ProjectsScreen() {
         <FlatList
           data={filtered}
           keyExtractor={(p) => p.id}
-          contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 96 }}
+          contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 120 }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          automaticallyAdjustKeyboardInsets
           refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.buy} />}
           ListHeaderComponent={
             !showSearch ? null : (
