@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Card, Chip, Field, FilterBar, Row } from '@/components/ui';
+import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import type { Pocket, Project, Trade } from '@/types/db';
@@ -179,15 +179,37 @@ export default function PocketsScreen() {
         </Card>
       )}
 
-      {/* 예산 합산 */}
-      <Card>
-        <Text style={{ color: colors.text, fontWeight: '800' }}>프로젝트 예산 합계 (진행중)</Text>
+      {/* 예산 합산 — 강조 카드 (민트 테두리) */}
+      <Card style={{ borderColor: colors.primary, borderWidth: 1.5, backgroundColor: 'rgba(34,211,166,0.06)' }}>
+        <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 15 }}>
+          💰 프로젝트 예산 합계 (진행중)
+        </Text>
         {Object.keys(budgetByMarket).length === 0 ? (
           <Text style={{ color: colors.textDim }}>예산이 설정된 프로젝트가 없어요.</Text>
         ) : (
           Object.entries(budgetByMarket).map(([mkt, v]) => (
-            <Row key={mkt} label={mkt === 'KRX' ? '한국 (원화)' : '미국 (달러)'} value={formatMoney(v, mkt)} />
+            <View key={mkt} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.textDim }}>{mkt === 'KRX' ? '한국 (원화)' : '미국 (달러)'}</Text>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 22 }}>{formatMoney(v, mkt)}</Text>
+            </View>
           ))
+        )}
+        {Object.keys(budgetByMarket).length > 0 && (
+          <View
+            style={{
+              borderTopWidth: 1,
+              borderTopColor: colors.border,
+              paddingTop: spacing.sm,
+              gap: 3,
+            }}
+          >
+            <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
+              🤖 자동주문을 쓰는 경우, 증권사 계좌에 위 예산과 동일한 금액을 미리 넣어두세요.
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>
+              계좌 잔고가 예산보다 부족하면 목표가에 도달해도 프로젝트 설계대로 매수가 안 될 수 있어요.
+            </Text>
+          </View>
         )}
       </Card>
 
