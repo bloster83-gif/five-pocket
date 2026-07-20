@@ -1,25 +1,27 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
 import { Button, Card, Field, NumberField } from '@/components/ui';
-import { colors, spacing, withCommas } from '@/theme';
-import { sellTargetFromFill } from '@/domain/pockets';
+import { colors, formatPrice, money, radius, spacing } from '@/theme';
+import { estimatedShares, sellTargetFromFill } from '@/domain/pockets';
 import type { TradeSide } from '@/types/db';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const todayStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 
 export default function TradeScreen() {
-  const { id, pocket, idx, side: sideParam, sqty, sprice } = useLocalSearchParams<{
+  const { id, pocket, idx, side: sideParam, sqty, sprice, budget, mkt } = useLocalSearchParams<{
     id: string;
     pocket: string;
     idx: string;
     side?: string;
     sqty?: string;
     sprice?: string;
+    budget?: string;
+    mkt?: string;
   }>();
   const router = useRouter();
   const { session } = useAuth();
@@ -28,26 +30,30 @@ export default function TradeScreen() {
   const side: TradeSide = sideParam === 'sell' ? 'sell' : 'buy';
   const isBuy = side === 'buy';
   const accent = isBuy ? colors.buy : colors.sell;
+  const market = mkt || 'KRX';
 
-  const initQty = sqty && Number(sqty) > 0 ? String(Math.round(Number(sqty))) : '';
+  // 예산(매수) / 보유수량(매도) — 수량은 수정 불가, 값만 참고
+  const budgetN = budget && Number(budget) > 0 ? Number(budget) : 0;
+  const heldQty = sqty && Number(sqty) > 0 ? Math.round(Number(sqty)) : 0;
   const initPrice = sprice && Number(sprice) > 0 ? String(Number(sprice)) : '';
 
   const [price, setPrice] = useState(initPrice);
-  const [qty, setQty] = useState(initQty);
   const [date, setDate] = useState(todayStr());
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const stepQty = (delta: number) => {
-    const n = Math.max(0, (Number(qty) || 0) + delta);
-    setQty(String(n));
-  };
+  const priceN = Number(price) || 0;
+  // 매수 = 예산으로 살 수 있는 수량(체결가 기준 자동 계산), 매도 = 보유 수량 전량 (부분매도 불가)
+  const lockedQty = isBuy
+    ? budgetN > 0 && priceN > 0
+      ? estimatedShares(budgetN, priceN)
+      : heldQty
+    : heldQty;
 
   const onSubmit = async () => {
-    const priceN = Number(price);
-    const qtyN = Number(qty);
     if (!priceN || priceN <= 0) return notify('입력 필요', '체결가를 올바르게 입력하세요.');
-    if (!qtyN || qtyN <= 0) return notify('입력 필요', '수량을 올바르게 입력하세요.');
+    if (!lockedQty || lockedQty <= 0)
+      return notify('수량 없음', isBuy ? '예산으로 살 수 있는 수량이 없어요. 체결가를 확인하세요.' : '매도할 보유 수량이 없어요.');
     const executed = new Date(`${date}T12:00:00`);
     if (isNaN(executed.getTime())) return notify('날짜 오류', '체결 날짜를 YYYY-MM-DD 형식으로 입력하세요.');
     if (!session?.user?.id || !id || !pocket) return;
@@ -59,7 +65,7 @@ export default function TradeScreen() {
       pocket_id: pocket,
       side,
       price: priceN,
-      quantity: qtyN,
+      quantity: lockedQty,
       executed_at: executed.toISOString(),
       note: note.trim() || null,
     });
@@ -95,22 +101,36 @@ export default function TradeScreen() {
       <Card>
         <NumberField label="체결가" value={price} onChangeText={setPrice} decimals placeholder="실제 체결된 가격" />
 
-        {/* 수량 + 증감 버튼 (제안 수량 자동 입력) */}
+        {/* 수량 — 수정 불가 (매수: 예산 배분 수량 / 매도: 보유 전량) */}
         <View style={{ gap: spacing.xs }}>
           <Text style={{ color: colors.textDim, fontSize: 13 }}>
-            수량 (주){initQty ? `  · 제안 ${withCommas(initQty)}주` : ''}
+            {isBuy ? '매수 수량 (예산 자동 계산)' : '매도 수량 (보유 전량)'}
           </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-            <Pressable onPress={() => stepQty(-1)} style={stepBtn}>
-              <Text style={{ color: colors.text, fontSize: 22, fontWeight: '900' }}>－</Text>
-            </Pressable>
-            <View style={{ flex: 1 }}>
-              <NumberField label="" value={qty} onChangeText={setQty} placeholder="0" />
-            </View>
-            <Pressable onPress={() => stepQty(1)} style={stepBtn}>
-              <Text style={{ color: colors.text, fontSize: 22, fontWeight: '900' }}>＋</Text>
-            </Pressable>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: isBuy ? colors.buyBg : colors.sellBg,
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: accent,
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.md,
+            }}
+          >
+            <Text style={{ color: accent, fontSize: 24, fontWeight: '900' }}>{money(lockedQty, 0)}주</Text>
+            <Text style={{ color: colors.textDim, fontSize: 12 }}>🔒 수량 고정</Text>
           </View>
+          {isBuy && budgetN > 0 && (
+            <Text style={{ color: colors.textDim, fontSize: 12 }}>
+              배분 예산 {formatPrice(budgetN, market)} ÷ 체결가 → 살 수 있는 최대 수량으로 자동 계산돼요. 부분 매수/수량 조정은
+              막혀 있어요.
+            </Text>
+          )}
+          {!isBuy && (
+            <Text style={{ color: colors.textDim, fontSize: 12 }}>보유 수량 전량을 매도해요. 부분 매도는 할 수 없어요.</Text>
+          )}
         </View>
 
         <Field label="체결 날짜" value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" autoCapitalize="none" />
@@ -127,14 +147,3 @@ export default function TradeScreen() {
     </ScrollView>
   );
 }
-
-const stepBtn = {
-  width: 48,
-  height: 48,
-  borderRadius: 12,
-  alignItems: 'center' as const,
-  justifyContent: 'center' as const,
-  backgroundColor: colors.cardAlt,
-  borderWidth: 1,
-  borderColor: colors.border,
-};

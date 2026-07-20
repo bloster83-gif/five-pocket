@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
+import { priceProvider } from '@/services/prices';
 import type { Pocket, Project, Trade } from '@/types/db';
 
 export default function PocketsScreen() {
@@ -21,6 +22,7 @@ export default function PocketsScreen() {
   const [q, setQ] = useState(''); // 종목명/티커 검색
   const [market, setMarket] = useState<'KRX' | 'US' | null>(null); // null = 전체 시장
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [prices, setPrices] = useState<Record<string, number>>({}); // symbol → 실시간가
 
   const load = useCallback(async () => {
     const [{ data: p }, { data: k }, { data: t }] = await Promise.all([
@@ -38,6 +40,25 @@ export default function PocketsScreen() {
     useCallback(() => {
       load();
     }, [load])
+  );
+
+  // 프로젝트별 실시간 시세 (야후) — 웹은 CORS로 막힐 수 있어 실기기에서 라이브
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      const uniq = Array.from(new Map(projects.filter((p) => p.symbol).map((p) => [p.symbol, p])).values());
+      uniq.forEach(async (p) => {
+        try {
+          const q = await priceProvider.getQuote(p.symbol);
+          if (alive) setPrices((m) => ({ ...m, [p.symbol]: q.price }));
+        } catch {
+          /* 시세 실패는 무시 (— 표시) */
+        }
+      });
+      return () => {
+        alive = false;
+      };
+    }, [projects])
   );
 
   const projMap = useMemo(() => {
@@ -96,7 +117,9 @@ export default function PocketsScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
+    <View style={{ flex: 1 }}>
+      {/* 상단 고정 헤더 — 포켓필터·검색은 스크롤 위치와 상관없이 항상 보이게 틀고정 */}
+      <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md, gap: spacing.md }}>
       {/* 🧺 포켓 번호 선택 — 맨 위, 화면 폭에 딱 맞는 균등 분할 버튼 (포켓탭 전용 서식) */}
       <View
         style={{
@@ -178,7 +201,14 @@ export default function PocketsScreen() {
           </View>
         </Card>
       )}
+      </View>
 
+      <ScrollView
+        contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 120 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets
+      >
       {/* 예산 합산 — 강조 카드 (민트 테두리) */}
       <Card style={{ borderColor: colors.primary, borderWidth: 1.5, backgroundColor: 'rgba(34,211,166,0.06)' }}>
         <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 15 }}>
@@ -223,6 +253,7 @@ export default function PocketsScreen() {
         const proj = projMap[k.project_id]!;
         const kt = tradesByPocket[k.id] ?? [];
         const pnl = computePnL(kt, null);
+        const price = prices[proj.symbol] ?? null;
         const open = expanded === k.id;
         const statusMeta =
           k.status === 'bought'
@@ -250,6 +281,42 @@ export default function PocketsScreen() {
                 <View style={{ backgroundColor: statusMeta.bg, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
                   <Text style={{ color: statusMeta.color, fontWeight: '800', fontSize: 12 }}>{statusMeta.text}</Text>
                 </View>
+              </View>
+
+              {/* 실시간 현재가 + 목표가 (대기: 매수목표 / 보유: 매수가→매도목표) */}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text style={{ color: colors.textDim, fontSize: 11 }}>현재가</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                    {price != null ? formatPrice(price, proj.market) : '—'}
+                  </Text>
+                </View>
+                {k.status === 'waiting' && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={{ color: colors.textDim, fontSize: 11 }}>매수목표</Text>
+                    <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>
+                      {formatPrice(k.buy_target_price, proj.market)}
+                    </Text>
+                  </View>
+                )}
+                {k.status === 'bought' && (
+                  <>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Text style={{ color: colors.textDim, fontSize: 11 }}>매수가</Text>
+                      <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>
+                        {formatPrice(pnl.avgOpenPrice, proj.market)}
+                      </Text>
+                    </View>
+                    {k.sell_target_price != null && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={{ color: colors.textDim, fontSize: 11 }}>매도목표</Text>
+                        <Text style={{ color: colors.sell, fontWeight: '800', fontSize: 13 }}>
+                          {formatPrice(k.sell_target_price, proj.market)}
+                        </Text>
+                      </View>
+                    )}
+                  </>
+                )}
               </View>
 
               {/* 보유 중이면 보유수량·평균매수가를 강조 박스로 */}
@@ -313,6 +380,7 @@ export default function PocketsScreen() {
           </Pressable>
         );
       })}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }

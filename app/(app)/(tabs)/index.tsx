@@ -14,7 +14,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
-import { colors, formatMoney, radius, signColor, spacing } from '@/theme';
+import { colors, formatMoney, formatPrice, radius, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
 import type { Project, Trade } from '@/types/db';
@@ -22,6 +22,7 @@ import type { Project, Trade } from '@/types/db';
 const fmtDate = (iso: string | null) => (iso ? iso.slice(0, 10) : '-');
 
 interface Metric {
+  price: number | null; // 실시간 현재가
   value: number | null; // 평가총액 (보유수량 * 현재가)
   pnl: number | null; // 평가손익 (미실현)
   realized: number; // 실현손익 (매도 완료분)
@@ -60,24 +61,25 @@ export default function ProjectsScreen() {
     await Promise.all(
       projs.map(async (p) => {
         const base = computePnL(tradesByProj[p.id] ?? [], null);
-        if (base.totalQtyOpen <= 0) {
-          setMetrics((m) => ({ ...m, [p.id]: { value: 0, pnl: 0, realized: base.realized, market: p.market } }));
-          return;
-        }
+        const open = base.totalQtyOpen > 0;
         try {
           const qt = await priceProvider.getQuote(p.symbol);
           const mkt = qt.currency === 'KRW' ? 'KRX' : qt.currency === 'USD' ? 'US' : p.market;
           setMetrics((m) => ({
             ...m,
             [p.id]: {
-              value: base.totalQtyOpen * qt.price,
-              pnl: (qt.price - base.avgOpenPrice) * base.totalQtyOpen,
+              price: qt.price,
+              value: open ? base.totalQtyOpen * qt.price : 0,
+              pnl: open ? (qt.price - base.avgOpenPrice) * base.totalQtyOpen : 0,
               realized: base.realized,
               market: mkt,
             },
           }));
         } catch {
-          setMetrics((m) => ({ ...m, [p.id]: { value: null, pnl: null, realized: base.realized, market: p.market } }));
+          setMetrics((m) => ({
+            ...m,
+            [p.id]: { price: null, value: open ? null : 0, pnl: open ? null : 0, realized: base.realized, market: p.market },
+          }));
         }
       })
     );
@@ -149,6 +151,24 @@ export default function ProjectsScreen() {
             <Chip label="미국" icon="🇺🇸" active={market === 'US'} onPress={() => setMarket(market === 'US' ? null : 'US')} activeColor={colors.accent} />
           </ScrollView>
         </FilterBar>
+
+        {/* 검색 입력 — 돋보기를 누르면 스크롤 위치와 상관없이 바로 여기(상단 고정)에 뜸 */}
+        {showSearch && (
+          <Card style={{ marginTop: spacing.sm }}>
+            <Field label="검색 (종목명/티커)" value={q} onChangeText={setQ} placeholder="예: 삼성, AAPL" autoCapitalize="none" />
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <View style={{ flex: 1 }}>
+                <Field label="생성일 이후" value={from} onChangeText={setFrom} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Field label="생성일 이전" value={to} onChangeText={setTo} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+              </View>
+            </View>
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>
+              종료된 프로젝트는 위의 "종료" 또는 "전체" 버튼으로 볼 수 있어요.
+            </Text>
+          </Card>
+        )}
       </View>
 
       {loading ? (
@@ -164,24 +184,6 @@ export default function ProjectsScreen() {
           keyboardDismissMode="interactive"
           automaticallyAdjustKeyboardInsets
           refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.buy} />}
-          ListHeaderComponent={
-            !showSearch ? null : (
-            <Card style={{ marginBottom: spacing.xs }}>
-              <Field label="검색 (종목명/티커)" value={q} onChangeText={setQ} placeholder="예: 삼성, AAPL" autoCapitalize="none" />
-              <View style={{ flexDirection: 'row', gap: spacing.md }}>
-                <View style={{ flex: 1 }}>
-                  <Field label="생성일 이후" value={from} onChangeText={setFrom} placeholder="YYYY-MM-DD" autoCapitalize="none" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Field label="생성일 이전" value={to} onChangeText={setTo} placeholder="YYYY-MM-DD" autoCapitalize="none" />
-                </View>
-              </View>
-              <Text style={{ color: colors.textDim, fontSize: 11 }}>
-                종료된 프로젝트는 위의 "종료" 또는 "전체" 버튼으로 볼 수 있어요.
-              </Text>
-            </Card>
-            )
-          }
           ListEmptyComponent={
             <Card>
               <Text style={{ color: colors.text, fontWeight: '700' }}>표시할 프로젝트가 없어요</Text>
@@ -216,6 +218,13 @@ export default function ProjectsScreen() {
                       <Text style={{ color: colors.textDim, marginTop: 2 }}>
                         {item.symbol} · {item.market === 'KRX' ? '한국' : '미국'}
                       </Text>
+                      {/* 실시간 현재가 */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 }}>
+                        <Text style={{ color: colors.textDim, fontSize: 12 }}>현재가</Text>
+                        <Text style={{ color: closed ? colors.textDim : colors.text, fontWeight: '900', fontSize: 15 }}>
+                          {m?.price != null ? formatPrice(m.price, m?.market ?? item.market) : '—'}
+                        </Text>
+                      </View>
                       {/* 매수/매도 세팅값 */}
                       <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
                         <View style={{ backgroundColor: colors.buyBg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}>

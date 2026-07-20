@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
-import { computePnL, estimatedShares, pnlPct } from '@/domain/pockets';
+import { computePnL, estimatedShares, pnlPct, realizedEvents } from '@/domain/pockets';
 import { confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
 import { useAutoTrader } from '@/services/autoTrader';
@@ -79,6 +79,26 @@ export default function ProjectDetailScreen() {
       .forEach((t) => {
         if (t.pocket_id) m.set(t.pocket_id, (m.get(t.pocket_id) ?? 0) + 1);
       });
+    return m;
+  }, [trades]);
+
+  // 매도별 실현손익 매핑 (체결 id → 실현액)
+  const realizedByTrade = useMemo(() => {
+    const m = new Map<string, number>();
+    realizedEvents(trades).forEach((e) => m.set(e.trade.id, e.amount));
+    return m;
+  }, [trades]);
+
+  // 포켓별 전체 체결 내역 (재시작 이전 순환 포함) — 최신 먼저
+  const historyByPocket = useMemo(() => {
+    const m = new Map<string, Trade[]>();
+    trades.forEach((t) => {
+      if (!t.pocket_id) return;
+      const arr = m.get(t.pocket_id);
+      if (arr) arr.push(t);
+      else m.set(t.pocket_id, [t]);
+    });
+    m.forEach((arr) => arr.sort((a, b) => (a.executed_at < b.executed_at ? 1 : -1)));
     return m;
   }, [trades]);
 
@@ -188,6 +208,12 @@ export default function ProjectDetailScreen() {
           </View>
         </View>
 
+        {/* 기준가 (전략 기준점) */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.cardAlt, borderRadius: radius.sm, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+          <Text style={{ color: colors.textDim, fontSize: 12 }}>기준가 (포켓1 매수 기준)</Text>
+          <Text style={{ color: colors.text, fontWeight: '800' }}>{formatPrice(project.base_price, mkt)}</Text>
+        </View>
+
         {/* 상태 표시 (#7 확실한 실시간 표기) */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           {!project.is_active ? (
@@ -284,12 +310,14 @@ export default function ProjectDetailScreen() {
             sellTargetPct={Number(project.sell_target_pct)}
             buyTrade={buyByPocket.get(k.id) ?? null}
             cycles={cyclesByPocket.get(k.id) ?? 0}
+            history={historyByPocket.get(k.id) ?? []}
+            realizedByTrade={realizedByTrade}
             autoMode={tier === 'auto'}
             autoTradeOn={project.auto_trade_enabled}
             onRestart={() => restartPocket(k)}
-            onTrade={(side, sqty, sprice) =>
+            onTrade={(side, sqty, sprice, budget) =>
               router.push(
-                `/project/${project.id}/trade?pocket=${k.id}&idx=${k.idx}&side=${side}&sqty=${sqty}&sprice=${sprice}`
+                `/project/${project.id}/trade?pocket=${k.id}&idx=${k.idx}&side=${side}&sqty=${sqty}&sprice=${sprice}&budget=${budget ?? ''}&mkt=${mkt}`
               )
             }
           />
@@ -391,6 +419,8 @@ function PocketCard({
   sellTargetPct,
   buyTrade,
   cycles,
+  history,
+  realizedByTrade,
   autoMode,
   autoTradeOn,
   onRestart,
@@ -403,11 +433,16 @@ function PocketCard({
   sellTargetPct: number; // 매도 목표 % (매도가 +표시용)
   buyTrade: Trade | null;
   cycles: number;
+  history: Trade[]; // 이 포켓의 전체 체결(모든 순환) — 최신 먼저
+  realizedByTrade: Map<string, number>; // 매도 체결 id → 실현손익
   autoMode: boolean; // AUTO 등급 → 자동체결 안내 + 수동 입력 버튼을 작게
   autoTradeOn: boolean; // 이 프로젝트의 자동매매 스위치 상태 (안내 문구용)
   onRestart: () => void;
-  onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number) => void;
+  onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number, budget?: number) => void;
 }) {
+  const [showLog, setShowLog] = useState(false);
+  // 이 포켓에서 실현된 손익 합계 (모든 순환)
+  const pocketRealized = history.reduce((s, t) => s + (t.side === 'sell' ? realizedByTrade.get(t.id) ?? 0 : 0), 0);
   // 포켓별 기준가 대비 할인율 (포켓1=0%=기준가, 포켓2=-5%, …)
   const buyDiscPct = Math.round(k.idx * buyIntervalPct * 100) / 100;
   const buyReady = k.status === 'waiting' && price != null && price <= k.buy_target_price;
@@ -500,8 +535,29 @@ function PocketCard({
 
       {k.status === 'bought' && (
         <>
+          {/* 매수 체결 정보 (실제 체결가 + 수량 + 현재 평가) */}
+          {buyTrade && (
+            <View style={{ marginTop: spacing.xs, backgroundColor: colors.buyBg, borderRadius: radius.sm, padding: spacing.sm }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ color: colors.textDim, fontSize: 12 }}>매수가 · 수량</Text>
+                <Text style={{ color: colors.buy, fontWeight: '900', fontSize: 15 }}>
+                  {formatPrice(buyTrade.price, market)} · {money(buyTrade.quantity, 0)}주
+                </Text>
+              </View>
+              {price != null && (
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                  <Text style={{ color: colors.textDim, fontSize: 12 }}>현재가 · 평가손익</Text>
+                  <Text style={{ color: signColor(price - buyTrade.price), fontWeight: '800', fontSize: 13 }}>
+                    {formatPrice(price, market)} ({price - buyTrade.price >= 0 ? '+' : ''}
+                    {Math.round(((price - buyTrade.price) / buyTrade.price) * 10000) / 100}%)
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+
           {/* 매도 목표가 크게 (파랑) + 매수가 대비 +수익률 배지 */}
-          <View style={{ marginTop: spacing.xs }}>
+          <View style={{ marginTop: spacing.sm }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={{ color: colors.textDim, fontSize: 12 }}>매도 목표가</Text>
               <View style={{ backgroundColor: colors.sellBg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 1 }}>
@@ -512,12 +568,6 @@ function PocketCard({
               {k.sell_target_price != null ? formatPrice(k.sell_target_price, market) : '-'}
             </Text>
           </View>
-          {buyTrade && (
-            <Row
-              label="매수 체결"
-              value={`${formatPrice(buyTrade.price, market)} · ${money(buyTrade.quantity, 0)}주`}
-            />
-          )}
           {sellReady && (
             <Text style={{ color: colors.sell, fontWeight: '800', marginTop: 2 }}>● 지금 매도 포인트 도달</Text>
           )}
@@ -552,6 +602,51 @@ function PocketCard({
             large
             onPress={onRestart}
           />
+        </View>
+      )}
+
+      {/* 체결 내역 (탭하면 펼침) — 재시작 이전 순환 기록도 모두 보존 */}
+      {history.length > 0 && (
+        <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+          <Pressable
+            onPress={() => setShowLog((s) => !s)}
+            style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+              🧾 체결 내역 {history.length}건 {showLog ? '▲' : '▼'}
+            </Text>
+            {pocketRealized !== 0 && (
+              <Text style={{ color: signColor(pocketRealized), fontWeight: '800', fontSize: 13 }}>
+                실현 {pocketRealized > 0 ? '+' : ''}
+                {formatMoney(pocketRealized, market)}
+              </Text>
+            )}
+          </Pressable>
+          {showLog && (
+            <View style={{ marginTop: spacing.sm, gap: 6 }}>
+              {history.map((t) => {
+                const realized = t.side === 'sell' ? realizedByTrade.get(t.id) : undefined;
+                return (
+                  <View key={t.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: t.side === 'buy' ? colors.buy : colors.sell, fontWeight: '700', fontSize: 13 }}>
+                      {t.side === 'buy' ? '매수' : '매도'} · {t.executed_at.slice(0, 10)}
+                    </Text>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ color: colors.text, fontSize: 13 }}>
+                        {formatPrice(t.price, market)} · {money(t.quantity, 0)}주
+                      </Text>
+                      {realized != null && realized !== 0 && (
+                        <Text style={{ color: signColor(realized), fontSize: 11, fontWeight: '800' }}>
+                          실현 {realized > 0 ? '+' : ''}
+                          {formatMoney(realized, market)}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </View>
       )}
     </Card>
