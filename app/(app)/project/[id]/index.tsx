@@ -173,6 +173,16 @@ export default function ProjectDetailScreen() {
       <Stack.Screen
         options={{
           title: project.name,
+          // 실시간 추적 중 헤더 리렌더로 기본 < 버튼이 씹히는 경우가 있어, 넉넉한 터치영역 + 폴백을 가진 커스텀 버튼 사용
+          headerLeft: () => (
+            <Pressable
+              onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+              hitSlop={20}
+              style={{ ...headerIconStyle, marginLeft: spacing.sm, marginRight: spacing.sm }}
+            >
+              <Text style={{ color: colors.text, fontSize: 24, fontWeight: '800', marginTop: -3 }}>‹</Text>
+            </Pressable>
+          ),
           headerRight: () => (
             <Pressable
               onPress={() => router.push(`/project/${project.id}/chart`)}

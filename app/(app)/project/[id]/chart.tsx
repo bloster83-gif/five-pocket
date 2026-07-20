@@ -139,6 +139,15 @@ export default function ChartScreen() {
   const priceToY = (p: number) => PAD_TOP + ((maxP - p) / (maxP - minP)) * plotH;
   const chartW = Math.max(candles.length * candleW, 10);
 
+  // x축 날짜 라벨 — 캔들 폭에 맞춰 겹치지 않을 만큼 띄엄띄엄 표시
+  const labelStep = Math.max(1, Math.round(52 / candleW));
+  const fmtAxisDate = (ms: number) => {
+    const d = new Date(ms);
+    const YY = String(d.getFullYear()).slice(2);
+    if (mode === 'year') return `${YY}/${d.getMonth() + 1}`; // 년봉(월 집계): 연/월
+    return `${d.getMonth() + 1}/${d.getDate()}`; // 일·주봉: 월/일
+  };
+
   // 매매 → 그 시점이 속한 캔들 인덱스 (t 이하의 마지막 캔들)
   const tradeIndex = (tradeTime: number): number => {
     let idx = -1;
@@ -207,6 +216,26 @@ export default function ChartScreen() {
               {gridLines.map((p, i) => (
                 <Line key={i} x1={0} y1={priceToY(p)} x2={chartW} y2={priceToY(p)} stroke={colors.border} strokeWidth={0.5} />
               ))}
+              {/* x축 날짜 라벨 + 세로 눈금 (하단) */}
+              {candles.map((c, i) => {
+                if (i % labelStep !== 0) return null;
+                const x = i * candleW + candleW / 2;
+                return (
+                  <G key={`d${i}`}>
+                    <Line
+                      x1={x}
+                      y1={PAD_TOP + plotH}
+                      x2={x}
+                      y2={PAD_TOP + plotH + 4}
+                      stroke={colors.textDim}
+                      strokeWidth={0.5}
+                    />
+                    <SvgText x={x} y={chartH - 8} fontSize={9} fill={colors.textDim} textAnchor="middle">
+                      {fmtAxisDate(c.t)}
+                    </SvgText>
+                  </G>
+                );
+              })}
               {candles.map((c, i) => {
                 const x = i * candleW + candleW / 2;
                 const col = c.c >= c.o ? colors.buy : colors.sell;
