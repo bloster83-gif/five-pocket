@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Switch, Text,
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import { Button, Card, Row } from '@/components/ui';
+import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, pocketColor, signColor, spacing } from '@/theme';
 import { computePnL, estimatedShares, pnlPct } from '@/domain/pockets';
 import { confirmAction, notify } from '@/lib/alert';
@@ -157,9 +157,19 @@ export default function ProjectDetailScreen() {
             <Pressable
               onPress={() => router.push(`/project/${project.id}/chart`)}
               hitSlop={10}
-              style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginRight: spacing.sm }}
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 19,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginRight: spacing.sm,
+                backgroundColor: colors.cardAlt,
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
             >
-              <Text style={{ fontSize: 20, textAlign: 'center', lineHeight: 24 }}>📈</Text>
+              <ChartIcon size={16} />
             </Pressable>
           ),
         }}

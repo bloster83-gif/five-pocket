@@ -109,6 +109,19 @@ export function Row({ label, value, valueColor }: { label: string; value: string
   );
 }
 
+// 미니 막대차트 아이콘 — 이모지(📈) 대체. 어느 기기에서나 동일하게 렌더링됨
+export function ChartIcon({ size = 18 }: { size?: number }) {
+  const w = Math.max(3, Math.round(size * 0.22));
+  const gap = Math.max(2, Math.round(size * 0.12));
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap, height: size }}>
+      <View style={{ width: w, height: size * 0.45, backgroundColor: colors.accent, borderRadius: 2 }} />
+      <View style={{ width: w, height: size, backgroundColor: colors.buy, borderRadius: 2 }} />
+      <View style={{ width: w, height: size * 0.7, backgroundColor: colors.primary, borderRadius: 2 }} />
+    </View>
+  );
+}
+
 // 검색/필터 영역 공용 컨테이너 — 내용 카드(Card)와 확실히 구분되는 어두운 바
 export function FilterBar({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
   return (
