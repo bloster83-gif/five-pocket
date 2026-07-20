@@ -1,15 +1,21 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
+import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
 import { computePnL, estimatedShares } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
-import type { Pocket, Project, Trade } from '@/types/db';
+import { kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
+import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 export default function PocketsScreen() {
   const router = useRouter();
+  const { tier, session } = useAuth();
+  const [account, setAccount] = useState<BrokerAccount | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [pockets, setPockets] = useState<Pocket[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -65,6 +71,17 @@ export default function PocketsScreen() {
     }, [projects])
   );
 
+  // 손절 주문용 증권사 계좌 (AUTO 등급)
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    supabase
+      .from('broker_accounts')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .maybeSingle()
+      .then(({ data }) => setAccount((data as BrokerAccount) ?? null));
+  }, [session?.user?.id]);
+
   const projMap = useMemo(() => {
     const m: Record<string, Project> = {};
     projects.forEach((p) => (m[p.id] = p));
@@ -111,6 +128,66 @@ export default function PocketsScreen() {
       return true;
     });
   }, [pockets, projMap, tradesByPocket, onlyHolding, onlyRealized, pocketFilter, q, market]);
+
+  // 포켓 1개 손절 (전량 매도). AUTO+계좌+네이티브면 실제 KIS 주문, 그 외엔 체결 기록만.
+  const stopLossPocket = async (k: Pocket, proj: Project): Promise<{ ok: boolean; msg?: string }> => {
+    if (!session?.user?.id) return { ok: false };
+    const pocketTrades = tradesByPocket[k.id] ?? [];
+    const openPnl = computePnL(pocketTrades, null);
+    const qty = Math.floor(openPnl.totalQtyOpen);
+    if (qty <= 0) return { ok: false, msg: '보유 수량 없음' };
+    const sellPrice = prices[proj.symbol]?.price ?? k.sell_target_price ?? openPnl.avgOpenPrice ?? 0;
+    if (sellPrice <= 0) return { ok: false, msg: '현재가를 확인할 수 없어요' };
+
+    if (tier === 'auto' && account && !kisOrderBlocked(proj.market)) {
+      try {
+        const input = { side: 'sell' as const, symbol: proj.symbol, quantity: qty, price: sellPrice };
+        const r = proj.market === 'US' ? await placeOverseasOrder(account, input) : await placeDomesticOrder(account, input);
+        supabase
+          .from('auto_orders')
+          .insert({
+            user_id: session.user.id,
+            project_id: proj.id,
+            pocket_id: k.id,
+            side: 'sell',
+            symbol: proj.symbol,
+            order_price: sellPrice,
+            quantity: qty,
+            status: 'sent',
+            kis_order_no: r.orderNo,
+          })
+          .then(() => {});
+      } catch (e: any) {
+        return { ok: false, msg: e?.message ?? '주문 실패' };
+      }
+    }
+
+    await supabase.from('trades').insert({
+      user_id: session.user.id,
+      project_id: proj.id,
+      pocket_id: k.id,
+      side: 'sell',
+      price: sellPrice,
+      quantity: qty,
+      executed_at: new Date().toISOString(),
+      note: '손절',
+    });
+    await supabase.from('pockets').update({ status: 'sold' }).eq('id', k.id);
+    return { ok: true };
+  };
+
+  const confirmStopLossPocket = (k: Pocket, proj: Project) => {
+    confirmAction(
+      '포켓 손절',
+      `${proj.name} 포켓 ${k.idx + 1}을(를) 지금 전량 손절(매도)할까요?${tier === 'auto' && account ? ' 실제 매도 주문이 전송됩니다.' : ''}`,
+      async () => {
+        const r = await stopLossPocket(k, proj);
+        await load();
+        if (!r.ok) notify('손절 실패', r.msg ?? '처리하지 못했어요.');
+      },
+      '손절'
+    );
+  };
 
   if (loading) {
     return (
@@ -267,8 +344,8 @@ export default function PocketsScreen() {
             : k.status === 'sold'
               ? { text: '매도 완료', color: colors.sell, bg: colors.sellBg }
               : { text: '대기', color: colors.textDim, bg: colors.cardAlt };
-        return (
-          <Pressable key={k.id} onPress={() => setExpanded(open ? null : k.id)}>
+        const cardEl = (
+          <Pressable onPress={() => setExpanded(open ? null : k.id)}>
             <Card
               style={{
                 borderColor: open ? colors.accent : colors.border,
@@ -397,8 +474,45 @@ export default function PocketsScreen() {
             </Card>
           </Pressable>
         );
+        // 보유중(매수 완료) 포켓만 왼쪽으로 스와이프하면 손절하기
+        return k.status === 'bought' ? (
+          <StopLossSwipe key={k.id} onStopLoss={() => confirmStopLossPocket(k, proj)}>
+            {cardEl}
+          </StopLossSwipe>
+        ) : (
+          <View key={k.id}>{cardEl}</View>
+        );
       })}
       </ScrollView>
     </View>
+  );
+}
+
+// 보유 포켓을 왼쪽으로 스와이프하면 '손절하기'가 나타나고, 끝까지 밀면 손절 확인
+function StopLossSwipe({ onStopLoss, children }: { onStopLoss: () => void; children: ReactNode }) {
+  const ref = useRef<Swipeable>(null);
+  return (
+    <Swipeable
+      ref={ref}
+      friction={2}
+      rightThreshold={48}
+      overshootRight={false}
+      renderRightActions={() => (
+        <View style={{ justifyContent: 'center', alignItems: 'center', width: 96, paddingLeft: spacing.sm }}>
+          <View style={{ backgroundColor: colors.sell, borderRadius: radius.md, paddingVertical: 12, paddingHorizontal: 10, alignItems: 'center' }}>
+            <Text style={{ fontSize: 18 }}>✂️</Text>
+            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12, marginTop: 2 }}>손절하기</Text>
+          </View>
+        </View>
+      )}
+      onSwipeableOpen={(dir) => {
+        if (dir === 'right') {
+          ref.current?.close();
+          onStopLoss();
+        }
+      }}
+    >
+      {children}
+    </Swipeable>
   );
 }
