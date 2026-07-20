@@ -315,6 +315,27 @@ export default function MyScreen() {
         )}
       </Card>
 
+      {/* 회원 등급 안내 + 오토 업그레이드 (Diary 등급일 때 강조) */}
+      <Pressable onPress={() => router.push('/upgrade')}>
+        <Card style={tier === 'auto' ? undefined : { borderColor: colors.buy, borderWidth: 1.5 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🚀 회원 등급 안내</Text>
+            <Text style={{ color: colors.accent, fontWeight: '800', fontSize: 13 }}>
+              {tier === 'auto' ? '등급 안내 →' : '오토회원 업그레이드 안내 →'}
+            </Text>
+          </View>
+          <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 20 }}>
+            <Text style={{ color: colors.text, fontWeight: '700' }}>Diary</Text>는 수동 매매 일지,{' '}
+            <Text style={{ color: colors.buy, fontWeight: '700' }}>AUTO</Text>는 목표가 도달 시 자동 주문·24시간 자동매매까지.
+          </Text>
+          {tier !== 'auto' && (
+            <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
+              오토 회원 업그레이드는 30,000원 입금 후 승인돼요. 눌러서 계좌·자세한 차이를 확인하세요.
+            </Text>
+          )}
+        </Card>
+      </Pressable>
+
       {/* 보유주식 현황 (KIS 잔고) */}
       <Card>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>

@@ -17,6 +17,7 @@ export default function AppLayout() {
       <Stack.Screen name="verify-phone" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="admin" options={{ title: '회원 관리 (관리자)' }} />
       <Stack.Screen name="holdings" options={{ title: '보유주식 상세' }} />
+      <Stack.Screen name="upgrade" options={{ title: '오토 회원 업그레이드' }} />
       <Stack.Screen name="broker" options={{ title: '한국투자증권 계좌 연결' }} />
       <Stack.Screen name="journal-entry" options={{ title: '체결 직접 입력', presentation: 'modal' }} />
       <Stack.Screen name="cash-flow" options={{ title: '입금 / 출금 / 배당', presentation: 'modal' }} />
