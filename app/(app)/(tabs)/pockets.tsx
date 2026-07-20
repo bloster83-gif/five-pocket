@@ -22,7 +22,7 @@ export default function PocketsScreen() {
   const [q, setQ] = useState(''); // 종목명/티커 검색
   const [market, setMarket] = useState<'KRX' | 'US' | null>(null); // null = 전체 시장
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [prices, setPrices] = useState<Record<string, number>>({}); // symbol → 실시간가
+  const [prices, setPrices] = useState<Record<string, { price: number; changePct: number | null }>>({}); // symbol → 실시간가·등락률
 
   const load = useCallback(async () => {
     const [{ data: p }, { data: k }, { data: t }] = await Promise.all([
@@ -50,7 +50,11 @@ export default function PocketsScreen() {
       uniq.forEach(async (p) => {
         try {
           const q = await priceProvider.getQuote(p.symbol);
-          if (alive) setPrices((m) => ({ ...m, [p.symbol]: q.price }));
+          const changePct =
+            q.previousClose && q.previousClose > 0
+              ? Math.round(((q.price - q.previousClose) / q.previousClose) * 10000) / 100
+              : null;
+          if (alive) setPrices((m) => ({ ...m, [p.symbol]: { price: q.price, changePct } }));
         } catch {
           /* 시세 실패는 무시 (— 표시) */
         }
@@ -253,7 +257,9 @@ export default function PocketsScreen() {
         const proj = projMap[k.project_id]!;
         const kt = tradesByPocket[k.id] ?? [];
         const pnl = computePnL(kt, null);
-        const price = prices[proj.symbol] ?? null;
+        const quote = prices[proj.symbol];
+        const price = quote?.price ?? null;
+        const changePct = quote?.changePct ?? null;
         const open = expanded === k.id;
         const statusMeta =
           k.status === 'bought'
@@ -290,6 +296,13 @@ export default function PocketsScreen() {
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
                     {price != null ? formatPrice(price, proj.market) : '—'}
                   </Text>
+                  {changePct != null && (
+                    <Text style={{ color: signColor(changePct), fontWeight: '800', fontSize: 12 }}>
+                      {changePct > 0 ? '▲' : changePct < 0 ? '▼' : ''}
+                      {changePct > 0 ? '+' : ''}
+                      {changePct}%
+                    </Text>
+                  )}
                 </View>
                 {k.status === 'waiting' && (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>

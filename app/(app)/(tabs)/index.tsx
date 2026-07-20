@@ -23,6 +23,7 @@ const fmtDate = (iso: string | null) => (iso ? iso.slice(0, 10) : '-');
 
 interface Metric {
   price: number | null; // 실시간 현재가
+  changePct: number | null; // 오늘 등락률 % (전일 종가 대비)
   value: number | null; // 평가총액 (보유수량 * 현재가)
   pnl: number | null; // 평가손익 (미실현)
   realized: number; // 실현손익 (매도 완료분)
@@ -65,10 +66,15 @@ export default function ProjectsScreen() {
         try {
           const qt = await priceProvider.getQuote(p.symbol);
           const mkt = qt.currency === 'KRW' ? 'KRX' : qt.currency === 'USD' ? 'US' : p.market;
+          const changePct =
+            qt.previousClose && qt.previousClose > 0
+              ? Math.round(((qt.price - qt.previousClose) / qt.previousClose) * 10000) / 100
+              : null;
           setMetrics((m) => ({
             ...m,
             [p.id]: {
               price: qt.price,
+              changePct,
               value: open ? base.totalQtyOpen * qt.price : 0,
               pnl: open ? (qt.price - base.avgOpenPrice) * base.totalQtyOpen : 0,
               realized: base.realized,
@@ -78,7 +84,7 @@ export default function ProjectsScreen() {
         } catch {
           setMetrics((m) => ({
             ...m,
-            [p.id]: { price: null, value: open ? null : 0, pnl: open ? null : 0, realized: base.realized, market: p.market },
+            [p.id]: { price: null, changePct: null, value: open ? null : 0, pnl: open ? null : 0, realized: base.realized, market: p.market },
           }));
         }
       })
@@ -218,12 +224,18 @@ export default function ProjectsScreen() {
                       <Text style={{ color: colors.textDim, marginTop: 2 }}>
                         {item.symbol} · {item.market === 'KRX' ? '한국' : '미국'}
                       </Text>
-                      {/* 실시간 현재가 */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 }}>
+                      {/* 실시간 현재가 + 오늘 등락률 */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3, flexWrap: 'wrap' }}>
                         <Text style={{ color: colors.textDim, fontSize: 12 }}>현재가</Text>
                         <Text style={{ color: closed ? colors.textDim : colors.text, fontWeight: '900', fontSize: 15 }}>
                           {m?.price != null ? formatPrice(m.price, m?.market ?? item.market) : '—'}
                         </Text>
+                        {m?.changePct != null && (
+                          <Text style={{ color: signColor(m.changePct), fontWeight: '800', fontSize: 13 }}>
+                            {m.changePct > 0 ? '▲' : m.changePct < 0 ? '▼' : ''} {m.changePct > 0 ? '+' : ''}
+                            {m.changePct}%
+                          </Text>
+                        )}
                       </View>
                       {/* 매수/매도 세팅값 */}
                       <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
