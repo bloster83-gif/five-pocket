@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
@@ -15,6 +15,16 @@ import type { BrokerAccount, SymbolResult } from '@/types/db';
 export default function NewProjectScreen() {
   const router = useRouter();
   const { session } = useAuth();
+  const params = useLocalSearchParams<{
+    copy?: string;
+    name?: string;
+    symbol?: string;
+    market?: string;
+    base?: string;
+    buyInt?: string;
+    sellTgt?: string;
+    budget?: string;
+  }>();
 
   // 종목 검색
   const [query, setQuery] = useState('');
@@ -35,6 +45,19 @@ export default function NewProjectScreen() {
   const [cashLoading, setCashLoading] = useState(false);
 
   const market = selected?.market ?? 'US';
+
+  // 프로젝트 복사로 진입한 경우 값 미리 채우기 (1회)
+  useEffect(() => {
+    if (params.copy !== '1' || !params.symbol) return;
+    const mkt = params.market === 'KRX' ? 'KRX' : 'US';
+    setSelected({ symbol: params.symbol, name: params.name ?? params.symbol, market: mkt, exchange: params.market ?? '' });
+    setQuery(params.name ?? params.symbol);
+    if (params.base) setBasePrice(params.base);
+    if (params.buyInt) setBuyInterval(params.buyInt);
+    if (params.sellTgt) setSellTarget(params.sellTgt);
+    if (params.budget) setTotalBudget(params.budget);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.copy, params.symbol]);
 
   // 계좌가 있으면 예수금을 1회 조회 (네이티브 + KRX 계좌만)
   useEffect(() => {

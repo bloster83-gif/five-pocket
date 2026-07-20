@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -9,10 +9,11 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { Link, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import { notify } from '@/lib/alert';
+import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatMoney, formatPrice, radius, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
@@ -123,6 +124,27 @@ export default function ProjectsScreen() {
     }
   };
 
+  // 왼쪽 스와이프 → 프로젝트 종료
+  const closeProject = (p: Project) => {
+    confirmAction(
+      '프로젝트 종료',
+      `"${p.name}"을(를) 종료할까요? 종료하면 목록에서 숨겨지고, “종료” 필터로 다시 볼 수 있어요.`,
+      async () => {
+        await supabase.from('projects').update({ closed_at: new Date().toISOString(), is_active: false }).eq('id', p.id);
+        load();
+      },
+      '종료'
+    );
+  };
+
+  // 오른쪽 스와이프 → 프로젝트 복사(등록 화면으로 값 전달)
+  const copyProject = (p: Project) => {
+    const q =
+      `copy=1&name=${encodeURIComponent(p.name)}&symbol=${encodeURIComponent(p.symbol)}&market=${p.market}` +
+      `&base=${p.base_price}&buyInt=${p.buy_interval_pct}&sellTgt=${p.sell_target_pct}&budget=${p.total_budget ?? ''}`;
+    router.push(`/project/new?${q}`);
+  };
+
   const filtered = useMemo(() => {
     return projects.filter((p) => {
       if (status === 'open' && p.closed_at) return false;
@@ -211,6 +233,7 @@ export default function ProjectsScreen() {
             const closed = !!item.closed_at;
             const m = metrics[item.id];
             return (
+              <ProjectSwipe closed={closed} onClose={() => closeProject(item)} onCopy={() => copyProject(item)}>
               <Pressable onPress={() => router.push(`/project/${item.id}`)}>
                 <Card
                   style={
@@ -405,6 +428,7 @@ export default function ProjectsScreen() {
                   </View>
                 </Card>
               </Pressable>
+              </ProjectSwipe>
             );
           }}
         />
@@ -429,6 +453,57 @@ export default function ProjectsScreen() {
         </Pressable>
       </Link>
     </View>
+  );
+}
+
+// 프로젝트 카드 스와이프 — 왼쪽 드래그(파랑)=종료 / 오른쪽 드래그(빨강)=복사
+function ProjectSwipe({
+  closed,
+  onClose,
+  onCopy,
+  children,
+}: {
+  closed: boolean;
+  onClose: () => void;
+  onCopy: () => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<Swipeable>(null);
+  const action = (bg: string, l1: string, l2: string, side: 'left' | 'right') => (
+    <View
+      style={{
+        justifyContent: 'center',
+        width: 92,
+        paddingRight: side === 'left' ? spacing.sm : 0,
+        paddingLeft: side === 'right' ? spacing.sm : 0,
+      }}
+    >
+      <View style={{ backgroundColor: bg, borderRadius: radius.md, paddingVertical: 14, alignItems: 'center' }}>
+        <Text style={{ color: '#fff', fontWeight: '900', fontSize: 13, lineHeight: 17 }}>{l1}</Text>
+        <Text style={{ color: '#fff', fontWeight: '900', fontSize: 13, lineHeight: 17 }}>{l2}</Text>
+      </View>
+    </View>
+  );
+  return (
+    <Swipeable
+      ref={ref}
+      friction={2}
+      leftThreshold={56}
+      rightThreshold={56}
+      overshootLeft={false}
+      overshootRight={false}
+      // 오른쪽으로 드래그 → 빨강 '프로젝트 복사'
+      renderLeftActions={() => action(colors.buy, '프로젝트', '복사', 'left')}
+      // 왼쪽으로 드래그 → 파랑 '프로젝트 종료' (진행중일 때만)
+      renderRightActions={closed ? undefined : () => action(colors.sell, '프로젝트', '종료', 'right')}
+      onSwipeableOpen={(dir) => {
+        ref.current?.close();
+        if (dir === 'left') onCopy();
+        else if (!closed) onClose();
+      }}
+    >
+      {children}
+    </Swipeable>
   );
 }
 
