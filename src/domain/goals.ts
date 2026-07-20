@@ -1,8 +1,10 @@
 // =====================================================================
-// 인생목표 계산 (순수 함수)
-//  - 현재나이·목표나이·시작자산·목표자산 → 필요한 연 수익률(CAGR)
-//  - 최초금액은 "현재나이 직전(-1세) 말" 잔액으로 보고, 현재나이(첫 해)부터 목표 수익률이 반영됨
-//  - 나이(연도)별 계획 목표금액. 실제 달성액을 입력하면 그 시점부터 목표까지 재계산(리베이스)
+// 인생목표 계산 (순수 함수) — 매년 리베이스(rolling rebase) 방식
+//  - 매 연도, 그 해 "년초 이월금액"(= 전년 실제달성액, 없으면 전년 계획)을 기준으로
+//    목표나이까지 남은 기간에 필요한 연 수익률을 다시 계산하고, 그 해 말 목표금액을
+//    year_start * (1 + r) 로 잡는다. → 현재 자금 상황에 맞춰 매년 계획이 재설정됨.
+//  - 첫 해: 년초 이월 = 시작자산. 그 해 말 목표 = 시작자산 * (1 + r0). (첫 해부터 성장 반영)
+//  - 목표나이(마지막 해): 목표 자산 그대로.
 //  - 연도별: 년초이월금액 / 입출금 / 실제달성액 / 수익금액(입출금 제외) / 수익률
 //      수익금액 = 실제달성액 - 년초이월 - 입출금
 //      수익률  = 수익금액 / 년초이월 * 100
@@ -36,36 +38,32 @@ export function buildGoalRows(
   dividends: Record<number, number> = {}
 ): { rows: GoalRow[]; annualReturn: number; forwardReturn: number } {
   const years = Math.max(targetAge - currentAge, 0);
-  // 최초금액 = 현재나이 직전(-1세) 말 잔액으로 본다.
-  // 그래서 현재나이(첫 해)부터 이미 1년치 성장이 반영되고, 목표나이까지 성장 기간은 years+1.
-  const r0 = requiredAnnualReturn(startAsset, targetAsset, years + 1);
-
-  // 가장 최근 실제값 = 리베이스 기준점
-  let lastIdx = -1;
-  let lastAmount = startAsset;
-  for (let i = 0; i <= years; i++) {
-    if (actuals[baseYear + i] != null) {
-      lastIdx = i;
-      lastAmount = actuals[baseYear + i];
-    }
-  }
-  const rFwd = lastIdx >= 0 && lastIdx < years ? requiredAnnualReturn(lastAmount, targetAsset, years - lastIdx) : r0;
-
-  const planned: number[] = [];
-  for (let i = 0; i <= years; i++) {
-    // 실제값 이전 구간은 최초금액에서 (i+1)년 성장, 이후 구간은 마지막 실제값에서 성장
-    if (lastIdx < 0 || i < lastIdx) planned.push(Math.round(startAsset * Math.pow(1 + r0, i + 1)));
-    else planned.push(Math.round(lastAmount * Math.pow(1 + rFwd, i - lastIdx)));
-  }
 
   const rows: GoalRow[] = [];
+  const planned: number[] = [];
+  let firstYearReturn = 0; // 첫 해 기준 필요수익률 (시작자산 기준)
+
   for (let i = 0; i <= years; i++) {
     const year = baseYear + i;
+    const age = currentAge + i;
+    // 년초 이월 = 첫 해는 시작자산, 그 외는 전년 실제(있으면) 아니면 전년 계획
+    const carryover = i === 0 ? startAsset : actuals[year - 1] ?? planned[i - 1];
+    // 이 해 말까지 남은 성장 연수 (목표 나이까지). 매년 이월금액 기준으로 필요수익률 재계산.
+    const remaining = targetAge - age;
+    let plan: number;
+    let r = 0;
+    if (remaining <= 0) {
+      plan = Math.round(targetAsset); // 목표 나이엔 목표 자산 그대로
+    } else {
+      r = requiredAnnualReturn(carryover, targetAsset, remaining);
+      plan = Math.round(carryover * (1 + r));
+    }
+    planned.push(plan);
+    if (i === 0) firstYearReturn = r;
+
     const actual = actuals[year] ?? null;
     const deposit = deposits[year] ?? 0;
     const dividend = dividends[year] ?? 0;
-    // 년초 이월 = 전년 실제(있으면) 아니면 전년 계획, 첫 해는 시작자산
-    const carryover = i === 0 ? startAsset : actuals[year - 1] ?? planned[i - 1];
     let profit: number | null = null;
     let returnPct: number | null = null;
     if (actual != null) {
@@ -73,11 +71,28 @@ export function buildGoalRows(
       profit = Math.round(actual - carryover - deposit);
       returnPct = carryover > 0 ? Math.round((profit / carryover) * 10000) / 100 : null;
     }
-    rows.push({ year, age: currentAge + i, planned: planned[i], carryover, actual, deposit, dividend, profit, returnPct });
+    rows.push({ year, age, planned: plan, carryover, actual, deposit, dividend, profit, returnPct });
   }
+
+  // 앞으로 매년 필요한 수익률 = 가장 최근 실제달성액 기준으로 목표까지 재계산 (없으면 첫 해 기준)
+  let lastActualYear = -1;
+  let lastActualAmount = startAsset;
+  for (let i = 0; i <= years; i++) {
+    if (actuals[baseYear + i] != null) {
+      lastActualYear = baseYear + i;
+      lastActualAmount = actuals[baseYear + i];
+    }
+  }
+  let forwardReturn = firstYearReturn;
+  if (lastActualYear >= 0) {
+    const ageThen = currentAge + (lastActualYear - baseYear);
+    const remaining = targetAge - ageThen;
+    forwardReturn = remaining > 0 ? requiredAnnualReturn(lastActualAmount, targetAsset, remaining) : 0;
+  }
+
   return {
     rows,
-    annualReturn: Math.round(r0 * 10000) / 100,
-    forwardReturn: Math.round(rFwd * 10000) / 100,
+    annualReturn: Math.round(firstYearReturn * 10000) / 100,
+    forwardReturn: Math.round(forwardReturn * 10000) / 100,
   };
 }

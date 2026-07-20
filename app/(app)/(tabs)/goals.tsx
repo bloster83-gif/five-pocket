@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 import { useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import { notify } from '@/lib/alert';
+import { confirmAction, notify } from '@/lib/alert';
 import { Button, Card, Chip, Field, FilterBar, NumberField } from '@/components/ui';
 import { BarChart, Legend } from '@/components/charts';
 import { colors, formatGoalKRW, goalUnit, radius, spacing } from '@/theme';
@@ -234,11 +234,8 @@ export default function GoalsScreen() {
     setEditingTarget(false);
   };
 
-  const saveGoal = async () => {
+  const doSaveGoal = async () => {
     if (!uid) return;
-    if (!nums.currentAge || !nums.targetAge || nums.targetAge <= nums.currentAge)
-      return notify('입력 확인', '현재 나이 < 목표 나이가 되도록 입력하세요.');
-    if (!nums.startAsset || !nums.targetAsset) return notify('입력 확인', '시작 자산과 목표 자산을 입력하세요.');
     setSaving(true);
     const { error } = await supabase.from('life_goals').upsert(
       {
@@ -263,6 +260,41 @@ export default function GoalsScreen() {
     setBaseYear(nowYear);
     setHasGoal(true);
     setShowSetting(false);
+  };
+
+  const saveGoal = () => {
+    if (!nums.currentAge || !nums.targetAge || nums.targetAge <= nums.currentAge)
+      return notify('입력 확인', '현재 나이 < 목표 나이가 되도록 입력하세요.');
+    if (!nums.startAsset || !nums.targetAsset) return notify('입력 확인', '시작 자산과 목표 자산을 입력하세요.');
+    // 기존 목표를 수정하는 경우: 과거 기록은 남지만 미래 계획이 바뀐다고 경고
+    if (hasGoal) {
+      return confirmAction(
+        '목표 수정',
+        '과거에 기록된 달성 내역(매매일지 기반)은 그대로 남아요. 다만 올해와 미래의 목표 계획은 새 설정에 맞춰 다시 계산됩니다. 계속할까요?',
+        doSaveGoal,
+        '수정'
+      );
+    }
+    doSaveGoal();
+  };
+
+  const deleteGoal = () => {
+    if (!uid) return;
+    confirmAction(
+      '목표 삭제',
+      '목표를 삭제해요. 과거 달성 내역(매매일지 기록)은 그대로 남지만, 나이별 목표 계획은 사라집니다. 계속할까요?',
+      async () => {
+        const { error } = await supabase.from('life_goals').delete().eq('user_id', uid);
+        if (error && !isMissingSchema(error)) return notify('삭제 실패', error.message);
+        setHasGoal(false);
+        setShowSetting(true);
+        setCurrentAge('');
+        setTargetAge('');
+        setStartAsset('');
+        setTargetAsset('');
+      },
+      '삭제'
+    );
   };
 
   const chartData = useMemo(
@@ -322,7 +354,23 @@ export default function GoalsScreen() {
             </View>
             <NumberField label="최초 금액 (현재 자산, 원)" value={startAsset} onChangeText={setStartAsset} placeholder="예: 50,000,000" />
             <NumberField label="목표 자산 (원)" value={targetAsset} onChangeText={setTargetAsset} placeholder="예: 1,000,000,000" />
-            <Button title={hasGoal ? '목표 수정 저장' : '목표 저장'} onPress={saveGoal} loading={saving} />
+            {hasGoal ? (
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                <View style={{ flex: 1 }}>
+                  <Button title="목표 수정 저장" onPress={saveGoal} loading={saving} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Button title="목표 삭제" variant="danger" onPress={deleteGoal} />
+                </View>
+              </View>
+            ) : (
+              <Button title="목표 저장" onPress={saveGoal} loading={saving} />
+            )}
+            {hasGoal && (
+              <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                ⚠️ 수정·삭제해도 과거 달성 내역은 남지만, 올해·미래 목표 계획은 다시 계산돼요.
+              </Text>
+            )}
           </>
         )}
       </Card>
