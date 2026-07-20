@@ -5,6 +5,8 @@
 // 두 함수 모두 로그인 전에 호출되므로 --no-verify-jwt 로 배포되어 있어야 합니다.
 // =====================================================================
 
+import { supabase } from './supabase';
+
 const BASE = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const ANON = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -28,11 +30,16 @@ export function isValidPhone(s: string): boolean {
 
 async function callFn(name: string, body: unknown): Promise<any> {
   if (!BASE) throw new Error('Supabase 설정(.env)이 필요해요.');
+  // 로그인된 사용자면 본인 토큰을 보내 서버가 프로필을 바로 갱신할 수 있게 한다.
+  // (로그인 전 회원가입 흐름에서는 anon 키를 사용)
+  const { data: sess } = await supabase.auth.getSession();
+  const bearer = sess.session?.access_token ?? ANON;
   const res = await fetch(`${BASE}/functions/v1/${name}`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      ...(ANON ? { authorization: `Bearer ${ANON}`, apikey: ANON } : {}),
+      ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+      ...(ANON ? { apikey: ANON } : {}),
     },
     body: JSON.stringify(body),
   });

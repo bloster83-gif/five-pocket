@@ -11,6 +11,10 @@ interface AuthState {
   /** 회원 등급. 프로필 로딩 전엔 기본값 'diary' */
   tier: MemberTier;
   isAdmin: boolean;
+  /** 휴대폰 인증 완료 여부 (SNS 가입 후 번호 등록 게이트에 사용) */
+  phoneVerified: boolean;
+  /** 프로필을 한 번이라도 불러왔는지 (게이트 판단 전 대기용) */
+  profileLoaded: boolean;
   refreshProfile: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (
@@ -28,10 +32,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
 
   const loadProfile = async (userId: string | undefined) => {
     if (!userId) {
       setProfile(null);
+      setProfileLoaded(true);
       return;
     }
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
@@ -58,6 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       setProfile(null);
     }
+    setProfileLoaded(true);
   };
 
   useEffect(() => {
@@ -68,6 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
+      setProfileLoaded(false);
       loadProfile(s?.user?.id);
     });
     return () => sub.subscription.unsubscribe();
@@ -117,6 +125,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profile,
         tier: profile?.tier === 'auto' && !tierExpired ? 'auto' : 'diary',
         isAdmin: profile?.is_admin ?? false,
+        phoneVerified: profile?.phone_verified ?? false,
+        profileLoaded,
         refreshProfile,
         signIn,
         signUp,

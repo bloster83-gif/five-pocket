@@ -14,6 +14,7 @@ export default function AppLayout() {
       }}
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="verify-phone" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="admin" options={{ title: '회원 관리 (관리자)' }} />
       <Stack.Screen name="broker" options={{ title: '한국투자증권 계좌 연결' }} />
       <Stack.Screen name="journal-entry" options={{ title: '체결 직접 입력', presentation: 'modal' }} />

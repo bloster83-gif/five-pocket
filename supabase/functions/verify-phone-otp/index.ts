@@ -58,8 +58,38 @@ Deno.serve(async (req: Request) => {
       return json({ error: `인증번호가 일치하지 않아요. (남은 시도 ${MAX_ATTEMPTS - row.attempts - 1}회)` }, 400);
     }
 
-    // 성공
+    // 성공 → phone_otps 인증 표시
     await admin.from('phone_otps').update({ verified: true }).eq('phone', phone);
+
+    // 이미 로그인된 사용자(SNS 로그인 등)가 호출하면 그 사람의 프로필을 바로 갱신.
+    // (회원가입 흐름은 로그인 전이라 Authorization 이 없고, 가입 트리거가 대신 저장함)
+    const authHeader = req.headers.get('Authorization') ?? '';
+    const token = authHeader.replace(/^Bearer\s+/i, '');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    if (token && anonKey && token !== anonKey) {
+      const userClient = createClient(Deno.env.get('SUPABASE_URL')!, anonKey, {
+        global: { headers: { Authorization: `Bearer ${token}` } },
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data: userData } = await userClient.auth.getUser();
+      const uid = userData?.user?.id;
+      if (uid) {
+        // 다른 사람이 이미 인증한 번호는 도용 방지로 거부
+        const { data: dup } = await admin
+          .from('profiles')
+          .select('id')
+          .eq('phone', phone)
+          .eq('phone_verified', true)
+          .neq('id', uid)
+          .maybeSingle();
+        if (dup) return json({ error: '이미 다른 계정에 등록된 번호예요.' }, 409);
+
+        await admin.from('profiles').update({ phone, phone_verified: true }).eq('id', uid);
+        await admin.from('phone_otps').delete().eq('phone', phone);
+        return json({ ok: true, profileUpdated: true });
+      }
+    }
+
     return json({ ok: true });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : '인증 확인 중 오류가 발생했어요.' }, 500);
