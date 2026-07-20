@@ -4,7 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
-import { Card } from '@/components/ui';
+import { Card, Field } from '@/components/ui';
 import { colors, radius, spacing } from '@/theme';
 import type { MemberTier, Profile } from '@/types/db';
 
@@ -47,6 +47,15 @@ export default function AdminScreen() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | MemberTier>('all');
 
+  // 검색: 이름/이메일 + 가입일 범위 + 만료일 범위
+  const [showSearch, setShowSearch] = useState(false);
+  const [q, setQ] = useState('');
+  const [joinFrom, setJoinFrom] = useState('');
+  const [joinTo, setJoinTo] = useState('');
+  const [expFrom, setExpFrom] = useState('');
+  const [expTo, setExpTo] = useState('');
+  const searchActive = q.trim() !== '' || !!joinFrom || !!joinTo || !!expFrom || !!expTo;
+
   const load = useCallback(async () => {
     const { data, error } = await supabase
       .from('profiles')
@@ -76,10 +85,29 @@ export default function AdminScreen() {
     return c;
   }, [users]);
 
-  const shown = useMemo(
-    () => (filter === 'all' ? users : users.filter((u) => u.tier === filter)),
-    [users, filter]
-  );
+  const shown = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return users.filter((u) => {
+      if (filter !== 'all' && u.tier !== filter) return false;
+      // 이름/이메일 검색
+      if (s) {
+        const hay = `${u.display_name ?? ''} ${u.email ?? ''}`.toLowerCase();
+        if (!hay.includes(s)) return false;
+      }
+      // 가입일 범위
+      const joined = u.created_at?.slice(0, 10) ?? '';
+      if (joinFrom && joined < joinFrom) return false;
+      if (joinTo && joined > joinTo) return false;
+      // 만료일 범위 (기간제 AUTO 회원만 만료일이 있음)
+      if (expFrom || expTo) {
+        const exp = u.tier_expires_at?.slice(0, 10);
+        if (!exp) return false;
+        if (expFrom && exp < expFrom) return false;
+        if (expTo && exp > expTo) return false;
+      }
+      return true;
+    });
+  }, [users, filter, q, joinFrom, joinTo, expFrom, expTo]);
 
   // 등급 적용 (auto 는 만료 시각과 함께 저장)
   const applyTier = async (u: Profile, tier: MemberTier, expiresAt: string | null) => {
@@ -164,9 +192,77 @@ export default function AdminScreen() {
         </Card>
       )}
 
-      {/* 요약 + 필터 */}
+      {/* 요약 + 필터 + 검색 */}
       <Card>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>👑 회원 관리</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>👑 회원 관리</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+            {!showSearch && searchActive && (
+              <Text style={{ color: colors.warn, fontSize: 11, fontWeight: '700' }}>● 검색 적용중</Text>
+            )}
+            <Pressable
+              onPress={() => setShowSearch((s) => !s)}
+              style={{
+                width: 40,
+                height: 36,
+                borderRadius: 10,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: showSearch ? colors.buy : colors.cardAlt,
+              }}
+            >
+              <Text style={{ fontSize: 16 }}>🔍</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* 검색 조건 */}
+        {showSearch && (
+          <View style={{ gap: spacing.sm }}>
+            <Field
+              label="이름 또는 이메일"
+              value={q}
+              onChangeText={setQ}
+              placeholder="예: 홍길동, gmail"
+              autoCapitalize="none"
+            />
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <View style={{ flex: 1 }}>
+                <Field label="가입일 시작" value={joinFrom} onChangeText={setJoinFrom} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Field label="가입일 끝" value={joinTo} onChangeText={setJoinTo} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <View style={{ flex: 1 }}>
+                <Field label="만료일 시작" value={expFrom} onChangeText={setExpFrom} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Field label="만료일 끝" value={expTo} onChangeText={setExpTo} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+              </View>
+            </View>
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>
+              * 만료일 검색은 기간제 AUTO 회원만 대상이에요. (예: 이번 달 만료 예정자 찾기)
+            </Text>
+            {searchActive && (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: colors.buy, fontSize: 12, fontWeight: '800' }}>검색 결과 {shown.length}명</Text>
+                <Pressable
+                  onPress={() => {
+                    setQ('');
+                    setJoinFrom('');
+                    setJoinTo('');
+                    setExpFrom('');
+                    setExpTo('');
+                  }}
+                >
+                  <Text style={{ color: colors.accent, fontSize: 12, fontWeight: '700' }}>조건 지우기</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        )}
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           {(
             [
