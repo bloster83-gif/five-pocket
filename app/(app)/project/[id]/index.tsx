@@ -290,7 +290,8 @@ export default function ProjectDetailScreen() {
             price={price}
             buyTrade={buyByPocket.get(k.id) ?? null}
             cycles={cyclesByPocket.get(k.id) ?? 0}
-            autoMode={tier === 'auto' && project.auto_trade_enabled}
+            autoMode={tier === 'auto'}
+            autoTradeOn={project.auto_trade_enabled}
             onRestart={() => restartPocket(k)}
             onTrade={(side, sqty, sprice) =>
               router.push(
@@ -374,6 +375,7 @@ function PocketCard({
   buyTrade,
   cycles,
   autoMode,
+  autoTradeOn,
   onRestart,
   onTrade,
 }: {
@@ -382,7 +384,8 @@ function PocketCard({
   price: number | null;
   buyTrade: Trade | null;
   cycles: number;
-  autoMode: boolean; // AUTO 등급 + 자동매매 ON → 수동 입력 버튼을 작게
+  autoMode: boolean; // AUTO 등급 → 자동체결 안내 + 수동 입력 버튼을 작게
+  autoTradeOn: boolean; // 이 프로젝트의 자동매매 스위치 상태 (안내 문구용)
   onRestart: () => void;
   onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number) => void;
 }) {
@@ -448,8 +451,10 @@ function PocketCard({
             <Text style={{ color: colors.buy, fontWeight: '800', marginTop: 2 }}>● 지금 매수 포인트 도달</Text>
           )}
           {autoMode ? (
-            <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.textDim, fontSize: 12 }}>🤖 목표가 도달 시 자동 매수</Text>
+            <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
+              <Text style={{ color: autoTradeOn ? colors.buy : colors.textDim, fontSize: 12, flex: 1 }}>
+                {autoTradeOn ? '🤖 목표가 도달 시 자동 매수' : '🤖 자동매매 스위치를 켜면 자동 매수돼요'}
+              </Text>
               <ManualEntryButton onPress={() => onTrade('buy', buyableQty, price ?? k.buy_target_price)} />
             </View>
           ) : (
@@ -484,8 +489,10 @@ function PocketCard({
             <Text style={{ color: colors.sell, fontWeight: '800', marginTop: 2 }}>● 지금 매도 포인트 도달</Text>
           )}
           {autoMode ? (
-            <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.textDim, fontSize: 12 }}>🤖 목표가 도달 시 자동 매도</Text>
+            <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
+              <Text style={{ color: autoTradeOn ? colors.sell : colors.textDim, fontSize: 12, flex: 1 }}>
+                {autoTradeOn ? '🤖 목표가 도달 시 자동 매도' : '🤖 자동매매 스위치를 켜면 자동 매도돼요'}
+              </Text>
               <ManualEntryButton onPress={() => onTrade('sell', buyTrade?.quantity ?? 0, price ?? k.sell_target_price ?? 0)} />
             </View>
           ) : (
