@@ -287,7 +287,7 @@ export default function MyScreen() {
       {/* 보유주식 현황 (KIS 잔고) */}
       <Card>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>📊 보유주식 현황</Text>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>💼 보유주식 현황</Text>
           {account && (
             <Pressable
               onPress={loadBalance}
