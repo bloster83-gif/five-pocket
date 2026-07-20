@@ -62,7 +62,7 @@ export default function VerifyPhoneScreen() {
 
         <Card>
           <Text style={{ color: colors.textDim, fontSize: 13 }}>휴대폰 번호</Text>
-          <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+          <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
             <View style={{ flex: 1 }}>
               <Field
                 label=""
@@ -91,7 +91,7 @@ export default function VerifyPhoneScreen() {
 
           {otpSent && (
             <View style={{ gap: spacing.xs, marginTop: spacing.sm }}>
-              <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
                 <View style={{ flex: 1 }}>
                   <Field
                     label=""

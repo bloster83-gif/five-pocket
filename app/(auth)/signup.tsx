@@ -136,7 +136,7 @@ export default function SignupScreen() {
           {/* 휴대폰 + 인증 */}
           <View style={{ gap: spacing.xs }}>
             <Text style={{ color: colors.textDim, fontSize: 13 }}>휴대폰 번호 *</Text>
-            <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+            <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
               <View style={{ flex: 1 }}>
                 <Field
                   label=""
@@ -169,7 +169,7 @@ export default function SignupScreen() {
             ) : (
               otpSent && (
                 <View style={{ gap: spacing.xs }}>
-                  <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
                     <View style={{ flex: 1 }}>
                       <Field
                         label=""

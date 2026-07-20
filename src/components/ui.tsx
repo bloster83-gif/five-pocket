@@ -66,7 +66,7 @@ export function Field({
 }: TextInputProps & { label: string }) {
   return (
     <View style={{ gap: spacing.xs }}>
-      <Text style={styles.label}>{label}</Text>
+      {label ? <Text style={styles.label}>{label}</Text> : null}
       <TextInput
         placeholderTextColor={colors.textDim}
         style={styles.input}
@@ -202,6 +202,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
+    minHeight: 48, // 옆의 버튼(높이 48)과 정렬 맞춤
     color: colors.text,
     fontSize: 16,
   },
