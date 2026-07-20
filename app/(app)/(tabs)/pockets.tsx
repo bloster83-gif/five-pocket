@@ -329,6 +329,11 @@ export default function PocketsScreen() {
                   <Text style={{ color: colors.sell, fontWeight: '800', fontSize: 13 }}>
                     {formatPrice(k.sell_target_price, proj.market)}
                   </Text>
+                  {pnl.avgOpenPrice > 0 && (
+                    <Text style={{ color: colors.sell, fontWeight: '700', fontSize: 12 }}>
+                      (예상 +{Math.round(((k.sell_target_price - pnl.avgOpenPrice) / pnl.avgOpenPrice) * 10000) / 100}%)
+                    </Text>
+                  )}
                 </View>
               )}
 
