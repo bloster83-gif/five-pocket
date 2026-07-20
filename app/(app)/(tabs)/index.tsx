@@ -360,26 +360,31 @@ export default function ProjectsScreen() {
                         </Text>
                       </View>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        {/* 포켓 5개 신호등 (작게, 번호 옆에) */}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                        {/* 포켓 5개 신호등 — 빈 원 안에 번호, 매수/매도되면 색이 채워짐(번호는 계속 보임) */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                           {[0, 1, 2, 3, 4].map((idx) => {
                             const pk = pocketsByProject[item.id]?.find((p) => p.idx === idx);
                             const st = pk?.status; // 'waiting' | 'bought' | 'sold'
+                            const lit = st === 'bought' || st === 'sold';
                             const fill = st === 'bought' ? colors.buy : st === 'sold' ? colors.sell : 'transparent';
                             const border = st === 'bought' ? colors.buy : st === 'sold' ? colors.sell : colors.border;
                             return (
-                              <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                                <View
-                                  style={{
-                                    width: 12,
-                                    height: 12,
-                                    borderRadius: 6,
-                                    backgroundColor: fill,
-                                    borderWidth: 1.5,
-                                    borderColor: border,
-                                  }}
-                                />
-                                <Text style={{ color: colors.textDim, fontSize: 10 }}>{idx + 1}</Text>
+                              <View
+                                key={idx}
+                                style={{
+                                  width: 20,
+                                  height: 20,
+                                  borderRadius: 10,
+                                  backgroundColor: fill,
+                                  borderWidth: 1.5,
+                                  borderColor: border,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <Text style={{ color: lit ? '#fff' : colors.textDim, fontSize: 11, fontWeight: '800' }}>
+                                  {idx + 1}
+                                </Text>
                               </View>
                             );
                           })}
