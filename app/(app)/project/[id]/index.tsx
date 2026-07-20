@@ -259,9 +259,15 @@ export default function ProjectDetailScreen() {
 
       {/* 포켓 */}
       <View style={{ gap: spacing.md }}>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>
-          5포켓 · 매수간격 {project.buy_interval_pct}% · 매도목표 {project.sell_target_pct}%
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
+          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>🧺 5포켓</Text>
+          <View style={{ backgroundColor: colors.buyBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: colors.buy }}>
+            <Text style={{ color: colors.buy, fontWeight: '900', fontSize: 13 }}>매수간격 ▼{project.buy_interval_pct}%</Text>
+          </View>
+          <View style={{ backgroundColor: colors.sellBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: colors.sell }}>
+            <Text style={{ color: colors.sell, fontWeight: '900', fontSize: 13 }}>매도목표 ▲{project.sell_target_pct}%</Text>
+          </View>
+        </View>
         {project.total_budget != null && (
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.cardAlt, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
             <Text style={{ color: colors.textDim }}>💰 프로젝트 예산</Text>
@@ -453,8 +459,8 @@ function PocketCard({
           <View style={{ marginTop: spacing.xs }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={{ color: colors.textDim, fontSize: 12 }}>💰 매수 목표가</Text>
-              <View style={{ backgroundColor: colors.cardAlt, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 1 }}>
-                <Text style={{ color: k.idx === 0 ? colors.textDim : colors.buy, fontSize: 11, fontWeight: '800' }}>
+              <View style={{ backgroundColor: colors.buyBg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 1 }}>
+                <Text style={{ color: colors.buy, fontSize: 11, fontWeight: '800' }}>
                   {k.idx === 0 ? '기준가' : `기준가 -${buyDiscPct}%`}
                 </Text>
               </View>
