@@ -5,11 +5,12 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
 import { Button, Card, Field, NumberField } from '@/components/ui';
-import { colors, formatPrice, money, spacing } from '@/theme';
+import { colors, formatMoney, formatPrice, money, spacing } from '@/theme';
 import { buildPocketSeeds, normalizeWeights, POCKET_COUNT } from '@/domain/pockets';
 import { searchSymbols } from '@/services/symbols';
 import { priceProvider } from '@/services/prices';
-import type { SymbolResult } from '@/types/db';
+import { getDomesticBalance, kisOrderBlocked } from '@/services/broker/kis';
+import type { BrokerAccount, SymbolResult } from '@/types/db';
 
 export default function NewProjectScreen() {
   const router = useRouter();
@@ -29,7 +30,33 @@ export default function NewProjectScreen() {
   const [weights, setWeights] = useState<string[]>(Array(POCKET_COUNT).fill('20'));
   const [saving, setSaving] = useState(false);
 
+  // 계좌 예수금(주문가능현금) — 예산이 예수금 초과 못하게 검사 (한투 계좌 연결 시)
+  const [cash, setCash] = useState<number | null>(null);
+  const [cashLoading, setCashLoading] = useState(false);
+
   const market = selected?.market ?? 'US';
+
+  // 계좌가 있으면 예수금을 1회 조회 (네이티브 + KRX 계좌만)
+  useEffect(() => {
+    (async () => {
+      if (!session?.user?.id || kisOrderBlocked('KRX')) return;
+      const { data } = await supabase
+        .from('broker_accounts')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .maybeSingle();
+      if (!data) return;
+      setCashLoading(true);
+      try {
+        const bal = await getDomesticBalance(data as BrokerAccount);
+        setCash(bal.cash);
+      } catch {
+        /* 조회 실패 시 예수금 검사 생략 */
+      } finally {
+        setCashLoading(false);
+      }
+    })();
+  }, [session?.user?.id]);
 
   // 디바운스 검색
   useEffect(() => {
@@ -76,6 +103,10 @@ export default function NewProjectScreen() {
   const normalized = useMemo(() => normalizeWeights(parsed.weights), [weights]);
   const weightSum = parsed.weights.reduce((a, b) => a + b, 0);
 
+  // 예수금 초과 검사 (KRX + 예수금 조회 성공 시에만)
+  const overBudget =
+    market === 'KRX' && cash != null && parsed.totalBudget != null && parsed.totalBudget > cash;
+
   const seeds = useMemo(() => {
     if (!parsed.basePrice || parsed.basePrice <= 0) return [];
     return buildPocketSeeds(parsed);
@@ -92,6 +123,8 @@ export default function NewProjectScreen() {
   const onSubmit = async () => {
     if (!selected) return notify('종목 선택 필요', '먼저 종목을 검색해서 선택하세요.');
     if (!parsed.basePrice || parsed.basePrice <= 0) return notify('입력 필요', '기준가를 올바르게 입력하세요.');
+    if (overBudget)
+      return notify('예산 초과', `예산이 계좌 예수금(${formatMoney(cash!, 'KRX')})을 초과했어요. 예수금 이하로 입력하세요.`);
     if (!session?.user?.id) return;
 
     setSaving(true);
@@ -216,6 +249,17 @@ export default function NewProjectScreen() {
           decimals
           placeholder="예: 1,000,000"
         />
+        {/* 계좌 예수금 안내 (한투 계좌 연결 시) */}
+        {cashLoading ? (
+          <Text style={{ color: colors.textDim, fontSize: 12 }}>계좌 예수금 확인 중…</Text>
+        ) : cash != null ? (
+          <View style={{ backgroundColor: overBudget ? 'rgba(248,113,113,0.12)' : colors.cardAlt, borderRadius: 8, padding: spacing.sm }}>
+            <Text style={{ color: overBudget ? colors.danger : colors.textDim, fontSize: 12, fontWeight: overBudget ? '800' : '400' }}>
+              계좌 예수금(주문가능): {formatMoney(cash, 'KRX')}
+              {overBudget ? ' · ⚠️ 예산이 예수금을 초과했어요' : ''}
+            </Text>
+          </View>
+        ) : null}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text style={{ color: colors.textDim }}>
             포켓별 비중 합계: {money(weightSum, 1)}%{' '}
@@ -241,7 +285,7 @@ export default function NewProjectScreen() {
         })}
       </Card>
 
-      <Button title="프로젝트 만들기" onPress={onSubmit} loading={saving} />
+      <Button title="프로젝트 만들기" onPress={onSubmit} loading={saving} disabled={overBudget} />
       <View style={{ height: spacing.xl }} />
     </ScrollView>
   );
