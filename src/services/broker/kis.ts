@@ -152,3 +152,83 @@ export async function placeDomesticOrder(
   }
   return { orderNo: json.output?.ODNO ?? '', message: json.msg1 ?? '주문 전송 완료' };
 }
+
+// --------------------------- 잔고 조회 ---------------------------
+
+// 국내주식 잔고조회 TR ID
+const BALANCE_TR = { real: 'TTTC8434R', virtual: 'VTTC8434R' } as const;
+
+export interface KisHolding {
+  symbol: string; // 종목코드
+  name: string; // 종목명
+  quantity: number; // 보유수량
+  avgPrice: number; // 매입평균가
+  currentPrice: number; // 현재가
+  evalAmount: number; // 평가금액
+  pnl: number; // 평가손익
+  pnlRate: number; // 평가손익률(%)
+}
+
+export interface KisBalance {
+  holdings: KisHolding[];
+  totalEval: number; // 유가증권 평가금액 합계
+  totalPnl: number; // 평가손익 합계
+  cash: number; // 예수금(주문가능현금)
+}
+
+/** 국내주식 잔고(보유종목 + 예수금)를 조회한다. 웹/미지원 환경이면 kisOrderBlocked 로 막힘. */
+export async function getDomesticBalance(account: BrokerAccount): Promise<KisBalance> {
+  const token = await getValidToken(account);
+  const trId = BALANCE_TR[account.is_virtual ? 'virtual' : 'real'];
+
+  const u = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/domestic-stock/v1/trading/inquire-balance`);
+  const params: Record<string, string> = {
+    CANO: account.account_no,
+    ACNT_PRDT_CD: account.account_product_code,
+    AFHR_FLPR_YN: 'N', // 시간외단일가 여부
+    OFL_YN: '', // 오프라인 여부
+    INQR_DVSN: '02', // 조회구분(02 종목별)
+    UNPR_DVSN: '01', // 단가구분
+    FUND_STTL_ICLD_YN: 'N', // 펀드결제분 포함
+    FNCG_AMT_AUTO_RDPT_YN: 'N', // 융자금액 자동상환
+    PRCS_DVSN: '00', // 처리구분(00 전일매매포함)
+    CTX_AREA_FK100: '',
+    CTX_AREA_NK100: '',
+  };
+  Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+
+  const res = await fetch(u.toString(), {
+    headers: {
+      authorization: `Bearer ${token}`,
+      appkey: account.app_key,
+      appsecret: account.app_secret,
+      tr_id: trId,
+      custtype: 'P',
+    },
+  });
+  const json = await res.json();
+  if (!res.ok || json.rt_cd !== '0') {
+    throw new Error(json.msg1 ?? `잔고 조회 실패 (HTTP ${res.status})`);
+  }
+
+  const holdings: KisHolding[] = ((json.output1 ?? []) as any[])
+    .filter((h) => Number(h.hldg_qty) > 0)
+    .map((h) => ({
+      symbol: h.pdno,
+      name: h.prdt_name,
+      quantity: Number(h.hldg_qty),
+      avgPrice: Number(h.pchs_avg_pric),
+      currentPrice: Number(h.prpr),
+      evalAmount: Number(h.evlu_amt),
+      pnl: Number(h.evlu_pfls_amt),
+      pnlRate: Number(h.evlu_pfls_rt),
+    }));
+
+  const summary = (json.output2 ?? [])[0] ?? {};
+  return {
+    holdings,
+    totalEval: Number(summary.scts_evlu_amt ?? 0), // 유가증권 평가금액
+    totalPnl: Number(summary.evlu_pfls_smtl_amt ?? 0), // 평가손익 합계
+    cash: Number(summary.dnca_tot_amt ?? summary.prvs_rcdl_excc_amt ?? 0), // 예수금
+  };
+}

@@ -222,16 +222,14 @@ export default function ProjectDetailScreen() {
         </View>
       </Card>
 
-      {/* 자동매매 (AUTO 등급 전용) */}
+      {/* 자동매매 켜기/끄기만 (상세 설정·계좌연결은 프로젝트 목록/MY 탭에서) */}
       {tier === 'auto' && (
         <Card style={project.auto_trade_enabled ? { borderColor: colors.buy } : undefined}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🤖 자동매매 (한국투자증권)</Text>
-              <Text style={{ color: colors.textDim, fontSize: 12 }}>
-                {project.auto_trade_enabled
-                  ? '포켓 목표가 도달 시 자동으로 지정가 주문을 넣어요.'
-                  : '켜면 매수/매도 포인트 도달 시 자동 주문이 나갑니다.'}
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🤖 자동매매</Text>
+              <Text style={{ color: project.auto_trade_enabled ? colors.buy : colors.textDim, fontSize: 12 }}>
+                {project.auto_trade_enabled ? 'ON · 목표가 도달 시 자동 주문' : 'OFF · 수동 매매'}
               </Text>
             </View>
             <Switch value={project.auto_trade_enabled} onValueChange={toggleAutoTrade} />
@@ -249,14 +247,6 @@ export default function ProjectDetailScreen() {
                 {lastEvent.message}
               </Text>
             </View>
-          )}
-          <Pressable onPress={() => router.push('/broker')}>
-            <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 13 }}>계좌 연결 설정 →</Text>
-          </Pressable>
-          {project.auto_trade_enabled && (
-            <Text style={{ color: colors.textDim, fontSize: 11 }}>
-              서버 러너(auto-trade-runner)를 배포해 두면 앱을 꺼도 장중(평일 09:00~15:30)에 자동매매가 돌아갑니다.
-            </Text>
           )}
         </Card>
       )}
