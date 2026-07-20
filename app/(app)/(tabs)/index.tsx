@@ -261,19 +261,6 @@ export default function ProjectsScreen() {
                           m?.price != null && <Text style={{ color: colors.textDim, fontSize: 11 }}>등락률 —</Text>
                         )}
                       </View>
-                      {/* 매수/매도 세팅값 */}
-                      <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
-                        <View style={{ backgroundColor: colors.buyBg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}>
-                          <Text style={{ color: colors.buy, fontSize: 12, fontWeight: '800' }}>
-                            매수 -{item.buy_interval_pct}%
-                          </Text>
-                        </View>
-                        <View style={{ backgroundColor: colors.sellBg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}>
-                          <Text style={{ color: colors.sell, fontSize: 12, fontWeight: '800' }}>
-                            매도 +{item.sell_target_pct}%
-                          </Text>
-                        </View>
-                      </View>
                     </View>
                     <View
                       style={{
@@ -291,6 +278,30 @@ export default function ProjectsScreen() {
                         {closed ? '종료' : '진행중'}
                       </Text>
                     </View>
+                  </View>
+
+                  {/* 매수/매도 목표율 + 자동매매 스위치 (같은 선상) */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      <View style={{ backgroundColor: colors.buyBg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}>
+                        <Text style={{ color: colors.buy, fontSize: 12, fontWeight: '800' }}>매수 -{item.buy_interval_pct}%</Text>
+                      </View>
+                      <View style={{ backgroundColor: colors.sellBg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}>
+                        <Text style={{ color: colors.sell, fontSize: 12, fontWeight: '800' }}>매도 +{item.sell_target_pct}%</Text>
+                      </View>
+                    </View>
+                    {tier === 'auto' && !closed && (item.market === 'KRX' || item.market === 'US') && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                        <Text style={{ color: item.auto_trade_enabled ? colors.buy : colors.textDim, fontWeight: '800', fontSize: 12 }}>
+                          🤖 자동매매 {item.auto_trade_enabled ? 'ON' : 'OFF'}
+                        </Text>
+                        <Switch
+                          value={item.auto_trade_enabled}
+                          onValueChange={(v) => toggleAuto(item, v)}
+                          style={{ transform: [{ scaleX: 0.6 }, { scaleY: 0.6 }] }}
+                        />
+                      </View>
+                    )}
                   </View>
                   {m && ((m.value != null && m.value > 0) || m.realized !== 0) && (
                     <View
@@ -322,35 +333,16 @@ export default function ProjectsScreen() {
                       </View>
                     </View>
                   )}
-                  {/* 자동매매 토글 (작게, 우측 정렬) — AUTO 등급 · 진행중 · 한국/미국주식 */}
-                  {tier === 'auto' && !closed && (item.market === 'KRX' || item.market === 'US') && (
-                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 4, marginTop: spacing.sm }}>
-                      <Text
-                        style={{
-                          color: item.auto_trade_enabled ? colors.buy : colors.textDim,
-                          fontWeight: '800',
-                          fontSize: 12,
-                        }}
-                      >
-                        🤖 자동매매 {item.auto_trade_enabled ? 'ON' : 'OFF'}
-                      </Text>
-                      <Switch
-                        value={item.auto_trade_enabled}
-                        onValueChange={(v) => toggleAuto(item, v)}
-                        style={{ transform: [{ scaleX: 0.65 }, { scaleY: 0.65 }] }}
-                      />
-                    </View>
-                  )}
-
-                  {/* 예산 + 포켓 신호등 (매수=빨강, 매도=파랑, 대기=빈원) */}
+                  {/* 예산 + 포켓 신호등 (매수=빨강, 매도=파랑, 대기=빈원) — 슬림 */}
                   {!closed && (
                     <View
                       style={{
-                        marginTop: spacing.sm,
+                        marginTop: 6,
                         backgroundColor: colors.cardAlt,
                         borderRadius: radius.md,
-                        padding: spacing.md,
-                        gap: spacing.sm,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: 8,
+                        gap: 8,
                       }}
                     >
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -372,9 +364,9 @@ export default function ProjectsScreen() {
                               <View
                                 key={idx}
                                 style={{
-                                  width: 20,
-                                  height: 20,
-                                  borderRadius: 10,
+                                  width: 18,
+                                  height: 18,
+                                  borderRadius: 9,
                                   backgroundColor: fill,
                                   borderWidth: 1.5,
                                   borderColor: border,
@@ -382,7 +374,7 @@ export default function ProjectsScreen() {
                                   justifyContent: 'center',
                                 }}
                               >
-                                <Text style={{ color: lit ? '#fff' : colors.textDim, fontSize: 11, fontWeight: '800' }}>
+                                <Text style={{ color: lit ? '#fff' : colors.textDim, fontSize: 10, fontWeight: '800' }}>
                                   {idx + 1}
                                 </Text>
                               </View>
