@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
 import { Button, Card, Chip, Field, FilterBar, NumberField } from '@/components/ui';
 import { BarChart, Legend } from '@/components/charts';
-import { colors, formatKRW, radius, spacing } from '@/theme';
+import { colors, formatGoalKRW, goalUnit, radius, spacing } from '@/theme';
 import { buildGoalRows } from '@/domain/goals';
 import { realizedEvents } from '@/domain/pockets';
 import type { CashFlow, LifeGoal, Trade } from '@/types/db';
@@ -85,6 +85,10 @@ export default function GoalsScreen() {
     targetAsset: Number(targetAsset),
   };
   const nowYear = new Date().getFullYear();
+
+  // 표시 단위: 목표금액 10억 초과면 '억', 이하면 '백만원'으로 통일
+  const unit = goalUnit(nums.targetAsset);
+  const fk = (v: number | null | undefined) => formatGoalKRW(v, unit);
 
   // 매매일지 → 연도별 순입출금 (입금-출금, 배당 제외) — 원화 기준 합산
   const depositNetByYear = useMemo(() => {
@@ -283,7 +287,7 @@ export default function GoalsScreen() {
         </Pressable>
         {!showSetting && hasGoal && (
           <Text style={{ color: colors.textDim, fontSize: 12 }}>
-            {nums.currentAge}→{nums.targetAge}세 · {formatKRW(nums.startAsset)} → {formatKRW(nums.targetAsset)}
+            {nums.currentAge}→{nums.targetAge}세 · {fk(nums.startAsset)} → {fk(nums.targetAsset)}
           </Text>
         )}
         {showSetting && (
@@ -344,7 +348,7 @@ export default function GoalsScreen() {
                   )}
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                  <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 16 }}>{formatKRW(thisYearRow.planned)}</Text>
+                  <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 16 }}>{fk(thisYearRow.planned)}</Text>
                   <Pressable
                     onPress={() => {
                       setTargetInput(String(Math.round(thisYearRow.planned)));
@@ -389,33 +393,33 @@ export default function GoalsScreen() {
               )}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: colors.textDim }}>최초금액 (년초 이월)</Text>
-                <Text style={{ color: colors.text, fontWeight: '700' }}>{formatKRW(thisYearRow.carryover)}</Text>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>{fk(thisYearRow.carryover)}</Text>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: colors.textDim }}>입출금 (매매일지)</Text>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>
                   {thisYearRow.deposit >= 0 ? '+' : ''}
-                  {formatKRW(thisYearRow.deposit)}
+                  {fk(thisYearRow.deposit)}
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: colors.textDim }}>배당금 (매매일지)</Text>
                 <Text style={{ color: colors.accent, fontWeight: '800' }}>
-                  +{formatKRW(thisYearRow.dividend)}
+                  +{fk(thisYearRow.dividend)}
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: colors.textDim }}>실현손익 (매매일지)</Text>
                 <Text style={{ color: (realizedByYear[nowYear] ?? 0) >= 0 ? colors.buy : colors.sell, fontWeight: '800' }}>
                   {(realizedByYear[nowYear] ?? 0) >= 0 ? '+' : ''}
-                  {formatKRW(realizedByYear[nowYear] ?? 0)}
+                  {fk(realizedByYear[nowYear] ?? 0)}
                 </Text>
               </View>
               <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, marginTop: 4 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text style={{ color: colors.text, fontWeight: '800' }}>현재 달성액</Text>
                   <Text style={{ color: colors.text, fontWeight: '900', fontSize: 20 }}>
-                    {thisYearRow.actual != null ? formatKRW(thisYearRow.actual) : '-'}
+                    {thisYearRow.actual != null ? fk(thisYearRow.actual) : '-'}
                   </Text>
                 </View>
                 {thisYearRow.actual != null && thisYearRow.planned > 0 && (
@@ -434,7 +438,7 @@ export default function GoalsScreen() {
               <Text style={{ color: colors.buy, fontWeight: '900', fontSize: 18 }}>{forwardReturn || annualReturn}%</Text>
             </View>
             <Text style={{ color: colors.textDim, fontSize: 12 }}>
-              {nums.targetAge}세에 {formatKRW(nums.targetAsset)} 목표 · 이후 연도는 "이 정도 금액을 목표로" 가이드
+              {nums.targetAge}세에 {fk(nums.targetAsset)} 목표 · 이후 연도는 "이 정도 금액을 목표로" 가이드
             </Text>
           </Card>
 
@@ -447,9 +451,9 @@ export default function GoalsScreen() {
                 <Text style={{ color: colors.text, fontWeight: '800' }}>
                   {displayRows[selBar].age}세 ({displayRows[selBar].year})
                 </Text>
-                <Text style={{ color: colors.buy, fontSize: 13 }}>계획 {formatKRW(displayRows[selBar].planned)}</Text>
+                <Text style={{ color: colors.buy, fontSize: 13 }}>계획 {fk(displayRows[selBar].planned)}</Text>
                 <Text style={{ color: colors.text, fontSize: 13 }}>
-                  실제 {displayRows[selBar].actual != null ? formatKRW(displayRows[selBar].actual) : '미래'}
+                  실제 {displayRows[selBar].actual != null ? fk(displayRows[selBar].actual) : '미래'}
                   {displayRows[selBar].returnPct != null ? `  ·  ${displayRows[selBar].returnPct}%` : ''}
                 </Text>
               </View>
@@ -492,24 +496,24 @@ export default function GoalsScreen() {
                         <Text style={{ color: colors.textDim, fontSize: 10 }}>{r.year}</Text>
                       </View>
                       <View style={{ width: 96 }}>
-                        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{formatKRW(r.carryover)}</Text>
-                        <Text style={{ color: colors.buy, fontSize: 10 }}>계획 {formatKRW(r.planned)}</Text>
+                        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{fk(r.carryover)}</Text>
+                        <Text style={{ color: colors.buy, fontSize: 10 }}>계획 {fk(r.planned)}</Text>
                       </View>
                       <Text style={{ width: 84, color: r.deposit ? colors.text : colors.textDim, fontSize: 12 }}>
-                        {r.deposit ? `${r.deposit > 0 ? '+' : ''}${formatKRW(r.deposit)}` : '-'}
+                        {r.deposit ? `${r.deposit > 0 ? '+' : ''}${fk(r.deposit)}` : '-'}
                       </Text>
                       <Text style={{ width: 84, color: r.dividend ? colors.accent : colors.textDim, fontSize: 12, fontWeight: r.dividend ? '700' : '400' }}>
-                        {r.dividend ? `+${formatKRW(r.dividend)}` : '-'}
+                        {r.dividend ? `+${fk(r.dividend)}` : '-'}
                       </Text>
                       <Text style={{ width: 96, color: r.actual != null ? colors.text : colors.textDim, fontSize: 12, fontWeight: '700' }}>
-                        {r.actual != null ? formatKRW(r.actual) : `목표 ${formatKRW(r.planned)}`}
+                        {r.actual != null ? fk(r.actual) : `목표 ${fk(r.planned)}`}
                       </Text>
                       <View style={{ width: 96 }}>
                         {r.profit != null ? (
                           <>
                             <Text style={{ fontSize: 12, fontWeight: '700', color: r.profit >= 0 ? colors.buy : colors.sell }}>
                               {r.profit >= 0 ? '+' : ''}
-                              {formatKRW(r.profit)}
+                              {fk(r.profit)}
                             </Text>
                             <Text style={{ fontSize: 10, color: (r.returnPct ?? 0) >= 0 ? colors.buy : colors.sell }}>
                               {r.returnPct == null ? '' : `${r.returnPct > 0 ? '+' : ''}${r.returnPct}%`}

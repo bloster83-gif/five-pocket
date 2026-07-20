@@ -78,6 +78,27 @@ export function formatKRW(n: number | null | undefined): string {
   return sign + '₩' + Math.round(abs).toLocaleString();
 }
 
+// 인생목표 표시 단위: 목표금액 10억 초과면 '억', 이하면 '백만원'으로 통일
+export type GoalUnit = 'eok' | 'mil';
+export function goalUnit(targetAsset: number | null | undefined): GoalUnit {
+  return (targetAsset ?? 0) > 1e9 ? 'eok' : 'mil'; // 10억 = 1e9 기준
+}
+
+/** 인생목표 금액을 지정 단위(억/백만원)로 통일해서 표기 */
+export function formatGoalKRW(n: number | null | undefined, unit: GoalUnit): string {
+  if (n == null || Number.isNaN(n)) return '-';
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  if (unit === 'eok') {
+    const v = abs / 1e8; // 억
+    const dec = v >= 100 ? 0 : v >= 10 ? 1 : 2;
+    return sign + '₩' + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: dec }) + '억';
+  }
+  const v = abs / 1e6; // 백만원
+  const dec = v >= 100 ? 0 : 1;
+  return sign + '₩' + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: dec }) + '백만';
+}
+
 export function formatMoney(n: number | null | undefined, market: MarketCode): string {
   // 손익 등 금액 표기 (부호 유지)
   if (n == null || Number.isNaN(n)) return '-';
