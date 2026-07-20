@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 import { Stack, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import { Card, Chip, Row } from '@/components/ui';
+import { Card, Chip, FilterBar, Row } from '@/components/ui';
 import { BarChart } from '@/components/charts';
 import { colors, formatMoney, signColor, spacing } from '@/theme';
 import { realizedEvents } from '@/domain/pockets';
@@ -129,33 +129,33 @@ export default function StatsScreen() {
         }}
       />
 
-      {/* 년도별 분류 */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-        {chips.map((c) => (
-          <Pressable
-            key={String(c)}
-            onPress={() => setYear(c)}
-            style={{
-              paddingHorizontal: 14,
-              paddingVertical: 7,
-              borderRadius: 999,
-              backgroundColor: year === c ? colors.buy : colors.cardAlt,
-            }}
-          >
-            <Text style={{ color: year === c ? '#fff' : colors.textDim, fontWeight: '800' }}>
-              {c === 'all' ? '전체' : `${c}년`}
-            </Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-
-      {/* 시장별 분류 */}
-      <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
-        <Text style={{ color: colors.textDim, fontSize: 12 }}>시장</Text>
-        <Chip label="전체" active={market === 'all'} onPress={() => setMarket('all')} />
-        <Chip label="한국" icon="🇰🇷" active={market === 'KRX'} onPress={() => setMarket('KRX')} />
-        <Chip label="미국" icon="🇺🇸" active={market === 'US'} onPress={() => setMarket('US')} activeColor={colors.accent} />
-      </View>
+      {/* 검색/필터 바: 연도 + 시장 (내용 카드와 구분되는 어두운 바 서식) */}
+      <FilterBar>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          {chips.map((c) => (
+            <Pressable
+              key={String(c)}
+              onPress={() => setYear(c)}
+              style={{
+                paddingHorizontal: 14,
+                paddingVertical: 7,
+                borderRadius: 999,
+                backgroundColor: year === c ? colors.buy : colors.card,
+              }}
+            >
+              <Text style={{ color: year === c ? '#fff' : colors.textDim, fontWeight: '800' }}>
+                {c === 'all' ? '전체' : `${c}년`}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+        <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+          <Text style={{ color: colors.textDim, fontSize: 12 }}>시장</Text>
+          <Chip label="전체" active={market === 'all'} onPress={() => setMarket('all')} />
+          <Chip label="한국" icon="🇰🇷" active={market === 'KRX'} onPress={() => setMarket('KRX')} />
+          <Chip label="미국" icon="🇺🇸" active={market === 'US'} onPress={() => setMarket('US')} activeColor={colors.accent} />
+        </View>
+      </FilterBar>
 
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
         <StatBox label="진행중 / 종료" value={`${stats.active} / ${stats.closed}`} />

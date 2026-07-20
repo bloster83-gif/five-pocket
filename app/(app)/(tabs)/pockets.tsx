@@ -2,8 +2,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Card, Chip, Field, Row } from '@/components/ui';
-import { colors, formatMoney, formatPrice, money, radius, signColor, spacing } from '@/theme';
+import { Card, Chip, Field, FilterBar, Row } from '@/components/ui';
+import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import type { Pocket, Project, Trade } from '@/types/db';
 
@@ -112,6 +112,7 @@ export default function PocketsScreen() {
         <View style={{ flexDirection: 'row', gap: 5 }}>
           {([null, 0, 1, 2, 3, 4] as (number | null)[]).map((i) => {
             const on = pocketFilter === i;
+            const c = i == null ? colors.buy : pocketColor(i); // 포켓마다 고유 색
             return (
               <Pressable
                 key={String(i)}
@@ -121,7 +122,9 @@ export default function PocketsScreen() {
                   alignItems: 'center',
                   paddingVertical: 12,
                   borderRadius: radius.md,
-                  backgroundColor: on ? colors.buy : colors.cardAlt,
+                  backgroundColor: on ? c : colors.cardAlt,
+                  borderBottomWidth: 3,
+                  borderBottomColor: i == null ? (on ? colors.buy : 'transparent') : pocketColor(i),
                 }}
               >
                 <Text style={{ color: on ? '#FFFFFF' : colors.textDim, fontWeight: '900', fontSize: 14 }}>
@@ -133,17 +136,8 @@ export default function PocketsScreen() {
         </View>
       </View>
 
-      {/* 종목 검색 + 시장 필터 (프로젝트 탭과 구분되는 어두운 바 서식) */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: spacing.sm,
-          backgroundColor: colors.cardAlt,
-          borderRadius: radius.lg,
-          padding: spacing.sm,
-        }}
-      >
+      {/* 종목 검색 + 시장 필터 (어두운 바 서식) */}
+      <FilterBar style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Pressable
           onPress={() => setShowSearch((s) => !s)}
           style={{
@@ -162,7 +156,7 @@ export default function PocketsScreen() {
         {!showSearch && (onlyHolding || onlyRealized || q.trim() !== '') && (
           <Text style={{ color: colors.warn, fontSize: 11, fontWeight: '700' }}>● 필터 적용중</Text>
         )}
-      </View>
+      </FilterBar>
 
       {/* 종목 검색 입력 + 상태 필터 */}
       {showSearch && (
@@ -216,11 +210,18 @@ export default function PocketsScreen() {
               : { text: '대기', color: colors.textDim, bg: colors.cardAlt };
         return (
           <Pressable key={k.id} onPress={() => setExpanded(open ? null : k.id)}>
-            <Card style={{ borderColor: open ? colors.accent : colors.border }}>
+            <Card
+              style={{
+                borderColor: open ? colors.accent : colors.border,
+                borderLeftWidth: 5,
+                borderLeftColor: pocketColor(k.idx), // 포켓 번호별 고유 색 띠
+              }}
+            >
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.text, fontWeight: '800' }}>
-                    {proj.name} · 포켓 {k.idx + 1}
+                    {proj.name}{' '}
+                    <Text style={{ color: pocketColor(k.idx), fontWeight: '900' }}>· 포켓 {k.idx + 1}</Text>
                   </Text>
                   <Text style={{ color: colors.textDim, fontSize: 12 }}>{proj.symbol}</Text>
                 </View>

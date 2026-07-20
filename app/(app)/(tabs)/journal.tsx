@@ -4,7 +4,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { confirmAction } from '@/lib/alert';
-import { Card, Chip, Field } from '@/components/ui';
+import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { realizedEvents } from '@/domain/pockets';
 import { colors, formatKRW, formatMoney, formatPrice, money, signColor, spacing } from '@/theme';
 import type { CashFlow, CashFlowType, Project, Trade } from '@/types/db';
@@ -342,48 +342,48 @@ export default function JournalScreen() {
       {HeaderToggle}
       <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 90 }}>
 
-      {/* 툴바: 돋보기 + 직접 체결 추가 */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-        <Pressable
-          onPress={() => setShowSearch((s) => !s)}
-          style={{
-            width: 44,
-            height: 40,
-            borderRadius: 10,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: showSearch ? colors.buy : colors.cardAlt,
-          }}
-        >
-          <Text style={{ fontSize: 18 }}>🔍</Text>
-        </Pressable>
-        <View style={{ flex: 1 }} />
-        <Pressable
-          onPress={() => router.push('/journal-entry')}
-          style={{ backgroundColor: colors.buy, borderRadius: 10, paddingHorizontal: 14, height: 40, justifyContent: 'center' }}
-        >
-          <Text style={{ color: '#fff', fontWeight: '800' }}>＋ 체결 추가</Text>
-        </Pressable>
-      </View>
-
-      {/* 빠른 필터: 기간 프리셋 + 매수/매도 */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
-        {['오늘', '1주', '1개월', '3개월', '올해', '전체'].map((k) => (
-          <Chip key={k} label={k} active={preset === k} onPress={() => applyPreset(k)} />
-        ))}
-        <View style={{ width: 1, height: 22, backgroundColor: colors.border }} />
-        <Chip
-          label="매수만"
-          active={sideFilter === 'buy'}
-          onPress={() => setSideFilter(sideFilter === 'buy' ? null : 'buy')}
-        />
-        <Chip
-          label="매도만"
-          active={sideFilter === 'sell'}
-          onPress={() => setSideFilter(sideFilter === 'sell' ? null : 'sell')}
-          activeColor={colors.sell}
-        />
-      </ScrollView>
+      {/* 검색/필터 바 (내용 카드와 구분되는 어두운 바 서식) */}
+      <FilterBar>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <Pressable
+            onPress={() => setShowSearch((s) => !s)}
+            style={{
+              width: 40,
+              height: 36,
+              borderRadius: 10,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: showSearch ? colors.buy : colors.card,
+            }}
+          >
+            <Text style={{ fontSize: 16 }}>🔍</Text>
+          </Pressable>
+          <View style={{ flex: 1 }} />
+          <Pressable
+            onPress={() => router.push('/journal-entry')}
+            style={{ backgroundColor: colors.buy, borderRadius: 10, paddingHorizontal: 14, height: 36, justifyContent: 'center' }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '800' }}>＋ 체결 추가</Text>
+          </Pressable>
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
+          {['오늘', '1주', '1개월', '3개월', '올해', '전체'].map((k) => (
+            <Chip key={k} label={k} active={preset === k} onPress={() => applyPreset(k)} />
+          ))}
+          <View style={{ width: 1, height: 22, backgroundColor: colors.border }} />
+          <Chip
+            label="매수만"
+            active={sideFilter === 'buy'}
+            onPress={() => setSideFilter(sideFilter === 'buy' ? null : 'buy')}
+          />
+          <Chip
+            label="매도만"
+            active={sideFilter === 'sell'}
+            onPress={() => setSideFilter(sideFilter === 'sell' ? null : 'sell')}
+            activeColor={colors.sell}
+          />
+        </ScrollView>
+      </FilterBar>
 
       {showSearch && (
         <Card>

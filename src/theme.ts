@@ -93,3 +93,9 @@ export function signColor(n: number): string {
   if (n < 0) return colors.sell;
   return colors.textDim;
 }
+
+// 포켓 번호별 고유 색 (1~5) — 매수 빨강/매도 파랑과 겹치지 않는 색으로 구분
+export const pocketColors = ['#F59E0B', '#22D3A6', '#8B5CF6', '#EC4899', '#84CC16'];
+export function pocketColor(idx: number): string {
+  return pocketColors[((idx % pocketColors.length) + pocketColors.length) % pocketColors.length];
+}

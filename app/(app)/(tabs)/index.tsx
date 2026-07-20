@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Link, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Card, Chip, Field } from '@/components/ui';
+import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatMoney, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
@@ -103,29 +103,31 @@ export default function ProjectsScreen() {
 
   return (
     <View style={{ flex: 1 }}>
-      {/* 툴바: 돋보기 + 빠른 필터 칩 */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
-        <Pressable
-          onPress={() => setShowSearch((s) => !s)}
-          style={{
-            width: 44,
-            height: 40,
-            borderRadius: 10,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: showSearch ? colors.buy : colors.cardAlt,
-          }}
-        >
-          <Text style={{ fontSize: 18 }}>🔍</Text>
-        </Pressable>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
-          <Chip label="진행중" icon="🔴" active={status === 'open'} onPress={() => setStatus('open')} />
-          <Chip label="종료" icon="🔒" active={status === 'closed'} onPress={() => setStatus('closed')} activeColor={colors.sell} />
-          <Chip label="전체" active={status === 'all'} onPress={() => setStatus('all')} />
-          <View style={{ width: 1, height: 22, backgroundColor: colors.border }} />
-          <Chip label="한국" icon="🇰🇷" active={market === 'KRX'} onPress={() => setMarket(market === 'KRX' ? null : 'KRX')} />
-          <Chip label="미국" icon="🇺🇸" active={market === 'US'} onPress={() => setMarket(market === 'US' ? null : 'US')} activeColor={colors.accent} />
-        </ScrollView>
+      {/* 검색/필터 바 (내용 카드와 구분되는 어두운 바 서식) */}
+      <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+        <FilterBar style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Pressable
+            onPress={() => setShowSearch((s) => !s)}
+            style={{
+              width: 40,
+              height: 36,
+              borderRadius: 10,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: showSearch ? colors.buy : colors.card,
+            }}
+          >
+            <Text style={{ fontSize: 16 }}>🔍</Text>
+          </Pressable>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
+            <Chip label="진행중" icon="🔴" active={status === 'open'} onPress={() => setStatus('open')} />
+            <Chip label="종료" icon="🔒" active={status === 'closed'} onPress={() => setStatus('closed')} activeColor={colors.sell} />
+            <Chip label="전체" active={status === 'all'} onPress={() => setStatus('all')} />
+            <View style={{ width: 1, height: 22, backgroundColor: colors.border }} />
+            <Chip label="한국" icon="🇰🇷" active={market === 'KRX'} onPress={() => setMarket(market === 'KRX' ? null : 'KRX')} />
+            <Chip label="미국" icon="🇺🇸" active={market === 'US'} onPress={() => setMarket(market === 'US' ? null : 'US')} activeColor={colors.accent} />
+          </ScrollView>
+        </FilterBar>
       </View>
 
       {loading ? (

@@ -109,6 +109,25 @@ export function Row({ label, value, valueColor }: { label: string; value: string
   );
 }
 
+// 검색/필터 영역 공용 컨테이너 — 내용 카드(Card)와 확실히 구분되는 어두운 바
+export function FilterBar({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
+  return (
+    <View
+      style={[
+        {
+          backgroundColor: colors.cardAlt,
+          borderRadius: radius.lg,
+          padding: spacing.sm,
+          gap: spacing.sm,
+        },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
 // 빠른 검색/필터용 알약 버튼 (탭 상단 공용)
 export function Chip({
   label,
@@ -133,7 +152,7 @@ export function Chip({
         paddingHorizontal: 12,
         paddingVertical: 8,
         borderRadius: 999,
-        backgroundColor: active ? `${activeColor}24` : colors.cardAlt,
+        backgroundColor: active ? `${activeColor}24` : colors.card,
         borderWidth: 1,
         borderColor: active ? activeColor : colors.border,
       }}

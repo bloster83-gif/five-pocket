@@ -4,7 +4,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-rou
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { Button, Card, Row } from '@/components/ui';
-import { colors, formatMoney, formatPrice, money, signColor, spacing } from '@/theme';
+import { colors, formatMoney, formatPrice, money, pocketColor, signColor, spacing } from '@/theme';
 import { computePnL, estimatedShares, pnlPct } from '@/domain/pockets';
 import { confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
@@ -369,19 +369,22 @@ function PocketCard({
         ? { text: '매도 완료', color: colors.sell }
         : { text: '대기중', color: colors.textDim };
 
-  // 음영(가득 참) 배경
-  const cardStyle =
-    k.status === 'bought'
+  // 음영(가득 참) 배경 + 포켓 번호별 고유 색 띠
+  const cardStyle = {
+    ...(k.status === 'bought'
       ? { backgroundColor: colors.buyBg, borderColor: colors.buy }
       : k.status === 'sold'
         ? { backgroundColor: colors.sellBg, borderColor: colors.sell }
-        : { borderColor: buyReady ? colors.buy : colors.border };
+        : { borderColor: buyReady ? colors.buy : colors.border }),
+    borderLeftWidth: 5,
+    borderLeftColor: pocketColor(k.idx),
+  };
 
   return (
     <Card style={cardStyle as any}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>포켓 {k.idx + 1}</Text>
+          <Text style={{ color: pocketColor(k.idx), fontWeight: '900', fontSize: 16 }}>포켓 {k.idx + 1}</Text>
           {cycles > 0 && (
             <View style={{ backgroundColor: colors.cardAlt, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
               <Text style={{ color: colors.textDim, fontSize: 11, fontWeight: '700' }}>{cycles}회 순환</Text>

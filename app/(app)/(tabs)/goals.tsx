@@ -4,7 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
-import { Button, Card, Chip, Field, NumberField } from '@/components/ui';
+import { Button, Card, Chip, Field, FilterBar, NumberField } from '@/components/ui';
 import { BarChart, Legend } from '@/components/charts';
 import { colors, formatKRW, radius, spacing } from '@/theme';
 import { buildGoalRows } from '@/domain/goals';
@@ -316,14 +316,14 @@ export default function GoalsScreen() {
 
       {rows.length > 0 && (
         <>
-          {/* 빠른 보기: 표 필터 */}
-          <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+          {/* 빠른 보기: 표 필터 (어두운 바 서식) */}
+          <FilterBar style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
             <Text style={{ color: colors.textDim, fontSize: 12 }}>빠른 보기</Text>
             <Chip label="전체" active={tableFilter === 'all'} onPress={() => setTableFilter('all')} />
             <Chip label="과거" active={tableFilter === 'past'} onPress={() => setTableFilter('past')} activeColor={colors.accent} />
             <Chip label="올해" icon="🔥" active={tableFilter === 'now'} onPress={() => setTableFilter('now')} />
             <Chip label="미래" active={tableFilter === 'future'} onPress={() => setTableFilter('future')} activeColor={colors.accent} />
-          </View>
+          </FilterBar>
 
           {/* ★ 올해 현황 (크게 강조) */}
           {thisYearRow && (
