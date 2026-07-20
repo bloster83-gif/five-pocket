@@ -224,17 +224,32 @@ export default function ProjectsScreen() {
                       <Text style={{ color: colors.textDim, marginTop: 2 }}>
                         {item.symbol} · {item.market === 'KRX' ? '한국' : '미국'}
                       </Text>
-                      {/* 실시간 현재가 + 오늘 등락률 */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3, flexWrap: 'wrap' }}>
+                      {/* 실시간 현재가 + 오늘 등락률 (전일 종가 대비) */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
                         <Text style={{ color: colors.textDim, fontSize: 12 }}>현재가</Text>
                         <Text style={{ color: closed ? colors.textDim : colors.text, fontWeight: '900', fontSize: 15 }}>
                           {m?.price != null ? formatPrice(m.price, m?.market ?? item.market) : '—'}
                         </Text>
-                        {m?.changePct != null && (
-                          <Text style={{ color: signColor(m.changePct), fontWeight: '800', fontSize: 13 }}>
-                            {m.changePct > 0 ? '▲' : m.changePct < 0 ? '▼' : ''} {m.changePct > 0 ? '+' : ''}
-                            {m.changePct}%
-                          </Text>
+                        {m?.changePct != null ? (
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 2,
+                              backgroundColor: m.changePct >= 0 ? colors.buyBg : colors.sellBg,
+                              borderRadius: 6,
+                              paddingHorizontal: 6,
+                              paddingVertical: 1,
+                            }}
+                          >
+                            <Text style={{ color: signColor(m.changePct), fontWeight: '900', fontSize: 12 }}>
+                              {m.changePct > 0 ? '▲' : m.changePct < 0 ? '▼' : ''}
+                              {m.changePct > 0 ? '+' : ''}
+                              {m.changePct}%
+                            </Text>
+                          </View>
+                        ) : (
+                          m?.price != null && <Text style={{ color: colors.textDim, fontSize: 11 }}>등락률 —</Text>
                         )}
                       </View>
                       {/* 매수/매도 세팅값 */}
