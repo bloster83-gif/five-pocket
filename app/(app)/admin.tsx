@@ -27,9 +27,9 @@ const AUTO_DURATIONS = [
   { label: '1년', months: 12 },
 ] as const;
 
-// n개월 뒤 시각
-function addMonths(n: number): Date {
-  const d = new Date();
+// 기준 시각에서 n개월 뒤
+function addMonths(base: Date, n: number): Date {
+  const d = new Date(base);
   d.setMonth(d.getMonth() + n);
   return d;
 }
@@ -99,15 +99,24 @@ export default function AdminScreen() {
     setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, tier, tier_expires_at: expiresAt } : x)));
   };
 
-  // AUTO 인증 (기간 지정) — 이미 AUTO 인 회원에게 누르면 만료일이 오늘 기준으로 연장됨
+  // AUTO 인증 (기간 지정)
+  // 이미 AUTO 이고 만료일이 남아 있으면 "기존 만료일 기준"으로 이어서 연장 (남은 기간 보존),
+  // 신규 인증이거나 만료일이 지났으면 오늘 기준으로 시작.
   const onGrantAuto = (u: Profile, months: number, label: string) => {
-    const expiry = addMonths(months);
+    const remaining =
+      u.tier === 'auto' && u.tier_expires_at && new Date(u.tier_expires_at).getTime() > Date.now()
+        ? new Date(u.tier_expires_at)
+        : null;
+    const expiry = addMonths(remaining ?? new Date(), months);
     const name = u.display_name ?? u.email ?? u.id;
+    const message = remaining
+      ? `"${name}" 님의 AUTO 기간을 ${label} 연장할까요?\n\n기존 만료일: ${remaining.toISOString().slice(0, 10)}\n새 만료일: ${expiry.toISOString().slice(0, 10)} (기존 만료일 + ${label})`
+      : `"${name}" 님을 AUTO 등급으로 인증할까요?\n\n만료일: ${expiry.toISOString().slice(0, 10)}\n만료되면 자동으로 Diary 등급으로 돌아가고 자동매매도 중지됩니다.`;
     confirmAction(
-      `AUTO 등급 인증 (${label})`,
-      `"${name}" 님을 AUTO 등급으로 인증할까요?\n\n만료일: ${expiry.toISOString().slice(0, 10)}\n만료되면 자동으로 Diary 등급으로 돌아가고 자동매매도 중지됩니다.`,
+      remaining ? `AUTO 기간 연장 (+${label})` : `AUTO 등급 인증 (${label})`,
+      message,
       () => applyTier(u, 'auto', expiry.toISOString()),
-      '인증'
+      remaining ? '연장' : '인증'
     );
   };
 
