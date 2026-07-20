@@ -464,11 +464,11 @@ export default function ProjectDetailScreen() {
       {/* 수정 / 삭제 (프로젝트 종료 버튼 바로 위) */}
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
         <View style={{ flex: 1 }}>
-          <Button title="✏️ 수정" variant="ghost" onPress={() => router.push(`/project/${project.id}/edit`)} />
+          <Button title="수정" variant="primary" onPress={() => router.push(`/project/${project.id}/edit`)} />
         </View>
         <View style={{ flex: 1 }}>
           <Button
-            title="🗑️ 삭제"
+            title="삭제"
             variant="danger"
             onPress={() =>
               confirmAction(
