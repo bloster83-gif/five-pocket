@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, Switch, Text, View } from 're
 import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Card, Chip, Field, Row } from '@/components/ui';
-import { colors, formatMoney, formatPrice, money, signColor, spacing } from '@/theme';
+import { colors, formatMoney, formatPrice, money, radius, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import type { Pocket, Project, Trade } from '@/types/db';
 
@@ -97,26 +97,71 @@ export default function PocketsScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 40 }}>
-      {/* 툴바: 돋보기 + 시장 빠른 필터 */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+      {/* 🧺 포켓 번호 선택 — 맨 위, 화면 폭에 딱 맞는 균등 분할 버튼 (포켓탭 전용 서식) */}
+      <View
+        style={{
+          backgroundColor: colors.card,
+          borderRadius: radius.lg,
+          borderWidth: 1,
+          borderColor: colors.buy,
+          padding: spacing.sm,
+          gap: spacing.xs,
+        }}
+      >
+        <Text style={{ color: colors.buy, fontSize: 12, fontWeight: '800' }}>🧺 포켓 번호로 보기</Text>
+        <View style={{ flexDirection: 'row', gap: 5 }}>
+          {([null, 0, 1, 2, 3, 4] as (number | null)[]).map((i) => {
+            const on = pocketFilter === i;
+            return (
+              <Pressable
+                key={String(i)}
+                onPress={() => setPocketFilter(i)}
+                style={{
+                  flex: 1,
+                  alignItems: 'center',
+                  paddingVertical: 12,
+                  borderRadius: radius.md,
+                  backgroundColor: on ? colors.buy : colors.cardAlt,
+                }}
+              >
+                <Text style={{ color: on ? '#FFFFFF' : colors.textDim, fontWeight: '900', fontSize: 14 }}>
+                  {i == null ? '전체' : i + 1}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* 종목 검색 + 시장 필터 (프로젝트 탭과 구분되는 어두운 바 서식) */}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.sm,
+          backgroundColor: colors.cardAlt,
+          borderRadius: radius.lg,
+          padding: spacing.sm,
+        }}
+      >
         <Pressable
           onPress={() => setShowSearch((s) => !s)}
           style={{
-            width: 44,
-            height: 40,
+            width: 40,
+            height: 36,
             borderRadius: 10,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: showSearch ? colors.buy : colors.cardAlt,
+            backgroundColor: showSearch ? colors.buy : colors.card,
           }}
         >
-          <Text style={{ fontSize: 18 }}>🔍</Text>
+          <Text style={{ fontSize: 16 }}>🔍</Text>
         </Pressable>
         <Chip label="한국" icon="🇰🇷" active={market === 'KRX'} onPress={() => setMarket(market === 'KRX' ? null : 'KRX')} />
         <Chip label="미국" icon="🇺🇸" active={market === 'US'} onPress={() => setMarket(market === 'US' ? null : 'US')} activeColor={colors.accent} />
       </View>
 
-      {/* 종목 검색 */}
+      {/* 종목 검색 입력 */}
       {showSearch && (
         <Card>
           <Field
@@ -150,36 +195,6 @@ export default function PocketsScreen() {
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text style={{ color: colors.sell, fontWeight: '700' }}>실현 완료만 보기 (매도 이력)</Text>
           <Switch value={onlyRealized} onValueChange={setOnlyRealized} />
-        </View>
-
-        {/* 포켓 번호 필터 — 처음엔 전체, 아이콘을 누르면 그 포켓만 */}
-        <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.xs }}>
-          <Text style={{ color: colors.textDim, fontSize: 12 }}>포켓 번호로 보기</Text>
-          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-            <Pressable
-              onPress={() => setPocketFilter(null)}
-              style={[chipStyle, pocketFilter == null && chipOnStyle]}
-            >
-              <Text style={{ color: pocketFilter == null ? colors.buy : colors.textDim, fontWeight: '800', fontSize: 13 }}>
-                전체
-              </Text>
-            </Pressable>
-            {[0, 1, 2, 3, 4].map((i) => {
-              const on = pocketFilter === i;
-              return (
-                <Pressable
-                  key={i}
-                  onPress={() => setPocketFilter(on ? null : i)}
-                  style={[chipStyle, on && chipOnStyle]}
-                >
-                  <Text style={{ fontSize: 12 }}>🧺</Text>
-                  <Text style={{ color: on ? colors.buy : colors.textDim, fontWeight: '800', fontSize: 13 }}>
-                    {i + 1}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
         </View>
       </Card>
 
@@ -279,20 +294,3 @@ export default function PocketsScreen() {
     </ScrollView>
   );
 }
-
-// 포켓 번호 필터 칩 스타일
-const chipStyle = {
-  flexDirection: 'row' as const,
-  alignItems: 'center' as const,
-  gap: 3,
-  paddingHorizontal: 12,
-  paddingVertical: 8,
-  borderRadius: 999,
-  backgroundColor: colors.cardAlt,
-  borderWidth: 1,
-  borderColor: colors.border,
-};
-const chipOnStyle = {
-  backgroundColor: colors.buyBg,
-  borderColor: colors.buy,
-};
