@@ -16,7 +16,8 @@ interface AuthState {
   signUp: (
     email: string,
     password: string,
-    displayName: string
+    displayName: string,
+    extra?: { fullName?: string; phone?: string }
   ) => Promise<{ error?: string; needsConfirm?: boolean }>;
   signOut: () => Promise<void>;
 }
@@ -81,11 +82,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error: error?.message };
   };
 
-  const signUp: AuthState['signUp'] = async (email, password, displayName) => {
+  const signUp: AuthState['signUp'] = async (email, password, displayName, extra) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { display_name: displayName } },
+      options: {
+        data: {
+          display_name: displayName,
+          full_name: extra?.fullName ?? null,
+          phone: extra?.phone ?? null,
+        },
+      },
     });
     if (error) return { error: error.message };
     // 이메일 확인이 켜져 있으면 session 이 아직 null

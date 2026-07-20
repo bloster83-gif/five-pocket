@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Field } from '@/components/ui';
 import { colors, radius, spacing } from '@/theme';
+import { formatPhone } from '@/lib/phoneAuth';
 import type { MemberTier, Profile } from '@/types/db';
 
 // profiles.tier 컬럼이 아직 없을 때(마이그레이션 전) 나는 에러인지 판별
@@ -66,7 +67,17 @@ export default function AdminScreen() {
     } else if (data) {
       setUsers(
         (data as Partial<Profile>[]).map(
-          (p) => ({ tier: 'diary', tier_expires_at: null, is_admin: false, email: null, ...p }) as Profile
+          (p) =>
+            ({
+              tier: 'diary',
+              tier_expires_at: null,
+              is_admin: false,
+              email: null,
+              full_name: null,
+              phone: null,
+              phone_verified: false,
+              ...p,
+            }) as Profile
         )
       );
     }
@@ -89,10 +100,10 @@ export default function AdminScreen() {
     const s = q.trim().toLowerCase();
     return users.filter((u) => {
       if (filter !== 'all' && u.tier !== filter) return false;
-      // 이름/이메일 검색
+      // 이름/이메일/휴대폰 검색
       if (s) {
-        const hay = `${u.display_name ?? ''} ${u.email ?? ''}`.toLowerCase();
-        if (!hay.includes(s)) return false;
+        const hay = `${u.full_name ?? ''} ${u.display_name ?? ''} ${u.email ?? ''} ${u.phone ?? ''}`.toLowerCase();
+        if (!hay.includes(s.replace(/-/g, ''))) return false;
       }
       // 가입일 범위
       const joined = u.created_at?.slice(0, 10) ?? '';
@@ -220,10 +231,10 @@ export default function AdminScreen() {
         {showSearch && (
           <View style={{ gap: spacing.sm }}>
             <Field
-              label="이름 또는 이메일"
+              label="이름 · 이메일 · 휴대폰"
               value={q}
               onChangeText={setQ}
-              placeholder="예: 홍길동, gmail"
+              placeholder="예: 홍길동, gmail, 010"
               autoCapitalize="none"
             />
             <View style={{ flexDirection: 'row', gap: spacing.md }}>
@@ -312,7 +323,7 @@ export default function AdminScreen() {
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={{ color: colors.text, fontWeight: '800' }}>
-                    {u.display_name ?? '(이름 없음)'}
+                    {u.full_name ?? u.display_name ?? '(이름 없음)'}
                   </Text>
                   {u.is_admin && <Text style={{ fontSize: 12 }}>👑</Text>}
                   {isMe && (
@@ -320,6 +331,11 @@ export default function AdminScreen() {
                   )}
                 </View>
                 <Text style={{ color: colors.textDim, fontSize: 12 }}>{u.email ?? '-'}</Text>
+                {u.phone && (
+                  <Text style={{ color: colors.textDim, fontSize: 12 }}>
+                    📱 {formatPhone(u.phone)} {u.phone_verified ? '✓' : ''}
+                  </Text>
+                )}
                 <Text style={{ color: colors.textDim, fontSize: 11 }}>
                   가입 {u.created_at?.slice(0, 10) ?? '-'}
                 </Text>

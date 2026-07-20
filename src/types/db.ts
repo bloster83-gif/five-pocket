@@ -11,7 +11,10 @@ export type MemberTier = 'diary' | 'auto';
 export interface Profile {
   id: string;
   display_name: string | null;
+  full_name: string | null; // 실명 (회원가입 필수)
   email: string | null;
+  phone: string | null; // 휴대폰 번호 (숫자만)
+  phone_verified: boolean; // 휴대폰 SMS 인증 완료 여부
   expo_push_token: string | null;
   tier: MemberTier;
   tier_expires_at: string | null; // AUTO 등급 만료 시각 (null = 무기한)

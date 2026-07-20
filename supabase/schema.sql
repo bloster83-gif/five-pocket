@@ -16,13 +16,28 @@ create extension if not exists "pgcrypto";
 create table if not exists public.profiles (
   id              uuid primary key references auth.users (id) on delete cascade,
   display_name    text,
+  full_name       text,              -- 실명 (회원가입 필수)
   email           text,
+  phone           text,              -- 휴대폰 번호 (숫자만)
+  phone_verified  boolean not null default false, -- 휴대폰 SMS 인증 완료 여부
   expo_push_token text,
   tier            text not null default 'diary' check (tier in ('diary', 'auto')),
   tier_expires_at timestamptz, -- AUTO 등급 만료 시각 (null = 무기한). 만료 시 diary 로 자동 강등
   is_admin        boolean not null default false,
   created_at      timestamptz not null default now()
 );
+
+-- 회원가입 전(로그인 전) 휴대폰 SMS 인증코드 임시 저장 (service_role 만 접근)
+create table if not exists public.phone_otps (
+  phone       text primary key,
+  code        text not null,
+  expires_at  timestamptz not null,
+  verified    boolean not null default false,
+  attempts    int not null default 0,
+  sent_at     timestamptz not null default now(),
+  created_at  timestamptz not null default now()
+);
+alter table public.phone_otps enable row level security; -- 정책 없음 = 일반 사용자 전면 차단
 
 -- 만료된 AUTO 회원을 diary 로 강등 (pg_cron 매시간 실행 권장 — 마이그레이션 g 참고)
 create or replace function public.expire_auto_tiers()
@@ -43,14 +58,34 @@ returns trigger
 language plpgsql
 security definer set search_path = public
 as $$
+declare
+  v_phone text := nullif(new.raw_user_meta_data->>'phone', '');
+  v_verified boolean := false;
 begin
-  insert into public.profiles (id, display_name, email)
+  if v_phone is not null then
+    select verified into v_verified from public.phone_otps
+      where phone = v_phone and verified = true;
+    v_verified := coalesce(v_verified, false);
+  end if;
+
+  insert into public.profiles (id, display_name, full_name, email, phone, phone_verified)
   values (
     new.id,
-    coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1)),
-    new.email
+    coalesce(new.raw_user_meta_data->>'display_name', new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+    new.raw_user_meta_data->>'full_name',
+    new.email,
+    v_phone,
+    v_verified
   )
-  on conflict (id) do update set email = excluded.email;
+  on conflict (id) do update
+    set email = excluded.email,
+        full_name = coalesce(excluded.full_name, public.profiles.full_name),
+        phone = coalesce(excluded.phone, public.profiles.phone),
+        phone_verified = public.profiles.phone_verified or excluded.phone_verified;
+
+  if v_phone is not null then
+    delete from public.phone_otps where phone = v_phone;
+  end if;
   return new;
 end;
 $$;

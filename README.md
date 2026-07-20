@@ -164,6 +164,32 @@ KIS 현재가를 조회해 포켓 신호를 판정 → 주문 → 기록 → **�
 - 수동 테스트: `.../functions/v1/auto-trade-runner?force=1` 을 service_role 키로 호출하면
   장 시간이 아니어도 1회 실행됩니다.
 
+## 회원가입 (실명·이메일·휴대폰 필수 + SMS 인증)
+
+이메일 회원가입 시 **실명, 이메일, 비밀번호, 휴대폰 번호**가 모두 필수이고,
+휴대폰은 **문자(SMS) 인증**을 완료해야 가입 버튼이 활성화됩니다.
+
+문자 발송은 한국에서 많이 쓰는 **알리고(Aligo)** API를 사용합니다.
+
+1. 마이그레이션 실행: `supabase/migrations/20260716h_signup_phone.sql`
+   (profiles에 실명/휴대폰/인증여부 + phone_otps 테이블 추가)
+2. 인증 함수 2개 배포 (로그인 전 호출이라 `--no-verify-jwt` 필수):
+   ```bash
+   supabase functions deploy send-phone-otp --no-verify-jwt
+   supabase functions deploy verify-phone-otp --no-verify-jwt
+   ```
+3. 알리고 문자 발송 시크릿 설정 ([smartsms.aligo.in](https://smartsms.aligo.in) 가입 + **발신번호 사전등록**):
+   ```bash
+   supabase secrets set ALIGO_API_KEY=... ALIGO_USER_ID=... ALIGO_SENDER=발신번호
+   ```
+
+> 🔧 **테스트 모드**: 알리고 시크릿을 설정하지 않으면 실제 문자를 보내지 않고
+> 회원가입 화면에 인증코드를 직접 표시합니다(개발용). 문자 계약 전에도 가입 흐름을
+> 전부 테스트할 수 있고, 운영 시 위 시크릿만 등록하면 실제 문자로 자동 전환됩니다.
+
+가입 시 인증된 번호는 `profiles.phone_verified = true`로 저장되고, 관리자 페이지에서
+이름·이메일·휴대폰으로 회원을 검색할 수 있습니다. (SNS 로그인은 휴대폰 인증 없이 가입됩니다)
+
 ## 네이버 로그인
 
 Supabase가 네이버를 기본 지원하지 않아 Edge Function이 중계합니다.
