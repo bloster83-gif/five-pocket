@@ -4,7 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
-import { computePnL } from '@/domain/pockets';
+import { computePnL, estimatedShares } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
 import type { Pocket, Project, Trade } from '@/types/db';
 
@@ -305,12 +305,22 @@ export default function PocketsScreen() {
                   )}
                 </View>
                 {k.status === 'waiting' && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Text style={{ color: colors.textDim, fontSize: 11 }}>매수목표</Text>
-                    <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>
-                      {formatPrice(k.buy_target_price, proj.market)}
-                    </Text>
-                  </View>
+                  <>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Text style={{ color: colors.textDim, fontSize: 11 }}>매수목표</Text>
+                      <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>
+                        {formatPrice(k.buy_target_price, proj.market)}
+                      </Text>
+                    </View>
+                    {k.budget != null && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={{ color: colors.textDim, fontSize: 11 }}>목표수량</Text>
+                        <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>
+                          {money(estimatedShares(k.budget, k.buy_target_price), 0)}주
+                        </Text>
+                      </View>
+                    )}
+                  </>
                 )}
                 {k.status === 'bought' && (
                   <>
