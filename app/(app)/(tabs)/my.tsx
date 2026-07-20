@@ -8,7 +8,7 @@ import { Button, Card, Field, Row } from '@/components/ui';
 import { StatsContent } from '@/components/StatsContent';
 import { colors, formatMoney, money, radius, signColor, spacing } from '@/theme';
 import { formatPhone, isValidPhone, onlyDigits, sendPhoneOtp, verifyPhoneOtp } from '@/lib/phoneAuth';
-import { getDomesticBalance, kisOrderBlocked, type KisBalance } from '@/services/broker/kis';
+import { getDomesticBalance, getOverseasBalance, kisOrderBlocked, type KisBalance, type KisHolding } from '@/services/broker/kis';
 import type { BrokerAccount } from '@/types/db';
 
 export default function MyScreen() {
@@ -45,6 +45,8 @@ export default function MyScreen() {
     }, [loadAccount]) // eslint-disable-line react-hooks/exhaustive-deps
   );
 
+  const [usHoldings, setUsHoldings] = useState<KisHolding[]>([]);
+
   const loadBalance = async () => {
     if (!account) return;
     const blocked = kisOrderBlocked('KRX');
@@ -52,7 +54,15 @@ export default function MyScreen() {
     setBalLoading(true);
     setBalError(null);
     try {
-      setBalance(await getDomesticBalance(account));
+      // 국내 잔고(원화) 조회 — 실패하면 에러
+      const dom = await getDomesticBalance(account);
+      setBalance(dom);
+      // 해외 잔고(달러) 조회 — 실패해도 국내는 그대로 (해외 미신청 등)
+      try {
+        setUsHoldings(await getOverseasBalance(account));
+      } catch {
+        setUsHoldings([]);
+      }
     } catch (e: any) {
       setBalError(e?.message ?? '잔고를 불러오지 못했어요.');
     } finally {
@@ -324,39 +334,44 @@ export default function MyScreen() {
             </View>
             <Row label="예수금 (주문가능현금)" value={formatMoney(balance.cash, 'KRX')} />
 
-            {balance.holdings.length === 0 ? (
+            {balance.holdings.length === 0 && usHoldings.length === 0 ? (
               <Text style={{ color: colors.textDim, fontSize: 13 }}>보유 중인 종목이 없어요.</Text>
             ) : (
               <View style={{ gap: spacing.sm, marginTop: spacing.xs }}>
-                {balance.holdings.map((h) => (
-                  <View
-                    key={h.symbol}
-                    style={{
-                      borderTopWidth: 1,
-                      borderTopColor: colors.border,
-                      paddingTop: spacing.sm,
-                    }}
-                  >
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Text style={{ color: colors.text, fontWeight: '800' }}>{h.name}</Text>
-                      <Text style={{ color: signColor(h.pnl), fontWeight: '800' }}>
-                        {h.pnl > 0 ? '+' : ''}
-                        {formatMoney(h.pnl, 'KRX')} ({h.pnlRate > 0 ? '+' : ''}
-                        {h.pnlRate}%)
-                      </Text>
+                {[...balance.holdings, ...usHoldings].map((h) => {
+                  const mkt = h.market;
+                  const cur = mkt === 'US' ? '$' : '₩';
+                  return (
+                    <View
+                      key={`${mkt}-${h.symbol}`}
+                      style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
+                          <Text style={{ fontSize: 11 }}>{mkt === 'US' ? '🇺🇸' : '🇰🇷'}</Text>
+                          <Text style={{ color: colors.text, fontWeight: '800' }} numberOfLines={1}>{h.name}</Text>
+                        </View>
+                        <Text style={{ color: signColor(h.pnl), fontWeight: '800' }}>
+                          {h.pnl > 0 ? '+' : ''}
+                          {formatMoney(h.pnl, mkt)} ({h.pnlRate > 0 ? '+' : ''}
+                          {h.pnlRate}%)
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ color: colors.textDim, fontSize: 12 }}>
+                          {money(h.quantity, 0)}주 · 평단 {cur}
+                          {money(h.avgPrice, mkt === 'US' ? 2 : 0)}
+                        </Text>
+                        <Text style={{ color: colors.textDim, fontSize: 12 }}>평가 {formatMoney(h.evalAmount, mkt)}</Text>
+                      </View>
                     </View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Text style={{ color: colors.textDim, fontSize: 12 }}>
-                        {money(h.quantity, 0)}주 · 평단 ₩{money(h.avgPrice, 0)}
-                      </Text>
-                      <Text style={{ color: colors.textDim, fontSize: 12 }}>평가 {formatMoney(h.evalAmount, 'KRX')}</Text>
-                    </View>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             )}
             <Text style={{ color: colors.textDim, fontSize: 11 }}>
               * {account.is_virtual ? '모의투자' : '실전'} 계좌 실시간 잔고 · 폰(네이티브)에서만 조회돼요.
+              {usHoldings.length > 0 ? ' 상단 요약(평가금액·손익·예수금)은 국내(원화) 기준입니다.' : ''}
             </Text>
           </>
         ) : (

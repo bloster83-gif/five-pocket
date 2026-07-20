@@ -285,13 +285,16 @@ export interface KisHolding {
   evalAmount: number; // 평가금액
   pnl: number; // 평가손익
   pnlRate: number; // 평가손익률(%)
+  market: 'KRX' | 'US'; // 통화 구분 (원/달러)
 }
 
 export interface KisBalance {
   holdings: KisHolding[];
-  totalEval: number; // 유가증권 평가금액 합계
-  totalPnl: number; // 평가손익 합계
-  cash: number; // 예수금(주문가능현금)
+  totalEval: number; // 유가증권 평가금액 합계 (원화)
+  totalPnl: number; // 평가손익 합계 (원화)
+  cash: number; // 예수금(주문가능현금, 원화)
+  totalEvalUsd?: number; // 해외 평가금액 합계 (달러)
+  totalPnlUsd?: number; // 해외 평가손익 합계 (달러)
 }
 
 /** 국내주식 잔고(보유종목 + 예수금)를 조회한다. 웹/미지원 환경이면 kisOrderBlocked 로 막힘. */
@@ -340,6 +343,7 @@ export async function getDomesticBalance(account: BrokerAccount): Promise<KisBal
       evalAmount: Number(h.evlu_amt),
       pnl: Number(h.evlu_pfls_amt),
       pnlRate: Number(h.evlu_pfls_rt),
+      market: 'KRX' as const,
     }));
 
   const summary = (json.output2 ?? [])[0] ?? {};
@@ -349,4 +353,53 @@ export async function getDomesticBalance(account: BrokerAccount): Promise<KisBal
     totalPnl: Number(summary.evlu_pfls_smtl_amt ?? 0), // 평가손익 합계
     cash: Number(summary.dnca_tot_amt ?? summary.prvs_rcdl_excc_amt ?? 0), // 예수금
   };
+}
+
+// 해외주식 잔고조회 TR ID (미국)
+const OVERSEAS_BALANCE_TR = { real: 'TTTS3012R', virtual: 'VTTS3012R' } as const;
+
+/** 미국주식 잔고(보유종목 + 달러 평가). 실패해도 국내 조회에 영향 없게 별도 함수. */
+export async function getOverseasBalance(account: BrokerAccount): Promise<KisHolding[]> {
+  const token = await getValidToken(account);
+  const trId = OVERSEAS_BALANCE_TR[account.is_virtual ? 'virtual' : 'real'];
+
+  // 미국 전체 거래소 통합 조회 (NASD 지정 + 통화 USD)
+  const u = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/overseas-stock/v1/trading/inquire-balance`);
+  const params: Record<string, string> = {
+    CANO: account.account_no,
+    ACNT_PRDT_CD: account.account_product_code,
+    OVRS_EXCG_CD: 'NASD', // 미국전체
+    TR_CRCY_CD: 'USD',
+    CTX_AREA_FK200: '',
+    CTX_AREA_NK200: '',
+  };
+  Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+
+  const res = await fetch(u.toString(), {
+    headers: {
+      authorization: `Bearer ${token}`,
+      appkey: account.app_key,
+      appsecret: account.app_secret,
+      tr_id: trId,
+      custtype: 'P',
+    },
+  });
+  const json = await res.json();
+  if (!res.ok || json.rt_cd !== '0') {
+    throw new Error(json.msg1 ?? `해외 잔고 조회 실패 (HTTP ${res.status})`);
+  }
+
+  return ((json.output1 ?? []) as any[])
+    .filter((h) => Number(h.ovrs_cblc_qty) > 0)
+    .map((h) => ({
+      symbol: h.ovrs_pdno,
+      name: h.ovrs_item_name,
+      quantity: Number(h.ovrs_cblc_qty),
+      avgPrice: Number(h.pchs_avg_pric),
+      currentPrice: Number(h.now_pric2),
+      evalAmount: Number(h.ovrs_stck_evlu_amt),
+      pnl: Number(h.frcr_evlu_pfls_amt),
+      pnlRate: Number(h.evlu_pfls_rt),
+      market: 'US' as const,
+    }));
 }
