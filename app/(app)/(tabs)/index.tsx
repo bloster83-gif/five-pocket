@@ -256,59 +256,59 @@ export default function ProjectsScreen() {
                       <Text style={{ color: colors.textDim, marginTop: 2 }}>
                         {item.symbol} · {item.market === 'KRX' ? '한국' : '미국'}
                       </Text>
-                      {/* 실시간 현재가 + 오늘 등락률 (전일 종가 대비) */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
-                        <Text style={{ color: colors.textDim, fontSize: 12 }}>현재가</Text>
-                        <Text style={{ color: closed ? colors.textDim : colors.text, fontWeight: '900', fontSize: 15 }}>
-                          {m?.price != null ? formatPrice(m.price, m?.market ?? item.market) : '—'}
-                        </Text>
-                        {m?.changePct != null ? (
-                          <View
-                            style={{
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              gap: 2,
-                              backgroundColor: m.changePct >= 0 ? colors.buyBg : colors.sellBg,
-                              borderRadius: 6,
-                              paddingHorizontal: 6,
-                              paddingVertical: 1,
-                            }}
-                          >
-                            <Text style={{ color: signColor(m.changePct), fontWeight: '900', fontSize: 12 }}>
-                              {m.changePct > 0 ? '▲' : m.changePct < 0 ? '▼' : ''}
-                              {m.changePct > 0 ? '+' : ''}
-                              {m.changePct}%
-                            </Text>
-                          </View>
-                        ) : (
-                          m?.price != null && <Text style={{ color: colors.textDim, fontSize: 11 }}>등락률 —</Text>
-                        )}
-                      </View>
                     </View>
-                    <View style={{ alignItems: 'flex-end', gap: 6 }}>
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 4,
-                          paddingHorizontal: 10,
-                          paddingVertical: 4,
-                          borderRadius: 999,
-                          backgroundColor: closed ? 'rgba(59,130,246,0.18)' : 'rgba(245,69,92,0.15)',
-                        }}
-                      >
-                        <Text style={{ fontSize: 12 }}>{closed ? '🔒' : '🔴'}</Text>
-                        <Text style={{ color: closed ? colors.sell : colors.buy, fontSize: 12, fontWeight: '800' }}>
-                          {closed ? '종료' : '진행중'}
-                        </Text>
-                      </View>
-                      {/* 기준가 (전략 기준점) */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <Text style={{ color: colors.textDim, fontSize: 11 }}>기준가</Text>
-                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
-                          {formatPrice(item.base_price, m?.market ?? item.market)}
-                        </Text>
-                      </View>
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 4,
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 999,
+                        backgroundColor: closed ? 'rgba(59,130,246,0.18)' : 'rgba(245,69,92,0.15)',
+                      }}
+                    >
+                      <Text style={{ fontSize: 12 }}>{closed ? '🔒' : '🔴'}</Text>
+                      <Text style={{ color: closed ? colors.sell : colors.buy, fontSize: 12, fontWeight: '800' }}>
+                        {closed ? '종료' : '진행중'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* 현재가 · 기준가 — 한 줄에 좌/우 정렬(세로 높이 통일) */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
+                      <Text style={{ color: colors.textDim, fontSize: 12 }}>현재가</Text>
+                      <Text style={{ color: closed ? colors.textDim : colors.text, fontWeight: '900', fontSize: 15 }}>
+                        {m?.price != null ? formatPrice(m.price, m?.market ?? item.market) : '—'}
+                      </Text>
+                      {m?.changePct != null ? (
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 2,
+                            backgroundColor: m.changePct >= 0 ? colors.buyBg : colors.sellBg,
+                            borderRadius: 6,
+                            paddingHorizontal: 6,
+                            paddingVertical: 1,
+                          }}
+                        >
+                          <Text style={{ color: signColor(m.changePct), fontWeight: '900', fontSize: 12 }}>
+                            {m.changePct > 0 ? '▲' : m.changePct < 0 ? '▼' : ''}
+                            {m.changePct > 0 ? '+' : ''}
+                            {m.changePct}%
+                          </Text>
+                        </View>
+                      ) : (
+                        m?.price != null && <Text style={{ color: colors.textDim, fontSize: 11 }}>등락률 —</Text>
+                      )}
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Text style={{ color: colors.textDim, fontSize: 12 }}>기준가</Text>
+                      <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>
+                        {formatPrice(item.base_price, m?.market ?? item.market)}
+                      </Text>
                     </View>
                   </View>
 
