@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 import { notifyNow } from '@/lib/notifications';
 import { evaluateSignals, type PriceSignal } from '@/domain/pockets';
@@ -22,8 +23,8 @@ interface TrackerResult {
 }
 
 // 시세 폴링 주기. 야후는 15분 지연이고 서버 러너가 1분마다 자동매매를 돌리므로
-// 4초처럼 촘촘히 돌 필요가 없다. 12초면 충분히 실시간처럼 보이면서 발열·배터리 소모를 크게 줄인다.
-const POLL_MS = 12000;
+// 촘촘히 돌 필요가 없다. 30초면 충분히 실시간처럼 보이면서 발열·배터리 소모를 크게 줄인다.
+const POLL_MS = 30000;
 
 /**
  * 프로젝트 하나의 실시간 시세를 폴링하며,
@@ -51,8 +52,11 @@ export function usePriceTracker(
   const onSignalRef = useRef<typeof onSignal>(onSignal);
   onSignalRef.current = onSignal;
 
+  // 이 화면이 실제로 보이는 중일 때만 폴링 (다른 화면이 위에 덮이면 정지 → 발열 감소)
+  const isFocused = useIsFocused();
+
   useEffect(() => {
-    if (!project || !enabled) {
+    if (!project || !enabled || !isFocused) {
       setStatus('loading');
       return;
     }
@@ -154,7 +158,7 @@ export function usePriceTracker(
       sub.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id, project?.symbol, enabled]);
+  }, [project?.id, project?.symbol, enabled, isFocused]);
 
   const change = price != null && previousClose != null ? price - previousClose : null;
   const changePct =
