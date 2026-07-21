@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Button, Card, Chip, Field, FilterBar, NumberField } from '@/components/ui';
 import { BarChart, Legend } from '@/components/charts';
-import { colors, formatGoalKRW, goalUnit, radius, spacing } from '@/theme';
+import { colors, formatGoalAutoKRW, formatGoalKRW, goalUnit, radius, spacing } from '@/theme';
 import { buildGoalRows } from '@/domain/goals';
 import { realizedEvents } from '@/domain/pockets';
 import type { CashFlow, LifeGoal, Trade } from '@/types/db';
@@ -96,6 +96,8 @@ export default function GoalsScreen() {
   // 표시 단위: 목표금액 10억 초과면 '억', 이하면 '백만원'으로 통일
   const unit = goalUnit(nums.targetAsset);
   const fk = (v: number | null | undefined) => formatGoalKRW(v, unit);
+  // 입출금·배당금·실현손익 등 흐름 금액은 값 크기에 맞춰 억/백만 자동 선택
+  const fa = (v: number | null | undefined) => formatGoalAutoKRW(v);
 
   // 인생목표는 원화 기준. 미국(달러) 금액은 고정환율로 원화 환산해 합산.
   const USD_KRW = 1500;
@@ -474,20 +476,20 @@ export default function GoalsScreen() {
                 <Text style={{ color: colors.textDim }}>입출금 (매매일지)</Text>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>
                   {thisYearRow.deposit >= 0 ? '+' : ''}
-                  {fk(thisYearRow.deposit)}
+                  {fa(thisYearRow.deposit)}
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: colors.textDim }}>배당금 (매매일지)</Text>
                 <Text style={{ color: colors.accent, fontWeight: '800' }}>
-                  +{fk(thisYearRow.dividend)}
+                  +{fa(thisYearRow.dividend)}
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: colors.textDim }}>실현손익 (매매일지)</Text>
                 <Text style={{ color: (realizedByYear[nowYear] ?? 0) >= 0 ? colors.buy : colors.sell, fontWeight: '800' }}>
                   {(realizedByYear[nowYear] ?? 0) >= 0 ? '+' : ''}
-                  {fk(realizedByYear[nowYear] ?? 0)}
+                  {fa(realizedByYear[nowYear] ?? 0)}
                 </Text>
               </View>
               <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, marginTop: 4 }}>
@@ -581,10 +583,10 @@ export default function GoalsScreen() {
                         <Text style={{ color: colors.buy, fontSize: 10 }}>계획 {fk(r.planned)}</Text>
                       </View>
                       <Text style={{ width: 84, color: r.deposit ? colors.text : colors.textDim, fontSize: 12 }}>
-                        {r.deposit ? `${r.deposit > 0 ? '+' : ''}${fk(r.deposit)}` : '-'}
+                        {r.deposit ? `${r.deposit > 0 ? '+' : ''}${fa(r.deposit)}` : '-'}
                       </Text>
                       <Text style={{ width: 84, color: r.dividend ? colors.accent : colors.textDim, fontSize: 12, fontWeight: r.dividend ? '700' : '400' }}>
-                        {r.dividend ? `+${fk(r.dividend)}` : '-'}
+                        {r.dividend ? `+${fa(r.dividend)}` : '-'}
                       </Text>
                       <Text style={{ width: 96, color: r.actual != null ? colors.text : colors.textDim, fontSize: 12, fontWeight: '700' }}>
                         {r.actual != null ? fk(r.actual) : `목표 ${fk(r.planned)}`}
@@ -594,7 +596,7 @@ export default function GoalsScreen() {
                           <>
                             <Text style={{ fontSize: 12, fontWeight: '700', color: r.profit >= 0 ? colors.buy : colors.sell }}>
                               {r.profit >= 0 ? '+' : ''}
-                              {fk(r.profit)}
+                              {fa(r.profit)}
                             </Text>
                             <Text style={{ fontSize: 10, color: (r.returnPct ?? 0) >= 0 ? colors.buy : colors.sell }}>
                               {r.returnPct == null ? '' : `${r.returnPct > 0 ? '+' : ''}${r.returnPct}%`}

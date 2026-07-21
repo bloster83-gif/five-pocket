@@ -99,6 +99,16 @@ export function formatGoalKRW(n: number | null | undefined, unit: GoalUnit): str
   return sign + '₩' + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: dec }) + '백만';
 }
 
+/**
+ * 값 자체의 크기에 따라 억/백만원 단위를 자동으로 선택해 표기.
+ * (입출금·배당금·실현손익처럼 목표 자산과 무관하게 작을 수도 큰 수도 있는 금액용)
+ *  - |값| ≥ 1억 → '억', 그 미만 → '백만'
+ */
+export function formatGoalAutoKRW(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(n)) return '-';
+  return formatGoalKRW(n, Math.abs(n) >= 1e8 ? 'eok' : 'mil');
+}
+
 export function formatMoney(n: number | null | undefined, market: MarketCode): string {
   // 손익 등 금액 표기 (부호 유지)
   if (n == null || Number.isNaN(n)) return '-';
