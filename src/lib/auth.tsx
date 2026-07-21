@@ -103,8 +103,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
     });
     if (error) return { error: error.message };
-    // 이메일 확인이 켜져 있으면 session 이 아직 null
-    return { needsConfirm: !data.session };
+    // 이미 휴대폰 OTP로 본인확인을 하므로 이메일 인증은 불필요.
+    // 가입 직후 session 이 있으면 그대로 로그인. 없으면(설정에 따라) 바로 로그인 시도해서
+    // 이메일 확인 링크 없이 앱으로 진입시킨다. (프로젝트에서 Confirm email 을 끄면 메일도 안 나감)
+    if (!data.session) {
+      const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
+      // Confirm email 이 아직 켜져 있으면 여기서 'Email not confirmed' 로 실패 → 안내 화면
+      if (signInErr) return { needsConfirm: true };
+    }
+    return {};
   };
 
   const signOut = async () => {
