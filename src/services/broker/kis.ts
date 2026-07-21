@@ -157,7 +157,19 @@ export async function placeDomesticOrder(
 
 // 미국 거래소 코드 (나스닥/뉴욕/아멕스). 종목별로 되는 거래소를 캐시해 재사용.
 const US_EXCHANGES = ['NAS', 'NYS', 'AMS'] as const;
-const exchangeCache = new Map<string, string>();
+// 미국 주간거래(블루오션) 거래소 코드: 정규 거래소와 매핑
+const DAYTIME_OF: Record<string, string> = { NAS: 'BAQ', NYS: 'BAY', AMS: 'BAA' };
+const REGULAR_OF: Record<string, string> = { BAQ: 'NAS', BAY: 'NYS', BAA: 'AMS' };
+const exchangeCache = new Map<string, string>(); // 정규 거래소 코드 캐시
+
+// 미국 정규장(대략 09:30~16:00 ET)을 UTC로 판정. 겨울(EST)·여름(EDT) 모두 커버.
+function usRegularOpenNow(): boolean {
+  const d = new Date();
+  const day = d.getUTCDay();
+  if (day === 0 || day === 6) return false; // 주말
+  const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return mins >= 13 * 60 + 30 && mins <= 21 * 60; // 13:30~21:00 UTC
+}
 
 export interface OverseasQuote {
   price: number;
@@ -167,7 +179,8 @@ export interface OverseasQuote {
 
 /**
  * 미국주식 현재가 조회 (KIS 해외주식 현재가, tr_id HHDFS00000300).
- * Yahoo(15분 지연) 대신 KIS 실시간에 가까운 시세를 준다. 거래소 코드는 자동 탐색.
+ * 정규장 시간엔 정규 거래소(NAS/NYS/AMS), 정규장 외(한국 주간 등)엔 주간거래
+ * 거래소(BAQ/BAY/BAA)를 우선 조회해 '주간 현재가'도 반영한다. 실패 시 서로 폴백.
  */
 export async function getOverseasPrice(account: BrokerAccount, symbol: string): Promise<OverseasQuote> {
   const token = await getValidToken(account);
@@ -190,19 +203,22 @@ export async function getOverseasPrice(account: BrokerAccount, symbol: string): 
     const json = await res.json();
     const last = Number(json?.output?.last);
     if (json?.rt_cd === '0' && last > 0) {
+      // 성공한 거래소가 주간거래면 정규 코드로 환산해 캐시(주문은 정규 거래소 기준)
+      exchangeCache.set(sym, REGULAR_OF[excd] ?? excd);
       return { price: last, previousClose: Number(json.output?.base) || undefined, currency: 'USD' };
     }
     return null;
   };
 
   const cached = exchangeCache.get(sym);
-  const order = cached ? [cached, ...US_EXCHANGES.filter((e) => e !== cached)] : [...US_EXCHANGES];
+  const regular = cached ? [cached, ...US_EXCHANGES.filter((e) => e !== cached)] : [...US_EXCHANGES];
+  const daytime = regular.map((e) => DAYTIME_OF[e] ?? e);
+  // 정규장이면 정규 거래소 우선, 아니면 주간거래(BAQ/BAY/BAA) 우선 — 서로 폴백
+  const order = usRegularOpenNow() ? [...regular, ...daytime] : [...daytime, ...regular];
+
   for (const excd of order) {
     const q = await tryExchange(excd);
-    if (q) {
-      exchangeCache.set(sym, excd);
-      return q;
-    }
+    if (q) return q;
   }
   throw new Error('해외 시세를 불러오지 못했어요. (해외주식 서비스 신청 여부를 확인하세요)');
 }
