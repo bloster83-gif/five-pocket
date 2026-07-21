@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { Card, Row } from '@/components/ui';
@@ -10,6 +10,7 @@ import type { BrokerAccount } from '@/types/db';
 
 // 보유주식 상세 — MY 탭의 '자세히 보기'에서 진입. 국내/미국 잔고를 한 페이지에 자세히.
 export default function HoldingsScreen() {
+  const router = useRouter();
   const { session } = useAuth();
   const [account, setAccount] = useState<BrokerAccount | null | undefined>(undefined);
   const [balance, setBalance] = useState<KisBalance | null>(null);
@@ -74,9 +75,38 @@ export default function HoldingsScreen() {
   const usRate = pctOf(usPnl, usEval);
   const totalAssetKRW = krEval + krCash + (usEval + usCash) * USD_KRW;
 
+  // 어떤 상태에서도 항상 안정적인 뒤로가기 버튼을 유지 (헤더 리렌더로 기본 < 가 씹히는 문제 방지)
+  const screen = (
+    <Stack.Screen
+      options={{
+        headerLeft: () => (
+          <Pressable
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/my'))}
+            hitSlop={20}
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 17,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: colors.cardAlt,
+              borderWidth: 1,
+              borderColor: colors.border,
+              marginLeft: spacing.sm,
+              marginRight: spacing.sm,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 24, fontWeight: '800', marginTop: -3 }}>‹</Text>
+          </Pressable>
+        ),
+      }}
+    />
+  );
+
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center' }}>
+        {screen}
         <ActivityIndicator color={colors.buy} />
       </View>
     );
@@ -85,6 +115,7 @@ export default function HoldingsScreen() {
   if (!account) {
     return (
       <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+        {screen}
         <Card>
           <Text style={{ color: colors.textDim }}>계좌를 연결하면 실제 보유주식을 볼 수 있어요.</Text>
         </Card>
@@ -95,6 +126,7 @@ export default function HoldingsScreen() {
   if (error) {
     return (
       <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+        {screen}
         <Card>
           <Text style={{ color: colors.warn }}>{error}</Text>
           <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 4 }}>
@@ -107,6 +139,7 @@ export default function HoldingsScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 60 }}>
+      {screen}
       {/* 총자산 (원화 환산) — 맨 위 + 새로고침 */}
       <Card style={{ borderColor: colors.primary, borderWidth: 1.5 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
