@@ -629,8 +629,8 @@ function PocketAlert({ mode, accent, children }: { mode: 'full' | 'border' | 'no
     }
     const anim = Animated.loop(
       Animated.sequence([
-        Animated.timing(op, { toValue: mode === 'full' ? 0.35 : 0.1, duration: 550, useNativeDriver: true }),
-        Animated.timing(op, { toValue: 1, duration: 550, useNativeDriver: true }),
+        Animated.timing(op, { toValue: mode === 'full' ? 0.35 : 0.08, duration: 420, useNativeDriver: true }),
+        Animated.timing(op, { toValue: 1, duration: 420, useNativeDriver: true }),
       ])
     );
     anim.start();
@@ -642,6 +642,7 @@ function PocketAlert({ mode, accent, children }: { mode: 'full' | 'border' | 'no
     return (
       <View>
         {children}
+        {/* 더 두껍고 강하게 깜박이는 외곽선 (매수/매도 포인트 도달 강조) */}
         <Animated.View
           pointerEvents="none"
           style={{
@@ -650,7 +651,7 @@ function PocketAlert({ mode, accent, children }: { mode: 'full' | 'border' | 'no
             left: 0,
             right: 0,
             bottom: 0,
-            borderWidth: 2.5,
+            borderWidth: 3.5,
             borderColor: accent,
             borderRadius: radius.lg,
             opacity: op,
@@ -659,6 +660,26 @@ function PocketAlert({ mode, accent, children }: { mode: 'full' | 'border' | 'no
       </View>
     );
   return <>{children}</>;
+}
+
+// 텍스트/점 등 작은 요소를 깜박이게 하는 래퍼 (active 일 때만 동작)
+function Blink({ active, children }: { active: boolean; children: ReactNode }) {
+  const op = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!active) {
+      op.setValue(1);
+      return;
+    }
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(op, { toValue: 0.15, duration: 420, useNativeDriver: true }),
+        Animated.timing(op, { toValue: 1, duration: 420, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [active, op]);
+  return <Animated.View style={{ opacity: op }}>{children}</Animated.View>;
 }
 
 // 보유 포켓을 왼쪽으로 스와이프하면 익절/손절이 나타나고, 끝까지 밀면 확인
@@ -862,7 +883,9 @@ function PocketCard({
           )}
           {(buyReady || buyFailMsg) && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
-              <Text style={{ color: colors.buy, fontWeight: '900', fontSize: 15 }}>● 매수포인트 도달</Text>
+              <Blink active={buyReady}>
+                <Text style={{ color: colors.buy, fontWeight: '900', fontSize: 15 }}>● 매수포인트 도달</Text>
+              </Blink>
               {buyFailMsg && (
                 <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 12 }}>· 매수 실패: {buyFailMsg}</Text>
               )}
@@ -948,7 +971,9 @@ function PocketCard({
           </View>
           {(sellReady || sellFailMsg) && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
-              <Text style={{ color: colors.sell, fontWeight: '900', fontSize: 15 }}>● 매도포인트 도달</Text>
+              <Blink active={sellReady}>
+                <Text style={{ color: colors.sell, fontWeight: '900', fontSize: 15 }}>● 매도포인트 도달</Text>
+              </Blink>
               {sellFailMsg && (
                 <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 12 }}>· 매도 실패: {sellFailMsg}</Text>
               )}

@@ -13,6 +13,7 @@ import {
 import { Swipeable } from 'react-native-gesture-handler';
 import { Link, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { setProjectCount } from '@/lib/badges';
 import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
@@ -68,6 +69,7 @@ export default function ProjectsScreen() {
     ]);
     const projs = (projData as Project[]) ?? [];
     setProjects(projs);
+    setProjectCount(projs.length); // 탭 배지용 개수 갱신
 
     // 포켓을 프로젝트별로 묶기 (신호등 표시용)
     const pk: Record<string, Pocket[]> = {};

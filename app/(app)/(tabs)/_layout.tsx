@@ -1,6 +1,9 @@
+import { useEffect } from 'react';
 import { Tabs, useRouter } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
+import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
+import { setProjectCount, useProjectCount } from '@/lib/badges';
 import { colors, spacing } from '@/theme';
 
 function TabIcon({ emoji, color }: { emoji: string; color: string }) {
@@ -55,6 +58,22 @@ function AdminButton() {
 }
 
 export default function TabsLayout() {
+  const { session } = useAuth();
+  const projectCount = useProjectCount();
+
+  // 진입 시 프로젝트 개수를 한 번 조회해 배지 초기값 세팅 (목록 탭을 아직 안 열었어도 정확)
+  useEffect(() => {
+    const uid = session?.user?.id;
+    if (!uid) return;
+    supabase
+      .from('projects')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', uid)
+      .then(({ count }) => {
+        if (typeof count === 'number') setProjectCount(count);
+      });
+  }, [session?.user?.id]);
+
   return (
     <Tabs
       screenOptions={{
@@ -77,6 +96,9 @@ export default function TabsLayout() {
         options={{
           title: '프로젝트',
           tabBarIcon: ({ color }) => <TabIcon emoji="📁" color={color} />,
+          // 프로젝트 개수 배지 (0이면 숨김)
+          tabBarBadge: projectCount > 0 ? projectCount : undefined,
+          tabBarBadgeStyle: { backgroundColor: colors.buy, color: '#fff', fontSize: 11, fontWeight: '800' },
         }}
       />
       <Tabs.Screen
