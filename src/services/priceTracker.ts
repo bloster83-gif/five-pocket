@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { notifyNow } from '@/lib/notifications';
 import { evaluateSignals, type PriceSignal } from '@/domain/pockets';
@@ -21,7 +21,9 @@ interface TrackerResult {
   lastSignal: PriceSignal | null;
 }
 
-const POLL_MS = 4000;
+// 시세 폴링 주기. 야후는 15분 지연이고 서버 러너가 1분마다 자동매매를 돌리므로
+// 4초처럼 촘촘히 돌 필요가 없다. 12초면 충분히 실시간처럼 보이면서 발열·배터리 소모를 크게 줄인다.
+const POLL_MS = 12000;
 
 /**
  * 프로젝트 하나의 실시간 시세를 폴링하며,
@@ -127,11 +129,29 @@ export function usePriceTracker(
       }
     };
 
-    poll();
-    const id = setInterval(poll, POLL_MS);
+    // 앱이 화면에 떠 있을 때(active)만 폴링. 백그라운드로 가면 멈춰서 발열·배터리 소모를 막는다.
+    let id: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (id != null) return;
+      poll();
+      id = setInterval(poll, POLL_MS);
+    };
+    const stop = () => {
+      if (id != null) {
+        clearInterval(id);
+        id = null;
+      }
+    };
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') start();
+      else stop();
+    });
+    if (AppState.currentState === 'active') start();
+
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
+      sub.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, project?.symbol, enabled]);
