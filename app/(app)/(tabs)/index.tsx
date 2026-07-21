@@ -298,8 +298,8 @@ export default function ProjectsScreen() {
             const mkBadge = {
               flag: isKR ? '🇰🇷' : '🇺🇸',
               label: isKR ? '한국' : '미국',
-              color: isKR ? colors.buy : colors.accent,
-              bg: isKR ? 'rgba(245,69,92,0.14)' : 'rgba(91,141,239,0.16)',
+              color: isKR ? colors.text : colors.accent, // 한국=흰색(기본), 미국=파랑
+              bg: isKR ? 'rgba(255,255,255,0.08)' : 'rgba(91,141,239,0.16)',
             };
             return (
               <ProjectSwipe closed={closed} onClose={() => closeProject(item)} onCopy={() => copyProject(item)}>
