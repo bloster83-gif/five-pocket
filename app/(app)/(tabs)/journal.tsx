@@ -298,18 +298,20 @@ export default function JournalScreen() {
     };
   }, [openSymbolsKey]);
 
-  // 현재 보유분 평가손익 (시장별) — 시세를 못 받은 종목은 제외
+  // 현재 보유분 평가총액·평가손익 (시장별) — 시세를 못 받은 종목은 제외
   const unrealizedTotals = useMemo(() => {
     const byMarket: Record<string, number> = {};
+    const evalByMarket: Record<string, number> = {};
     let priced = 0;
     for (const p of openPositions) {
       const price = prices[p.symbol];
       if (price == null || p.qty <= 0) continue;
       const avg = p.cost / p.qty;
       byMarket[p.market] = (byMarket[p.market] ?? 0) + (price - avg) * p.qty;
+      evalByMarket[p.market] = (evalByMarket[p.market] ?? 0) + price * p.qty;
       priced++;
     }
-    return { byMarket, count: openPositions.length, priced };
+    return { byMarket, evalByMarket, count: openPositions.length, priced };
   }, [openPositions, prices]);
 
   // 실현(기간) + 평가(현재 보유) 합산 — 시장별로 한 카드에 모아서 표시
@@ -321,7 +323,8 @@ export default function JournalScreen() {
     return Array.from(markets).map((mkt) => {
       const realized = realizedTotals.byMarket[mkt] ?? 0;
       const unrealized = unrealizedTotals.byMarket[mkt] ?? 0;
-      return { market: mkt, realized, unrealized, total: realized + unrealized };
+      const evalTotal = unrealizedTotals.evalByMarket[mkt] ?? 0;
+      return { market: mkt, realized, unrealized, evalTotal, total: realized + unrealized };
     });
   }, [realizedTotals, unrealizedTotals]);
 
@@ -618,13 +621,14 @@ export default function JournalScreen() {
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
                 {s.market === 'KRX' ? '🇰🇷 한국 (원화)' : '🇺🇸 미국 (달러)'}
               </Text>
+              {/* 1) 평가총액 (현재 보유분 시세 평가금액) */}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: colors.textDim, fontSize: 13 }}>실현손익 (기간)</Text>
-                <Text style={{ color: signColor(s.realized), fontWeight: '800', fontSize: 15 }}>
-                  {s.realized > 0 ? '+' : ''}
-                  {formatMoney(s.realized, s.market)}
+                <Text style={{ color: colors.textDim, fontSize: 13 }}>평가총액 (현재 보유)</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>
+                  {formatMoney(s.evalTotal, s.market)}
                 </Text>
               </View>
+              {/* 2) 평가손익 (현재 보유) */}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text style={{ color: colors.textDim, fontSize: 13 }}>평가손익 (현재 보유)</Text>
                 <Text style={{ color: signColor(s.unrealized), fontWeight: '800', fontSize: 15 }}>
@@ -632,6 +636,15 @@ export default function JournalScreen() {
                   {formatMoney(s.unrealized, s.market)}
                 </Text>
               </View>
+              {/* 3) 실현손익 (기간) */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: colors.textDim, fontSize: 13 }}>실현손익 (기간)</Text>
+                <Text style={{ color: signColor(s.realized), fontWeight: '800', fontSize: 15 }}>
+                  {s.realized > 0 ? '+' : ''}
+                  {formatMoney(s.realized, s.market)}
+                </Text>
+              </View>
+              {/* 합계 (실현 + 평가손익) */}
               <View
                 style={{
                   flexDirection: 'row',
@@ -642,7 +655,7 @@ export default function JournalScreen() {
                   paddingTop: 6,
                 }}
               >
-                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14 }}>합계</Text>
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14 }}>손익 합계</Text>
                 <Text style={{ color: signColor(s.total), fontWeight: '900', fontSize: 18 }}>
                   {s.total > 0 ? '+' : ''}
                   {formatMoney(s.total, s.market)}
