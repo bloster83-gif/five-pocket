@@ -177,15 +177,15 @@ export default function MyScreen() {
               style={{
                 alignSelf: 'flex-start',
                 marginTop: 3,
-                backgroundColor: tier === 'auto' ? colors.buyBg : colors.cardAlt,
+                backgroundColor: tier === 'auto' ? 'rgba(34,211,166,0.14)' : colors.cardAlt,
                 borderRadius: 999,
                 paddingHorizontal: 10,
                 paddingVertical: 2,
                 borderWidth: 1,
-                borderColor: tier === 'auto' ? colors.buy : colors.border,
+                borderColor: tier === 'auto' ? colors.primary : colors.border,
               }}
             >
-              <Text style={{ color: tier === 'auto' ? colors.buy : colors.textDim, fontWeight: '800', fontSize: 11 }}>
+              <Text style={{ color: tier === 'auto' ? colors.primary : colors.textDim, fontWeight: '800', fontSize: 11 }}>
                 {tier === 'auto' ? `AUTO 등급${tierExpiry ? ` · ~${tierExpiry}` : ''}` : 'Diary 등급'}
               </Text>
             </View>
@@ -204,7 +204,7 @@ export default function MyScreen() {
           </View>
           <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 20 }}>
             <Text style={{ color: colors.text, fontWeight: '700' }}>Diary</Text>는 수동 매매 일지,{' '}
-            <Text style={{ color: colors.buy, fontWeight: '700' }}>AUTO</Text>는 목표가 도달 시 자동 주문·24시간 자동매매까지.
+            <Text style={{ color: colors.primary, fontWeight: '700' }}>AUTO</Text>는 목표가 도달 시 자동 주문·24시간 자동매매까지.
           </Text>
           {tier !== 'auto' && (
             <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
