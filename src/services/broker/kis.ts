@@ -223,6 +223,57 @@ export async function getOverseasPrice(account: BrokerAccount, symbol: string): 
   throw new Error('해외 시세를 불러오지 못했어요. (해외주식 서비스 신청 여부를 확인하세요)');
 }
 
+export interface DomesticQuote {
+  price: number;
+  previousClose?: number;
+  currency: 'KRW';
+}
+
+/**
+ * 국내주식 현재가 조회 (KIS 국내주식 현재가, tr_id FHKST01010100).
+ * 시장구분(FID_COND_MRKT_DIV_CODE):
+ *   UN = 통합(KRX+NXT 최우선/최신), NX = 넥스트레이드(NXT), J = KRX(정규)
+ * 통합(UN)을 우선 조회해 NXT 장(프리마켓·애프터마켓 등 KRX 정규장 외) 시세도 반영한다.
+ * 통합/NXT 미지원이면 KRX(J)로 폴백.
+ */
+export async function getDomesticPrice(account: BrokerAccount, symbol: string): Promise<DomesticQuote> {
+  const token = await getValidToken(account);
+  const code = toKisSymbol(symbol);
+
+  const tryMkt = async (mkt: string): Promise<DomesticQuote | null> => {
+    const u = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/domestic-stock/v1/quotations/inquire-price`);
+    u.searchParams.set('FID_COND_MRKT_DIV_CODE', mkt);
+    u.searchParams.set('FID_INPUT_ISCD', code);
+    const res = await fetch(u.toString(), {
+      headers: {
+        authorization: `Bearer ${token}`,
+        appkey: account.app_key,
+        appsecret: account.app_secret,
+        tr_id: 'FHKST01010100',
+        custtype: 'P',
+      },
+    });
+    const json = await res.json();
+    const price = Number(json?.output?.stck_prpr);
+    if (json?.rt_cd === '0' && price > 0) {
+      const prev = Number(json.output?.stck_sdpr) || undefined; // 기준가(전일 종가)
+      return { price, previousClose: prev, currency: 'KRW' };
+    }
+    return null;
+  };
+
+  // 통합 → NXT → KRX 순 폴백
+  for (const mkt of ['UN', 'NX', 'J']) {
+    try {
+      const q = await tryMkt(mkt);
+      if (q) return q;
+    } catch {
+      /* 다음 시장구분으로 폴백 */
+    }
+  }
+  throw new Error('국내 시세를 불러오지 못했어요.');
+}
+
 /** 종목의 미국 거래소 코드(NAS/NYS/AMS)를 확정 (캐시에 없으면 시세 조회로 탐색) */
 export async function resolveUsExchange(account: BrokerAccount, symbol: string): Promise<string> {
   const sym = symbol.replace(/\.(KS|KQ)$/i, '').trim().toUpperCase();

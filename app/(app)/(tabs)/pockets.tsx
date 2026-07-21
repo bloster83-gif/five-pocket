@@ -9,7 +9,7 @@ import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
 import { computePnL, estimatedShares } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
-import { getOverseasPrice, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
+import { getDomesticPrice, getOverseasPrice, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 export default function PocketsScreen() {
@@ -62,6 +62,17 @@ export default function PocketsScreen() {
               const ov = await getOverseasPrice(account, p.symbol);
               price = ov.price;
               previousClose = ov.previousClose;
+            } catch {
+              const q = await priceProvider.getQuote(p.symbol);
+              price = q.price;
+              previousClose = q.previousClose;
+            }
+          } else if (p.market === 'KRX' && account && Platform.OS !== 'web') {
+            // 한국주식: KIS 통합(KRX+NXT) 시세 우선(NXT 장 반영), 실패 시 야후 폴백
+            try {
+              const dq = await getDomesticPrice(account, p.symbol);
+              price = dq.price;
+              previousClose = dq.previousClose;
             } catch {
               const q = await priceProvider.getQuote(p.symbol);
               price = q.price;

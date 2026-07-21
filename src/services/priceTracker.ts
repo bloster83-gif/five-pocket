@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { notifyNow } from '@/lib/notifications';
 import { evaluateSignals, type PriceSignal } from '@/domain/pockets';
 import type { BrokerAccount, Pocket, Project } from '@/types/db';
-import { getOverseasPrice } from './broker/kis';
+import { getDomesticPrice, getOverseasPrice } from './broker/kis';
 import { priceProvider } from './prices';
 
 export type TrackerStatus = 'loading' | 'live' | 'error';
@@ -64,17 +64,18 @@ export function usePriceTracker(
     setStatus('loading');
     setError(null);
 
-    // 미국주식 + KIS 계좌 연결 시 실시간 시세용 계좌 로드 (네이티브만)
+    // 미국·한국주식 + KIS 계좌 연결 시 실시간 시세용 계좌 로드 (네이티브만)
     // undefined=아직 안 불러옴, null=없음
     let account: BrokerAccount | null | undefined = undefined;
     const isUS = project.market === 'US' && Platform.OS !== 'web';
+    const isKR = project.market === 'KRX' && Platform.OS !== 'web';
 
     const poll = async () => {
       if (!alive) return;
       try {
-        // 미국주식: KIS 해외 실시간 시세 우선, 실패하면 Yahoo 로 폴백
+        // 미국: KIS 해외 실시간 / 한국: KIS 통합(KRX+NXT) 실시간 우선, 실패 시 Yahoo 폴백
         let q: { price: number; currency?: string; previousClose?: number; at: number } | null = null;
-        if (isUS) {
+        if (isUS || isKR) {
           if (account === undefined) {
             const { data } = await supabase
               .from('broker_accounts')
@@ -85,8 +86,14 @@ export function usePriceTracker(
           }
           if (account) {
             try {
-              const oq = await getOverseasPrice(account, project.symbol);
-              q = { price: oq.price, currency: oq.currency, previousClose: oq.previousClose, at: Date.now() };
+              if (isUS) {
+                const oq = await getOverseasPrice(account, project.symbol);
+                q = { price: oq.price, currency: oq.currency, previousClose: oq.previousClose, at: Date.now() };
+              } else {
+                // 한국: 통합(UN)→NXT(NX)→KRX(J) — NXT 장 시세도 반영
+                const dq = await getDomesticPrice(account, project.symbol);
+                q = { price: dq.price, currency: dq.currency, previousClose: dq.previousClose, at: Date.now() };
+              }
             } catch {
               /* KIS 실패 → Yahoo 폴백 */
             }
