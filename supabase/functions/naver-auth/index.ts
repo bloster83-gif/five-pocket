@@ -35,8 +35,12 @@ Deno.serve(async (req: Request) => {
     return new Response('NAVER_CLIENT_ID / NAVER_CLIENT_SECRET 시크릿을 설정하세요.', { status: 500 });
   }
 
-  // Edge Function 자기 자신의 공개 URL (네이버 콜백으로 등록되는 주소)
-  const selfUrl = `${url.origin}${url.pathname}`;
+  // Edge Function 자기 자신의 공개 URL (네이버 콜백으로 등록되는 주소).
+  //  req.url 의 origin/pathname 은 Supabase 내부에서 실제 공개 주소와 달라질 수 있어
+  //  (예: /functions/v1 접두어 누락) 네이버 redirect_uri 불일치(disp_stat=207)를 유발한다.
+  //  SUPABASE_URL(자동 주입)로 공개 콜백 주소를 확정적으로 구성한다.
+  const base = (Deno.env.get('SUPABASE_URL') ?? url.origin).replace(/\/+$/, '');
+  const selfUrl = `${base}/functions/v1/naver-auth`;
 
   // ---------- 1단계: 네이버 로그인 페이지로 ----------
   if (!code) {
