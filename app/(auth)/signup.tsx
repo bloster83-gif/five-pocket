@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Link } from 'expo-router';
+import { notify } from '@/lib/alert';
 import { useAuth } from '@/lib/auth';
 import { Button, Card, Field } from '@/components/ui';
 import { colors, spacing } from '@/theme';
@@ -115,7 +116,12 @@ export default function SignupScreen() {
       setError(/already registered/i.test(err) ? '이미 가입된 이메일입니다. 로그인해 주세요.' : err);
       return;
     }
-    if (needsConfirm) setSentTo(email.trim());
+    if (needsConfirm) {
+      setSentTo(email.trim());
+    } else {
+      // 이메일 인증 없이 바로 로그인되는 경우 → 환영 메시지
+      notify('가입을 환영합니다! 🎉', `${name.trim()}님, 5 Pocket Diary 가입이 완료되었어요.`);
+    }
   };
 
   // 가입 성공 + 메일 인증 필요 → 안내 화면
