@@ -771,11 +771,12 @@ function PocketCard({
 
       {k.status === 'bought' && (
         <>
-          {/* 보유 정보 — 라인별로 정렬 (보유수량 / 평균매수가 / 평가손익) */}
+          {/* 보유 정보 — 2×2 그리드 (보유수량 · 평균매수가 · 평가총액 · 평가손익) */}
           {buyTrade &&
             (() => {
               const qty = buyTrade.quantity;
               const avg = buyTrade.price;
+              const evalTotal = (price ?? avg) * qty;
               const evalPnl = price != null ? (price - avg) * qty : null;
               return (
                 <View
@@ -785,22 +786,30 @@ function PocketCard({
                     borderRadius: radius.sm,
                     paddingVertical: spacing.sm,
                     paddingHorizontal: spacing.md,
-                    gap: 5,
+                    gap: 8,
                   }}
                 >
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: colors.textDim, fontSize: 12 }}>보유 수량</Text>
-                    <Text style={{ color: colors.buy, fontSize: 15, fontWeight: '900' }}>{money(qty, 0)}주</Text>
+                  <View style={{ flexDirection: 'row' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.textDim, fontSize: 11 }}>보유 수량</Text>
+                      <Text style={{ color: colors.buy, fontSize: 15, fontWeight: '900' }}>{money(qty, 0)}주</Text>
+                    </View>
+                    <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                      <Text style={{ color: colors.textDim, fontSize: 11 }}>평균 매수가</Text>
+                      <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>{formatPrice(avg, market)}</Text>
+                    </View>
                   </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: colors.textDim, fontSize: 12 }}>평균 매수가</Text>
-                    <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>{formatPrice(avg, market)}</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: colors.textDim, fontSize: 12 }}>평가손익</Text>
-                    <Text style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 15, fontWeight: '900' }}>
-                      {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, market)}` : '-'}
-                    </Text>
+                  <View style={{ flexDirection: 'row' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.textDim, fontSize: 11 }}>평가 총액</Text>
+                      <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>{formatMoney(evalTotal, market)}</Text>
+                    </View>
+                    <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                      <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익</Text>
+                      <Text style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 15, fontWeight: '900' }}>
+                        {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, market)}` : '-'}
+                      </Text>
+                    </View>
                   </View>
                 </View>
               );

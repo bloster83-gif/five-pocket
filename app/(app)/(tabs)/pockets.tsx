@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -258,7 +258,7 @@ export default function PocketsScreen() {
         </View>
       </View>
 
-      {/* 종목 검색 + 시장 필터 (어두운 바 서식) */}
+      {/* 종목 검색 + 시장/상태 필터 (아이콘 칩) */}
       <FilterBar style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Pressable
           onPress={() => setShowSearch((s) => !s)}
@@ -273,14 +273,16 @@ export default function PocketsScreen() {
         >
           <Text style={{ fontSize: 16 }}>🔍</Text>
         </Pressable>
-        <Chip label="한국" icon="🇰🇷" active={market === 'KRX'} onPress={() => setMarket(market === 'KRX' ? null : 'KRX')} />
-        <Chip label="미국" icon="🇺🇸" active={market === 'US'} onPress={() => setMarket(market === 'US' ? null : 'US')} activeColor={colors.accent} />
-        {!showSearch && (onlyHolding || onlyRealized || q.trim() !== '') && (
-          <Text style={{ color: colors.warn, fontSize: 11, fontWeight: '700' }}>● 필터 적용중</Text>
-        )}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
+          <Chip label="한국" icon="🇰🇷" active={market === 'KRX'} onPress={() => setMarket(market === 'KRX' ? null : 'KRX')} />
+          <Chip label="미국" icon="🇺🇸" active={market === 'US'} onPress={() => setMarket(market === 'US' ? null : 'US')} activeColor={colors.accent} />
+          <View style={{ width: 1, height: 22, backgroundColor: colors.border }} />
+          <Chip label="보유중" icon="📌" active={onlyHolding} onPress={() => setOnlyHolding((v) => !v)} />
+          <Chip label="실현완료" icon="✅" active={onlyRealized} onPress={() => setOnlyRealized((v) => !v)} activeColor={colors.sell} />
+        </ScrollView>
       </FilterBar>
 
-      {/* 종목 검색 입력 + 상태 필터 */}
+      {/* 종목 검색 입력 */}
       {showSearch && (
         <Card>
           <Field
@@ -290,14 +292,6 @@ export default function PocketsScreen() {
             placeholder="예: 삼성, AAPL"
             autoCapitalize="none"
           />
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={{ color: colors.buy, fontWeight: '700' }}>보유중만 보기 (매수 상태)</Text>
-            <Switch value={onlyHolding} onValueChange={setOnlyHolding} />
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={{ color: colors.sell, fontWeight: '700' }}>실현 완료만 보기 (매도 이력)</Text>
-            <Switch value={onlyRealized} onValueChange={setOnlyRealized} />
-          </View>
         </Card>
       )}
       </View>
@@ -434,9 +428,10 @@ export default function PocketsScreen() {
                 </View>
               )}
 
-              {/* 보유 중이면 라인별로 정렬한 강조 박스 (보유수량 / 평균매수가 / 평가손익) */}
+              {/* 보유 중이면 2×2 그리드 강조 박스 (보유수량 · 평균매수가 · 평가총액 · 평가손익) */}
               {pnl.totalQtyOpen > 0 &&
                 (() => {
+                  const evalTotal = (price ?? pnl.avgOpenPrice) * pnl.totalQtyOpen;
                   const evalPnl = price != null ? (price - pnl.avgOpenPrice) * pnl.totalQtyOpen : null;
                   return (
                     <View
@@ -447,24 +442,32 @@ export default function PocketsScreen() {
                         borderColor: colors.buy,
                         paddingVertical: spacing.sm,
                         paddingHorizontal: spacing.md,
-                        gap: 5,
+                        gap: 8,
                       }}
                     >
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: colors.textDim, fontSize: 12 }}>보유 수량</Text>
-                        <Text style={{ color: colors.buy, fontSize: 15, fontWeight: '900' }}>{money(pnl.totalQtyOpen, 0)}주</Text>
+                      <View style={{ flexDirection: 'row' }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.textDim, fontSize: 11 }}>보유 수량</Text>
+                          <Text style={{ color: colors.buy, fontSize: 15, fontWeight: '900' }}>{money(pnl.totalQtyOpen, 0)}주</Text>
+                        </View>
+                        <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                          <Text style={{ color: colors.textDim, fontSize: 11 }}>평균 매수가</Text>
+                          <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>
+                            {formatPrice(pnl.avgOpenPrice, proj.market)}
+                          </Text>
+                        </View>
                       </View>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: colors.textDim, fontSize: 12 }}>평균 매수가</Text>
-                        <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>
-                          {formatPrice(pnl.avgOpenPrice, proj.market)}
-                        </Text>
-                      </View>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: colors.textDim, fontSize: 12 }}>평가손익</Text>
-                        <Text style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 15, fontWeight: '900' }}>
-                          {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, proj.market)}` : '-'}
-                        </Text>
+                      <View style={{ flexDirection: 'row' }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.textDim, fontSize: 11 }}>평가 총액</Text>
+                          <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>{formatMoney(evalTotal, proj.market)}</Text>
+                        </View>
+                        <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                          <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익</Text>
+                          <Text style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 15, fontWeight: '900' }}>
+                            {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, proj.market)}` : '-'}
+                          </Text>
+                        </View>
                       </View>
                     </View>
                   );
