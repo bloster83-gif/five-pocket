@@ -30,22 +30,22 @@ function TierBadge() {
     <View
       style={{
         marginLeft: spacing.md,
-        backgroundColor: isAuto ? colors.buyBg : colors.cardAlt,
+        backgroundColor: isAuto ? 'rgba(34,211,166,0.14)' : colors.cardAlt,
         borderRadius: isAuto && dday != null ? 12 : 999,
         paddingHorizontal: 8,
         paddingVertical: isAuto && dday != null ? 2 : 3,
         borderWidth: 1,
-        borderColor: isAuto ? colors.buy : colors.border,
+        borderColor: isAuto ? colors.primary : colors.border,
         maxWidth: 110,
         alignItems: 'center',
       }}
     >
-      {/* AUTO 회원은 위에 AUTO, 아래 줄에 D-day 를 세로로 쌓아 보기 좋게 */}
-      <Text style={{ color: isAuto ? colors.buy : colors.textDim, fontWeight: '900', fontSize: 10, lineHeight: 12 }}>
+      {/* AUTO 회원은 위에 AUTO, 아래 줄에 D-day 를 세로로 쌓아 보기 좋게 (초록색) */}
+      <Text style={{ color: isAuto ? colors.primary : colors.textDim, fontWeight: '900', fontSize: 10, lineHeight: 12 }}>
         {isAuto ? 'AUTO' : 'Diary'}
       </Text>
       {isAuto && dday != null && (
-        <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 9, lineHeight: 11 }}>D-{dday}</Text>
+        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 9, lineHeight: 11 }}>D-{dday}</Text>
       )}
     </View>
   );

@@ -72,10 +72,10 @@ export default function LoginScreen() {
         <View style={{ gap: spacing.xs, alignItems: 'center', marginBottom: spacing.sm }}>
           <Image
             source={require('../../assets/logo.png')}
-            style={{ width: 160, height: 160, borderRadius: 36, marginBottom: 6 }}
+            style={{ width: 120, height: 120, borderRadius: 28, marginBottom: 6 }}
             resizeMode="contain"
           />
-          <Text style={{ color: colors.text, fontSize: 30, fontWeight: '900' }}>5 Pocket Diary</Text>
+          <Text style={{ color: colors.text, fontSize: 30, fontWeight: '900' }}>Pocket Diary</Text>
           <Text style={{ color: colors.textDim }}>5분할 매수·매도 전략</Text>
         </View>
 
