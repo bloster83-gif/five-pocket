@@ -14,7 +14,7 @@ function TabIcon({ emoji, color }: { emoji: string; color: string }) {
 function HeaderTitle() {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-      <Image source={require('../../../assets/logo.png')} style={{ width: 28, height: 28, borderRadius: 8 }} resizeMode="contain" />
+      <Image source={require('../../../assets/logo-sm.png')} style={{ width: 26, height: 26, borderRadius: 8 }} resizeMode="contain" />
       <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 17 }}>Pocket Diary</Text>
     </View>
   );
