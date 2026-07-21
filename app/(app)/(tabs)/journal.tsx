@@ -1,13 +1,14 @@
-import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { confirmAction } from '@/lib/alert';
+import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
-import { realizedEvents } from '@/domain/pockets';
-import { colors, formatKRW, formatMoney, formatPrice, money, signColor, spacing } from '@/theme';
-import type { CashFlow, CashFlowType, Project, Trade } from '@/types/db';
+import { computePnL, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
+import { priceProvider } from '@/services/prices';
+import { colors, formatKRW, formatMoney, formatPrice, money, radius, signColor, spacing } from '@/theme';
+import type { CashFlow, CashFlowType, Market, Project, Trade } from '@/types/db';
 
 const FLOW_META: Record<CashFlowType, { label: string; color: string; sign: string }> = {
   deposit: { label: '입금', color: colors.buy, sign: '+' },
@@ -35,6 +36,8 @@ export default function JournalScreen() {
   const [to, setTo] = useState(ymd(new Date()));
   const [preset, setPreset] = useState<string | null>('올해'); // 기간 빠른 버튼
   const [sideFilter, setSideFilter] = useState<'buy' | 'sell' | null>(null); // 매수/매도만 보기
+  const [detail, setDetail] = useState<Trade | null>(null); // 체결 상세보기
+  const [prices, setPrices] = useState<Record<string, number>>({}); // 평가손익용 현재가 (yahoo 심볼→가격)
 
   // 기간 빠른 버튼: 한 번 탭으로 from/to 설정
   const applyPreset = (key: string) => {
@@ -103,9 +106,45 @@ export default function JournalScreen() {
   );
 
   const deleteTrade = async (t: Trade) => {
+    // 자동주문은 실제 계좌와 연동 → 삭제 금지 (UI에서도 막지만 이중 방어)
+    if (t.note && t.note.startsWith('자동주문')) {
+      notify('삭제 불가', '자동주문 기록은 실제 계좌와 연동되어 삭제할 수 없어요.');
+      return;
+    }
     setTrades((prev) => prev.filter((x) => x.id !== t.id)); // 낙관적 제거
     const { error } = await supabase.from('trades').delete().eq('id', t.id);
-    if (error) load(); // 실패 시 되돌리기
+    if (error) {
+      load(); // 실패 시 되돌리기
+      return;
+    }
+    // 이 체결이 포켓에 속했다면, 남은 체결로 포켓 상태를 다시 계산
+    //  (예: 매도 체결을 지우면 '매도완료 → 보유중'으로 복구, 매수까지 지우면 '재시작(waiting)')
+    if (t.pocket_id) await recomputePocketStatus(t.pocket_id, t.id);
+  };
+
+  // 포켓의 남은 체결로 상태를 재계산해 DB에 반영.
+  //  - 미매도 수량이 남아 있으면 '보유중'(체결가 기준 매도목표 재설정)
+  //  - 수량 0인데 매수 이력이 있으면 '매도완료'
+  //  - 남은 체결이 없으면 '재시작(waiting)'
+  const recomputePocketStatus = async (pocketId: string, excludeTradeId?: string) => {
+    const remaining = trades.filter((x) => x.pocket_id === pocketId && x.id !== excludeTradeId);
+    const pnl = computePnL(remaining, null);
+    const openQty = Math.floor(pnl.totalQtyOpen);
+    let patch: { status: string; sell_target_price?: number | null };
+    if (openQty > 0) {
+      const proj = remaining.find((x) => x.project_id)?.project_id;
+      const pct = proj ? Number(projMap[proj]?.sell_target_pct ?? 0) : 0;
+      patch = {
+        status: 'bought',
+        sell_target_price: pct > 0 ? sellTargetFromFill(pnl.avgOpenPrice, pct) : null,
+      };
+    } else if (remaining.some((x) => x.side === 'buy')) {
+      patch = { status: 'sold' };
+    } else {
+      patch = { status: 'waiting', sell_target_price: null };
+    }
+    const { error } = await supabase.from('pockets').update(patch).eq('id', pocketId);
+    if (error) load();
   };
 
   // 검색어가 현금흐름 종류(입금/출금/배당)를 가리키는지
@@ -180,6 +219,111 @@ export default function JournalScreen() {
     });
     return { byMarket, count: filteredRealized.length };
   }, [filteredRealized, marketOfTrade]);
+
+  // 체결의 시세 심볼(야후 형식) — 프로젝트면 프로젝트 심볼, 직접입력이면 trade.symbol
+  const symbolOfTrade = useCallback(
+    (t: Trade) => (t.project_id ? projMap[t.project_id]?.symbol : undefined) ?? t.symbol ?? null,
+    [projMap]
+  );
+
+  // 현재 보유중(미매도) 포지션을 종목별로 집계 (평가손익 계산용)
+  // 포켓 순환을 고려해 pocket_id(없으면 종목) 단위로 잔여 수량·원가를 구한 뒤 종목별로 합산.
+  const openPositions = useMemo(() => {
+    const groups = new Map<string, Trade[]>();
+    for (const t of trades) {
+      const key = t.pocket_id ?? (symbolOfTrade(t) ? `sym-${symbolOfTrade(t)}` : `solo-${t.id}`);
+      const arr = groups.get(key);
+      if (arr) arr.push(t);
+      else groups.set(key, [t]);
+    }
+    const bySym = new Map<string, { symbol: string; market: Market; qty: number; cost: number }>();
+    for (const g of groups.values()) {
+      g.sort((a, b) => (a.executed_at < b.executed_at ? -1 : a.executed_at > b.executed_at ? 1 : 0));
+      let pos = 0;
+      let cost = 0;
+      for (const t of g) {
+        if (t.side === 'buy') {
+          pos += t.quantity;
+          cost += t.quantity * t.price;
+        } else if (pos > 0) {
+          const avg = cost / pos;
+          const q = Math.min(t.quantity, pos);
+          pos -= q;
+          cost -= avg * q;
+          if (pos <= 1e-9) {
+            pos = 0;
+            cost = 0;
+          }
+        }
+      }
+      if (pos > 1e-9) {
+        const sym = symbolOfTrade(g[0]);
+        if (!sym) continue;
+        const mkt = marketOfTrade(g[0]);
+        const cur = bySym.get(sym) ?? { symbol: sym, market: mkt, qty: 0, cost: 0 };
+        cur.qty += pos;
+        cur.cost += cost;
+        bySym.set(sym, cur);
+      }
+    }
+    return Array.from(bySym.values());
+  }, [trades, symbolOfTrade, marketOfTrade]);
+
+  // 보유 종목의 현재가를 불러와 평가손익 계산 (심볼 목록이 바뀔 때만)
+  const openSymbolsKey = useMemo(() => openPositions.map((p) => p.symbol).sort().join(','), [openPositions]);
+  useEffect(() => {
+    const syms = openSymbolsKey ? openSymbolsKey.split(',') : [];
+    if (syms.length === 0) {
+      setPrices({});
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      syms.map((s) =>
+        priceProvider
+          .getQuote(s)
+          .then((qq) => [s, qq.price] as const)
+          .catch(() => null)
+      )
+    ).then((rows) => {
+      if (cancelled) return;
+      const m: Record<string, number> = {};
+      rows.forEach((r) => {
+        if (r) m[r[0]] = r[1];
+      });
+      setPrices(m);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [openSymbolsKey]);
+
+  // 현재 보유분 평가손익 (시장별) — 시세를 못 받은 종목은 제외
+  const unrealizedTotals = useMemo(() => {
+    const byMarket: Record<string, number> = {};
+    let priced = 0;
+    for (const p of openPositions) {
+      const price = prices[p.symbol];
+      if (price == null || p.qty <= 0) continue;
+      const avg = p.cost / p.qty;
+      byMarket[p.market] = (byMarket[p.market] ?? 0) + (price - avg) * p.qty;
+      priced++;
+    }
+    return { byMarket, count: openPositions.length, priced };
+  }, [openPositions, prices]);
+
+  // 실현(기간) + 평가(현재 보유) 합산 — 시장별로 한 카드에 모아서 표시
+  const pnlSummary = useMemo(() => {
+    const markets = new Set<string>([
+      ...Object.keys(realizedTotals.byMarket),
+      ...Object.keys(unrealizedTotals.byMarket),
+    ]);
+    return Array.from(markets).map((mkt) => {
+      const realized = realizedTotals.byMarket[mkt] ?? 0;
+      const unrealized = unrealizedTotals.byMarket[mkt] ?? 0;
+      return { market: mkt, realized, unrealized, total: realized + unrealized };
+    });
+  }, [realizedTotals, unrealizedTotals]);
 
   // 기간 내 현금흐름 종류별 합산
   const flowSums = useMemo(() => {
@@ -263,18 +407,28 @@ export default function JournalScreen() {
     return (
       <Swipeable
         key={t.id}
-        renderLeftActions={() => (
-          <Pressable
-            onPress={() => confirmAction('체결 삭제', `${displayName} ${isBuy ? '매수' : '매도'} 기록을 삭제할까요?`, () => deleteTrade(t), '삭제')}
-            style={{ backgroundColor: colors.danger, justifyContent: 'center', paddingHorizontal: 20, borderRadius: 8 }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '800' }}>삭제</Text>
-          </Pressable>
-        )}
+        // 자동주문은 실제 계좌와 연동되므로 스와이프 삭제를 막는다 (안내만 표시)
+        renderLeftActions={
+          isAutoOrder
+            ? () => (
+                <View style={{ backgroundColor: colors.cardAlt, justifyContent: 'center', paddingHorizontal: 16, borderRadius: 8 }}>
+                  <Text style={{ color: colors.textDim, fontWeight: '700', fontSize: 11 }}>🔒 자동주문{'\n'}삭제 불가</Text>
+                </View>
+              )
+            : () => (
+                <Pressable
+                  onPress={() => confirmAction('체결 삭제', `${displayName} ${isBuy ? '매수' : '매도'} 기록을 삭제할까요?`, () => deleteTrade(t), '삭제')}
+                  style={{ backgroundColor: colors.danger, justifyContent: 'center', paddingHorizontal: 20, borderRadius: 8 }}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '800' }}>삭제</Text>
+                </Pressable>
+              )
+        }
       >
-        <View style={{ paddingVertical: 6, gap: 2, backgroundColor: colors.card }}>
+        <Pressable onPress={() => setDetail(t)} style={{ paddingVertical: 6, gap: 3, backgroundColor: colors.card }}>
+          {/* 1줄: 구분/자동·수동 배지 + 체결가·수량 */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <View
                 style={{
                   paddingHorizontal: 8,
@@ -297,24 +451,30 @@ export default function JournalScreen() {
                 }}
               >
                 <Text style={{ color: isAutoOrder ? colors.accent : colors.textDim, fontWeight: '800', fontSize: 10 }}>
-                  {isAutoOrder ? '🤖 자동주문' : '수동주문'}
+                  {isAutoOrder ? '🤖 자동' : '수동'}
                 </Text>
               </View>
-              <Text style={{ color: colors.text, fontWeight: '700', flexShrink: 1 }} numberOfLines={1}>
-                {displayName}
-                {!t.project_id ? <Text style={{ color: colors.textDim, fontSize: 11 }}>  · 직접입력</Text> : null}
-              </Text>
+              {!t.project_id ? (
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>직접입력</Text>
+              ) : null}
             </View>
-            <Text style={{ color: colors.text }}>
+            <Text style={{ color: colors.text, fontWeight: '600' }}>
               {formatPrice(t.price, mkt)} · {money(t.quantity, 0)}주
             </Text>
           </View>
+          {/* 2줄: 품목명 (한 줄 전체 폭 사용 → 길어도 잘 보임) */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <Text style={{ color: colors.text, fontWeight: '700', flex: 1 }} numberOfLines={1}>
+              {displayName}
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>자세히 ›</Text>
+          </View>
           {t.note ? (
-            <Text style={{ color: colors.textDim, fontSize: 12, marginLeft: 4 }} numberOfLines={2}>
+            <Text style={{ color: colors.textDim, fontSize: 12 }} numberOfLines={1}>
               📝 {t.note}
             </Text>
           ) : null}
-        </View>
+        </Pressable>
       </Swipeable>
     );
   };
@@ -439,26 +599,65 @@ export default function JournalScreen() {
         </Card>
       )}
 
-      {/* 💰 현재 검색 조건의 합산 실현수익 (항상 표시) */}
-      {!flowTypeQuery && sideFilter !== 'buy' && realizedTotals.count > 0 && (
+      {/* 💰 손익 요약: 실현(기간) + 평가(현재 보유) 합산 (시장별) */}
+      {!flowTypeQuery && pnlSummary.length > 0 && (
         <Card style={{ borderColor: colors.buy }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text style={{ color: colors.text, fontWeight: '800' }}>
-              💰 실현수익 {q.trim() ? `· ${q.trim()}` : '· 전체 종목'}
+              💰 손익 요약 {q.trim() ? `· ${q.trim()}` : ''}
             </Text>
             <Text style={{ color: colors.textDim, fontSize: 11 }}>
-              {from || '처음'} ~ {to || '오늘'} · 매도 {realizedTotals.count}건
+              실현 {from || '처음'}~{to || '오늘'} · 매도 {realizedTotals.count}건
             </Text>
           </View>
-          {Object.entries(realizedTotals.byMarket).map(([mkt, v]) => (
-            <View key={mkt} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.textDim }}>{mkt === 'KRX' ? '한국 (원화)' : '미국 (달러)'}</Text>
-              <Text style={{ color: signColor(v), fontWeight: '900', fontSize: 18 }}>
-                {v > 0 ? '+' : ''}
-                {formatMoney(v, mkt)}
+          {pnlSummary.map((s) => (
+            <View
+              key={s.market}
+              style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 6 }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+                {s.market === 'KRX' ? '🇰🇷 한국 (원화)' : '🇺🇸 미국 (달러)'}
               </Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: colors.textDim, fontSize: 13 }}>실현손익 (기간)</Text>
+                <Text style={{ color: signColor(s.realized), fontWeight: '800', fontSize: 15 }}>
+                  {s.realized > 0 ? '+' : ''}
+                  {formatMoney(s.realized, s.market)}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: colors.textDim, fontSize: 13 }}>평가손익 (현재 보유)</Text>
+                <Text style={{ color: signColor(s.unrealized), fontWeight: '800', fontSize: 15 }}>
+                  {s.unrealized > 0 ? '+' : ''}
+                  {formatMoney(s.unrealized, s.market)}
+                </Text>
+              </View>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  borderTopWidth: 1,
+                  borderTopColor: colors.border,
+                  paddingTop: 6,
+                }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14 }}>합계</Text>
+                <Text style={{ color: signColor(s.total), fontWeight: '900', fontSize: 18 }}>
+                  {s.total > 0 ? '+' : ''}
+                  {formatMoney(s.total, s.market)}
+                </Text>
+              </View>
             </View>
           ))}
+          {unrealizedTotals.count > 0 && unrealizedTotals.priced < unrealizedTotals.count && (
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>
+              * 보유 {unrealizedTotals.count}종목 중 {unrealizedTotals.priced}종목 시세 반영 (웹은 시세 제한 · 폰에서 정확)
+            </Text>
+          )}
+          <Text style={{ color: colors.textDim, fontSize: 11 }}>
+            평가손익은 현재 보유분을 실시간 시세로 평가한 값이라 기간과 무관하게 최신 기준입니다.
+          </Text>
         </Card>
       )}
 
@@ -588,7 +787,117 @@ export default function JournalScreen() {
       >
         <Text style={{ color: '#fff', fontSize: 28, fontWeight: '800', marginTop: -2 }}>{addOpen ? '✕' : '＋'}</Text>
       </Pressable>
+
+      {/* 체결 상세보기 */}
+      <TradeDetailModal
+        trade={detail}
+        project={detail?.project_id ? projMap[detail.project_id] : undefined}
+        onClose={() => setDetail(null)}
+        onDelete={(t) => {
+          setDetail(null);
+          confirmAction(
+            '체결 삭제',
+            `${projMap[t.project_id ?? '']?.name ?? t.name ?? t.symbol ?? '이 체결'} 기록을 삭제할까요?`,
+            () => deleteTrade(t),
+            '삭제'
+          );
+        }}
+      />
     </View>
+  );
+}
+
+// 체결 상세보기 모달 — 목록에서 체결을 누르면 전체 정보를 보여준다.
+function TradeDetailModal({
+  trade,
+  project,
+  onClose,
+  onDelete,
+}: {
+  trade: Trade | null;
+  project?: Project;
+  onClose: () => void;
+  onDelete: (t: Trade) => void;
+}) {
+  if (!trade) return null;
+  const t = trade;
+  const mkt = project?.market ?? t.market ?? 'US';
+  const displayName = project?.name ?? t.name ?? t.symbol ?? '—';
+  const ticker = project?.symbol ?? t.symbol ?? '—';
+  const isBuy = t.side === 'buy';
+  const isAutoOrder = !!t.note && t.note.startsWith('자동주문');
+  const amount = t.price * t.quantity;
+  const when = t.executed_at.replace('T', ' ').slice(0, 16);
+
+  const rows: { label: string; value: string; color?: string }[] = [
+    { label: '티커', value: ticker },
+    { label: '시장', value: mkt === 'KRX' ? '한국 (KRX)' : mkt === 'US' ? '미국 (US)' : mkt },
+    { label: '구분', value: isBuy ? '매수' : '매도', color: isBuy ? colors.buy : colors.sell },
+    { label: '주문유형', value: isAutoOrder ? '🤖 자동주문' : '수동주문', color: isAutoOrder ? colors.accent : colors.textDim },
+    { label: '체결가', value: formatPrice(t.price, mkt) },
+    { label: '수량', value: `${money(t.quantity, 0)}주` },
+    { label: '체결금액', value: formatMoney(amount, mkt) },
+    { label: '체결시각', value: when },
+    { label: '기록', value: project ? `프로젝트 · ${project.name}` : '직접입력' },
+  ];
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
+        <Pressable
+          onPress={() => {}}
+          style={{ backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm, borderWidth: 1, borderColor: colors.border }}
+        >
+          {/* 헤더: 품목명 (전체 표시) */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: isBuy ? colors.buyBg : colors.sellBg }}>
+              <Text style={{ color: isBuy ? colors.buy : colors.sell, fontWeight: '800', fontSize: 12 }}>{isBuy ? '매수' : '매도'}</Text>
+            </View>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18, flex: 1 }}>{displayName}</Text>
+          </View>
+
+          <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 8 }}>
+            {rows.map((r) => (
+              <View key={r.label} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                <Text style={{ color: colors.textDim, fontSize: 13 }}>{r.label}</Text>
+                <Text style={{ color: r.color ?? colors.text, fontWeight: '700', fontSize: 14, flexShrink: 1, textAlign: 'right' }}>
+                  {r.value}
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          {t.note ? (
+            <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
+              <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 2 }}>📝 메모</Text>
+              <Text style={{ color: colors.text, fontSize: 14, lineHeight: 20 }}>{t.note}</Text>
+            </View>
+          ) : null}
+
+          {isAutoOrder && (
+            <Text style={{ color: colors.textDim, fontSize: 12 }}>
+              🔒 자동주문은 실제 계좌와 연동되어 있어 삭제할 수 없어요.
+            </Text>
+          )}
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            {!isAutoOrder && (
+              <Pressable
+                onPress={() => onDelete(t)}
+                style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.danger }}
+              >
+                <Text style={{ color: colors.danger, fontWeight: '800' }}>삭제</Text>
+              </Pressable>
+            )}
+            <Pressable
+              onPress={onClose}
+              style={{ flex: 2, backgroundColor: colors.buy, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '800' }}>닫기</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 

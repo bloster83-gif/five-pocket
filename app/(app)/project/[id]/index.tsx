@@ -165,7 +165,11 @@ export default function ProjectDetailScreen() {
     load();
   };
 
-  // 포켓 1개 손절 (전량 매도). AUTO+계좌+네이티브면 실제 KIS 주문, 그 외엔 체결 기록만.
+  // 포켓 1개 익절/손절 (전량 매도).
+  //  - AUTO 등급 + 계좌 + 네이티브: 실제 KIS 매도 주문을 자동 전송하고 '자동주문'으로 기록
+  //    (체결 확인되면 '보유완료→매도완료(sold)', 미체결이면 '매도 주문완료(sell_ordered)' 상태.
+  //     서버 러너/재조회가 나중에 실제 체결가로 자동 동기화)
+  //  - 그 외(다이어리 수동): 현재가로 매도 체결만 기록('익절'/'손절')
   const stopLossPocket = async (k: Pocket): Promise<{ ok: boolean; msg?: string }> => {
     if (!project || !session?.user?.id) return { ok: false };
     const pocketTrades = trades.filter((t) => t.pocket_id === k.id);
@@ -173,33 +177,59 @@ export default function ProjectDetailScreen() {
     if (qty <= 0) return { ok: false, msg: '보유 수량 없음' };
     const sellPrice = price ?? k.sell_target_price ?? buyByPocket.get(k.id)?.price ?? 0;
     if (sellPrice <= 0) return { ok: false, msg: '현재가를 확인할 수 없어요' };
+    const word = sellPrice >= computePnL(pocketTrades, null).avgOpenPrice ? '익절' : '손절';
 
-    // AUTO 등급 + 계좌 + 네이티브면 실제 매도 주문 전송
+    // AUTO 등급 + 계좌 + 네이티브면 실제 매도 주문 전송 (자동주문 흐름과 동일)
     if (tier === 'auto' && account && !kisOrderBlocked(project.market)) {
       try {
         const input = { side: 'sell' as const, symbol: project.symbol, quantity: qty, price: sellPrice };
         const r = project.market === 'US' ? await placeOverseasOrder(account, input) : await placeDomesticOrder(account, input);
-        supabase
-          .from('auto_orders')
-          .insert({
-            user_id: session.user.id,
-            project_id: project.id,
-            pocket_id: k.id,
-            side: 'sell',
-            symbol: project.symbol,
-            order_price: sellPrice,
-            quantity: qty,
-            status: 'sent',
-            kis_order_no: r.orderNo,
-          })
-          .then(() => {});
+        await supabase.from('auto_orders').insert({
+          user_id: session.user.id,
+          project_id: project.id,
+          pocket_id: k.id,
+          side: 'sell',
+          symbol: project.symbol,
+          order_price: sellPrice,
+          quantity: qty,
+          status: 'sent',
+          kis_order_no: r.orderNo,
+        });
+
+        // 실제 체결 여부·단가 확인 (미체결이면 지정가로 기록하고 '매도 주문완료' 상태)
+        let fillPrice = sellPrice;
+        let fillQty = qty;
+        let filled = false;
+        try {
+          await new Promise((res) => setTimeout(res, 2500));
+          const fill = await getOrderFill(account, project.market === 'US' ? 'US' : 'KRX', r.orderNo, project.symbol);
+          if (fill && fill.filledQty > 0 && fill.avgPrice > 0) {
+            filled = true;
+            fillPrice = fill.avgPrice;
+            fillQty = fill.filledQty;
+          }
+        } catch {
+          /* 조회 실패 → 미체결로 간주(주문완료), 지정가 기록 */
+        }
+
+        await supabase.from('trades').insert({
+          user_id: session.user.id,
+          project_id: project.id,
+          pocket_id: k.id,
+          side: 'sell',
+          price: fillPrice,
+          quantity: fillQty,
+          executed_at: new Date().toISOString(),
+          note: `자동주문(KIS ${r.orderNo || '-'}) ${word}`,
+        });
+        await supabase.from('pockets').update({ status: filled ? 'sold' : 'sell_ordered' }).eq('id', k.id);
+        return { ok: true };
       } catch (e: any) {
         return { ok: false, msg: e?.message ?? '주문 실패' };
       }
     }
 
-    // 매도 체결 기록 + 포켓 상태 갱신
-    const note = sellPrice >= computePnL(pocketTrades, null).avgOpenPrice ? '익절' : '손절';
+    // 다이어리(수동): 현재가로 매도 체결만 기록
     await supabase.from('trades').insert({
       user_id: session.user.id,
       project_id: project.id,
@@ -208,7 +238,7 @@ export default function ProjectDetailScreen() {
       price: sellPrice,
       quantity: qty,
       executed_at: new Date().toISOString(),
-      note,
+      note: word,
     });
     await supabase.from('pockets').update({ status: 'sold' }).eq('id', k.id);
     return { ok: true };
