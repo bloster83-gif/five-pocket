@@ -12,20 +12,13 @@ do $$
 declare
   r record;
 begin
-  -- 1) phone 단일 컬럼 UNIQUE 제약 삭제
+  -- 1) phone 단일 컬럼 UNIQUE 제약 삭제 (정의 문자열이 'UNIQUE (phone)' 인 것만)
   for r in
     select con.conname
     from pg_constraint con
-    join pg_class c on c.oid = con.conrelid
-    join pg_namespace n on n.oid = c.relnamespace
-    where n.nspname = 'public'
-      and c.relname = 'profiles'
+    where con.conrelid = 'public.profiles'::regclass
       and con.contype = 'u'
-      and (
-        select array_agg(a.attname order by a.attnum)
-        from pg_attribute a
-        where a.attrelid = con.conrelid and a.attnum = any(con.conkey)
-      ) = array['phone']
+      and pg_get_constraintdef(con.oid) ilike 'UNIQUE (phone)%'
   loop
     execute format('alter table public.profiles drop constraint %I', r.conname);
   end loop;
@@ -34,18 +27,11 @@ begin
   for r in
     select c2.relname as idxname
     from pg_index i
-    join pg_class c on c.oid = i.indrelid
     join pg_class c2 on c2.oid = i.indexrelid
-    join pg_namespace n on n.oid = c.relnamespace
-    where n.nspname = 'public'
-      and c.relname = 'profiles'
+    where i.indrelid = 'public.profiles'::regclass
       and i.indisunique
       and not exists (select 1 from pg_constraint con where con.conindid = i.indexrelid)
-      and (
-        select array_agg(a.attname order by a.attnum)
-        from pg_attribute a
-        where a.attrelid = i.indrelid and a.attnum = any(i.indkey)
-      ) = array['phone']
+      and pg_get_indexdef(i.indexrelid) ilike '%(phone)%'
   loop
     execute format('drop index if exists public.%I', r.idxname);
   end loop;
