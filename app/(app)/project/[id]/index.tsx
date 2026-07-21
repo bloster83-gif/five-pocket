@@ -7,11 +7,11 @@ import { useAuth } from '@/lib/auth';
 import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { BottomTabsBar } from '@/components/BottomTabsBar';
 import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
-import { computePnL, estimatedShares, pnlPct, realizedEvents } from '@/domain/pockets';
+import { computePnL, estimatedShares, pnlPct, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
 import { useAutoTrader } from '@/services/autoTrader';
-import { kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
+import { getOrderFill, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 export default function ProjectDetailScreen() {
@@ -48,6 +48,44 @@ export default function ProjectDetailScreen() {
       .maybeSingle()
       .then(({ data }) => setAccount((data as BrokerAccount) ?? null));
   }, [session?.user?.id]);
+
+  // 화면 열 때 자동으로 미체결 자동주문을 실제 체결가로 조용히 동기화 (버튼 없이)
+  const reconciledRef = useRef(false);
+  useEffect(() => {
+    if (!account || !id || reconciledRef.current) return;
+    reconciledRef.current = true;
+    (async () => {
+      const { data: orders } = await supabase.from('auto_orders').select('*').eq('project_id', id).eq('status', 'sent');
+      let changed = false;
+      for (const o of (orders ?? []) as any[]) {
+        if (!o.kis_order_no) continue;
+        const proj = await supabase.from('projects').select('market,symbol,sell_target_pct').eq('id', id).single();
+        const p = proj.data as { market: string; symbol: string; sell_target_pct: number } | null;
+        if (!p) continue;
+        const fill = await getOrderFill(account, p.market === 'US' ? 'US' : 'KRX', o.kis_order_no, p.symbol);
+        if (!fill || fill.avgPrice <= 0) continue;
+        await supabase
+          .from('trades')
+          .update({ price: fill.avgPrice, quantity: fill.filledQty })
+          .eq('project_id', id)
+          .ilike('note', `%${o.kis_order_no}%`);
+        if (o.pocket_id) {
+          if (o.side === 'buy') {
+            await supabase
+              .from('pockets')
+              .update({ status: 'bought', sell_target_price: sellTargetFromFill(fill.avgPrice, Number(p.sell_target_pct)) })
+              .eq('id', o.pocket_id);
+          } else {
+            await supabase.from('pockets').update({ status: 'sold' }).eq('id', o.pocket_id);
+          }
+        }
+        await supabase.from('auto_orders').update({ status: 'filled' }).eq('id', o.id);
+        changed = true;
+      }
+      if (changed) load();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account, id]);
 
   useFocusEffect(
     useCallback(() => {
