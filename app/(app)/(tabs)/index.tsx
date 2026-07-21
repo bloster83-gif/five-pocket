@@ -293,6 +293,14 @@ export default function ProjectsScreen() {
           renderItem={({ item }) => {
             const closed = !!item.closed_at;
             const m = metrics[item.id];
+            // 한국/미국 구분 서식 (배지 + 카드 좌측 색 띠)
+            const isKR = item.market === 'KRX';
+            const mkBadge = {
+              flag: isKR ? '🇰🇷' : '🇺🇸',
+              label: isKR ? '한국' : '미국',
+              color: isKR ? colors.buy : colors.accent,
+              bg: isKR ? 'rgba(245,69,92,0.14)' : 'rgba(91,141,239,0.16)',
+            };
             return (
               <ProjectSwipe closed={closed} onClose={() => closeProject(item)} onCopy={() => copyProject(item)}>
               <Pressable onPress={() => router.push(`/project/${item.id}`)}>
@@ -300,23 +308,42 @@ export default function ProjectsScreen() {
                   style={
                     closed
                       ? { backgroundColor: 'rgba(59,130,246,0.07)', borderColor: colors.sell, borderLeftWidth: 4 }
-                      : undefined
+                      : { borderLeftWidth: 4, borderLeftColor: mkBadge.color }
                   }
                 >
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flex: 1 }}>
-                      <Text
-                        style={{
-                          color: closed ? colors.textDim : colors.text,
-                          fontSize: 18,
-                          fontWeight: '800',
-                        }}
-                      >
-                        {item.name}
-                      </Text>
-                      <Text style={{ color: colors.textDim, marginTop: 2 }}>
-                        {item.symbol} · {item.market === 'KRX' ? '한국' : '미국'}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        {/* 한국/미국 구분 배지 */}
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 3,
+                            paddingHorizontal: 7,
+                            paddingVertical: 2,
+                            borderRadius: 6,
+                            backgroundColor: mkBadge.bg,
+                            borderWidth: 1,
+                            borderColor: mkBadge.color,
+                          }}
+                        >
+                          <Text style={{ fontSize: 11 }}>{mkBadge.flag}</Text>
+                          <Text style={{ color: mkBadge.color, fontSize: 11, fontWeight: '900' }}>{mkBadge.label}</Text>
+                        </View>
+                        <Text
+                          numberOfLines={1}
+                          style={{
+                            color: closed ? colors.textDim : colors.text,
+                            fontSize: 18,
+                            fontWeight: '800',
+                            flexShrink: 1,
+                          }}
+                        >
+                          {item.name}
+                        </Text>
+                      </View>
+                      <Text style={{ color: colors.textDim, marginTop: 2 }}>{item.symbol}</Text>
                     </View>
                     <View
                       style={{
