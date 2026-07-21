@@ -771,26 +771,40 @@ function PocketCard({
 
       {k.status === 'bought' && (
         <>
-          {/* 매수 체결 정보 (실제 체결가 + 수량 + 현재 평가) */}
-          {buyTrade && (
-            <View style={{ marginTop: spacing.xs, backgroundColor: colors.buyBg, borderRadius: radius.sm, padding: spacing.sm }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={{ color: colors.textDim, fontSize: 12 }}>매수가 · 수량</Text>
-                <Text style={{ color: colors.buy, fontWeight: '900', fontSize: 15 }}>
-                  {formatPrice(buyTrade.price, market)} · {money(buyTrade.quantity, 0)}주
-                </Text>
-              </View>
-              {price != null && (
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
-                  <Text style={{ color: colors.textDim, fontSize: 12 }}>현재가 · 평가손익</Text>
-                  <Text style={{ color: signColor(price - buyTrade.price), fontWeight: '800', fontSize: 13 }}>
-                    {formatPrice(price, market)} ({price - buyTrade.price >= 0 ? '+' : ''}
-                    {Math.round(((price - buyTrade.price) / buyTrade.price) * 10000) / 100}%)
-                  </Text>
+          {/* 보유 정보 — 라인별로 정렬 (보유수량 / 평균매수가 / 평가손익) */}
+          {buyTrade &&
+            (() => {
+              const qty = buyTrade.quantity;
+              const avg = buyTrade.price;
+              const evalPnl = price != null ? (price - avg) * qty : null;
+              return (
+                <View
+                  style={{
+                    marginTop: spacing.xs,
+                    backgroundColor: colors.buyBg,
+                    borderRadius: radius.sm,
+                    paddingVertical: spacing.sm,
+                    paddingHorizontal: spacing.md,
+                    gap: 5,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: colors.textDim, fontSize: 12 }}>보유 수량</Text>
+                    <Text style={{ color: colors.buy, fontSize: 15, fontWeight: '900' }}>{money(qty, 0)}주</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: colors.textDim, fontSize: 12 }}>평균 매수가</Text>
+                    <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>{formatPrice(avg, market)}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: colors.textDim, fontSize: 12 }}>평가손익</Text>
+                    <Text style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 15, fontWeight: '900' }}>
+                      {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, market)}` : '-'}
+                    </Text>
+                  </View>
                 </View>
-              )}
-            </View>
-          )}
+              );
+            })()}
 
           {/* 매도 목표가 크게 (파랑) + 매수가 대비 +수익률 배지 */}
           <View style={{ marginTop: spacing.sm }}>

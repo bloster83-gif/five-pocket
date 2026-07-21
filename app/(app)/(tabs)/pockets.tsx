@@ -418,40 +418,35 @@ export default function PocketsScreen() {
                 </View>
               )}
 
-              {/* 보유 중이면 보유수량 · 평균매수가(가운데) · 평가손익 강조 박스로 */}
+              {/* 보유 중이면 라인별로 정렬한 강조 박스 (보유수량 / 평균매수가 / 평가손익) */}
               {pnl.totalQtyOpen > 0 &&
                 (() => {
                   const evalPnl = price != null ? (price - pnl.avgOpenPrice) * pnl.totalQtyOpen : null;
                   return (
                     <View
                       style={{
-                        flexDirection: 'row',
                         backgroundColor: colors.buyBg,
                         borderRadius: 10,
                         borderWidth: 1,
                         borderColor: colors.buy,
                         paddingVertical: spacing.sm,
                         paddingHorizontal: spacing.md,
+                        gap: 5,
                       }}
                     >
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: colors.textDim, fontSize: 11 }}>보유 수량</Text>
-                        <Text style={{ color: colors.buy, fontSize: 16, fontWeight: '900' }}>
-                          {money(pnl.totalQtyOpen, 0)}주
-                        </Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: colors.textDim, fontSize: 12 }}>보유 수량</Text>
+                        <Text style={{ color: colors.buy, fontSize: 15, fontWeight: '900' }}>{money(pnl.totalQtyOpen, 0)}주</Text>
                       </View>
-                      <View style={{ flex: 1, alignItems: 'center' }}>
-                        <Text style={{ color: colors.textDim, fontSize: 11 }}>평균 매수가</Text>
-                        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '900' }} numberOfLines={1}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: colors.textDim, fontSize: 12 }}>평균 매수가</Text>
+                        <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>
                           {formatPrice(pnl.avgOpenPrice, proj.market)}
                         </Text>
                       </View>
-                      <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                        <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익</Text>
-                        <Text
-                          style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 16, fontWeight: '900' }}
-                          numberOfLines={1}
-                        >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: colors.textDim, fontSize: 12 }}>평가손익</Text>
+                        <Text style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 15, fontWeight: '900' }}>
                           {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, proj.market)}` : '-'}
                         </Text>
                       </View>
