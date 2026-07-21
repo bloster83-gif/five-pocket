@@ -355,9 +355,11 @@ export default function PocketsScreen() {
         const statusMeta =
           k.status === 'bought'
             ? { text: '보유중', color: colors.buy, bg: colors.buyBg }
-            : k.status === 'sold'
-              ? { text: '매도 완료', color: colors.sell, bg: colors.sellBg }
-              : { text: '대기', color: colors.textDim, bg: colors.cardAlt };
+            : k.status === 'buy_ordered' || k.status === 'sell_ordered'
+              ? { text: k.status === 'buy_ordered' ? '매수 주문완료' : '매도 주문완료', color: colors.warn, bg: 'rgba(251,191,36,0.14)' }
+              : k.status === 'sold'
+                ? { text: '매도 완료', color: colors.sell, bg: colors.sellBg }
+                : { text: '대기', color: colors.textDim, bg: colors.cardAlt };
         const cardEl = (
           <Pressable onPress={() => setExpanded(open ? null : k.id)}>
             <Card

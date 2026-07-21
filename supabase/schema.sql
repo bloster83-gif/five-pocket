@@ -142,8 +142,8 @@ create table if not exists public.pockets (
   sell_target_price  numeric(20,4),                    -- 체결 후 이 가격 도달 시 매도 알림
   weight             numeric(6,3) not null default 20, -- 포켓 예산 비중(%)
   budget             numeric(20,4),                    -- 자동 배분된 금액(= total_budget * weight/100)
-  status             text not null default 'waiting'   -- 'waiting' | 'bought' | 'sold'
-                       check (status in ('waiting','bought','sold')),
+  status             text not null default 'waiting'   -- waiting|buy_ordered|bought|sell_ordered|sold
+                       check (status in ('waiting','buy_ordered','bought','sell_ordered','sold')),
   created_at         timestamptz not null default now(),
   unique (project_id, idx)
 );
@@ -269,7 +269,7 @@ create table if not exists public.auto_orders (
   order_price   numeric(20,4) not null,
   quantity      numeric(20,4) not null,
   status        text not null default 'sent'
-                  check (status in ('sent', 'failed')),
+                  check (status in ('sent', 'filled', 'failed')),
   kis_order_no  text,           -- KIS 주문번호(ODNO)
   error_message text,
   created_at    timestamptz not null default now()

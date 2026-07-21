@@ -1,7 +1,9 @@
 // Supabase 테이블과 1:1로 대응하는 타입 정의
 
 export type Market = 'KRX' | 'US' | 'MOCK';
-export type PocketStatus = 'waiting' | 'bought' | 'sold';
+// waiting: 매수 대기 · buy_ordered: 매수 주문완료(체결 대기) · bought: 보유중
+// sell_ordered: 매도 주문완료(체결 대기) · sold: 매도 완료
+export type PocketStatus = 'waiting' | 'buy_ordered' | 'bought' | 'sell_ordered' | 'sold';
 export type TradeSide = 'buy' | 'sell';
 export type AlertKind = 'buy' | 'sell';
 

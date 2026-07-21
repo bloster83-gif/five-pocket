@@ -376,11 +376,19 @@ async function reconcilePendingFills(admin: SupabaseClient): Promise<number> {
         .update({ price: fill.avgPrice, quantity: fill.filledQty })
         .eq('project_id', o.project_id)
         .ilike('note', `%${o.kis_order_no}%`);
-      if (o.side === 'buy' && o.pocket_id) {
-        await admin
-          .from('pockets')
-          .update({ sell_target_price: Math.round(fill.avgPrice * (1 + Number(proj.sell_target_pct) / 100) * 10000) / 10000 })
-          .eq('id', o.pocket_id);
+      // 주문완료 → 체결 확인되면 보유중/매도완료로 전환
+      if (o.pocket_id) {
+        if (o.side === 'buy') {
+          await admin
+            .from('pockets')
+            .update({
+              status: 'bought',
+              sell_target_price: Math.round(fill.avgPrice * (1 + Number(proj.sell_target_pct) / 100) * 10000) / 10000,
+            })
+            .eq('id', o.pocket_id);
+        } else {
+          await admin.from('pockets').update({ status: 'sold' }).eq('id', o.pocket_id);
+        }
       }
       await admin.from('auto_orders').update({ status: 'filled' }).eq('id', o.id);
       updated++;
@@ -570,12 +578,14 @@ Deno.serve(async (req: Request) => {
           kis_order_no: order.orderNo,
         });
 
-        // 실제 체결단가 반영 (미체결/실패면 지정가로 폴백)
+        // 실제 체결 여부·단가 확인 (미체결이면 지정가 기록 + '주문완료' 상태)
         let fillPrice = limitPrice;
         let fillQty = qty;
+        let filledNow = false;
         await new Promise((r) => setTimeout(r, 2500));
         const fill = await getOrderFill(acc, token, proj.market, order.orderNo, proj.symbol);
         if (fill && fill.filledQty > 0 && fill.avgPrice > 0) {
+          filledNow = true;
           fillPrice = fill.avgPrice;
           fillQty = fill.filledQty;
         }
@@ -595,11 +605,11 @@ Deno.serve(async (req: Request) => {
             Math.round(fillPrice * (1 + Number(proj.sell_target_pct) / 100) * 10000) / 10000;
           await admin
             .from('pockets')
-            .update({ status: 'bought', sell_target_price: sellTarget })
+            .update({ status: filledNow ? 'bought' : 'buy_ordered', sell_target_price: sellTarget })
             .eq('id', k.id);
           openQtyByPocket.set(k.id, (openQtyByPocket.get(k.id) ?? 0) + fillQty);
         } else {
-          await admin.from('pockets').update({ status: 'sold' }).eq('id', k.id);
+          await admin.from('pockets').update({ status: filledNow ? 'sold' : 'sell_ordered' }).eq('id', k.id);
           openQtyByPocket.set(k.id, 0);
         }
 

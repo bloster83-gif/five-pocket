@@ -423,10 +423,11 @@ export default function ProjectsScreen() {
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                           {[0, 1, 2, 3, 4].map((idx) => {
                             const pk = pocketsByProject[item.id]?.find((p) => p.idx === idx);
-                            const st = pk?.status; // 'waiting' | 'bought' | 'sold'
-                            const lit = st === 'bought' || st === 'sold';
-                            const fill = st === 'bought' ? colors.buy : st === 'sold' ? colors.sell : 'transparent';
-                            const border = st === 'bought' ? colors.buy : st === 'sold' ? colors.sell : colors.border;
+                            const st = pk?.status;
+                            const ordered = st === 'buy_ordered' || st === 'sell_ordered'; // 주문완료(체결 대기)
+                            const lit = st === 'bought' || st === 'sold' || ordered;
+                            const fill = st === 'bought' ? colors.buy : st === 'sold' ? colors.sell : ordered ? colors.warn : 'transparent';
+                            const border = st === 'bought' ? colors.buy : st === 'sold' ? colors.sell : ordered ? colors.warn : colors.border;
                             return (
                               <View
                                 key={idx}
@@ -450,6 +451,7 @@ export default function ProjectsScreen() {
                         </View>
                         {/* 미니 범례 */}
                         <View style={{ flexDirection: 'row', gap: 8 }}>
+                          <LightLegend color={colors.warn} label="주문" />
                           <LightLegend color={colors.buy} label="매수" />
                           <LightLegend color={colors.sell} label="매도" />
                         </View>

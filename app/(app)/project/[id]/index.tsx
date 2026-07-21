@@ -679,18 +679,29 @@ function PocketCard({
 
   const statusPill =
     k.status === 'bought'
-      ? { text: '매수 완료', color: colors.buy }
-      : k.status === 'sold'
-        ? { text: '매도 완료', color: colors.sell }
-        : { text: '대기중', color: colors.textDim };
+      ? { text: '보유중', color: colors.buy }
+      : k.status === 'buy_ordered'
+        ? { text: '매수 주문완료', color: colors.warn }
+        : k.status === 'sell_ordered'
+          ? { text: '매도 주문완료', color: colors.warn }
+          : k.status === 'sold'
+            ? { text: '매도 완료', color: colors.sell }
+            : { text: '대기중', color: colors.textDim };
+
+  // 주문완료(체결 대기) 안내 단어
+  const pendingWord = k.status === 'buy_ordered' ? '매수' : k.status === 'sell_ordered' ? '매도' : null;
+  // 보유 정보/매도목표를 보여줄 상태 (보유중 + 매도주문완료 + 매수주문완료)
+  const heldLike = k.status === 'bought' || k.status === 'buy_ordered' || k.status === 'sell_ordered';
 
   // 음영(가득 참) 배경 + 포켓 번호별 고유 색 띠
   const cardStyle = {
     ...(k.status === 'bought'
       ? { backgroundColor: colors.buyBg, borderColor: colors.buy }
-      : k.status === 'sold'
-        ? { backgroundColor: colors.sellBg, borderColor: colors.sell }
-        : { borderColor: buyReady ? colors.buy : colors.border }),
+      : pendingWord
+        ? { borderColor: colors.warn }
+        : k.status === 'sold'
+          ? { backgroundColor: colors.sellBg, borderColor: colors.sell }
+          : { borderColor: buyReady ? colors.buy : colors.border }),
     borderLeftWidth: 5,
     borderLeftColor: pocketColor(k.idx),
   };
@@ -715,6 +726,7 @@ function PocketCard({
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           {k.status === 'bought' && <Text style={{ fontSize: 14 }}>🔴</Text>}
+          {pendingWord && <Text style={{ fontSize: 14 }}>🕐</Text>}
           <Text style={{ color: statusPill.color, fontWeight: '800', fontSize: 12 }}>{statusPill.text}</Text>
         </View>
       </View>
@@ -769,7 +781,7 @@ function PocketCard({
         </>
       )}
 
-      {k.status === 'bought' && (
+      {heldLike && (
         <>
           {/* 보유 정보 — 2×2 그리드 (보유수량 · 평균매수가 · 평가총액 · 평가손익) */}
           {buyTrade &&
@@ -835,7 +847,23 @@ function PocketCard({
               )}
             </View>
           )}
-          {autoMode ? (
+          {pendingWord ? (
+            <View
+              style={{
+                marginTop: spacing.sm,
+                backgroundColor: 'rgba(251,191,36,0.12)',
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: colors.warn,
+                padding: spacing.sm,
+              }}
+            >
+              <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 13 }}>🕐 {pendingWord} 주문완료 · 체결 대기중</Text>
+              <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                체결이 확인되면 자동으로 {pendingWord === '매수' ? '보유중' : '매도완료'}으로 바뀌어요.
+              </Text>
+            </View>
+          ) : autoMode ? (
             <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
               <Text style={{ color: autoTradeOn ? colors.sell : colors.textDim, fontSize: 12, flex: 1 }}>
                 {autoTradeOn ? '🤖 목표가 도달 시 자동 매도' : '🤖 자동매매 스위치를 켜면 자동 매도돼요'}

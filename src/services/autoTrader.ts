@@ -133,21 +133,24 @@ export function useAutoTrader(
             kis_order_no: result.orderNo,
           });
 
-          // 실제 체결단가 반영: 잠시 후 체결내역 조회. 미체결/실패면 지정가로 폴백.
+          // 실제 체결 여부·단가 확인: 잠시 후 체결내역 조회. 미체결이면 지정가로 기록하고 '주문완료' 상태.
           let fillPrice = limitPrice;
           let fillQty = qty;
+          let filled = false;
           try {
             await new Promise((r) => setTimeout(r, 2500));
             const fill = await getOrderFill(account, proj.market === 'US' ? 'US' : 'KRX', result.orderNo, proj.symbol);
             if (fill && fill.filledQty > 0 && fill.avgPrice > 0) {
+              filled = true;
               fillPrice = fill.avgPrice;
               fillQty = fill.filledQty;
             }
           } catch {
-            /* 조회 실패 → 지정가 유지 */
+            /* 조회 실패 → 미체결로 간주(주문완료), 지정가 기록 */
           }
 
-          // 체결 기록 + 포켓 상태 갱신 (실제 체결가 기준)
+          // 체결 기록 + 포켓 상태 갱신
+          //  체결됨 → 보유중/매도완료 / 아직 미체결 → 매수 주문완료/매도 주문완료 (서버가 체결되면 자동 전환)
           await supabase.from('trades').insert({
             user_id: uid,
             project_id: proj.id,
@@ -162,12 +165,12 @@ export function useAutoTrader(
             await supabase
               .from('pockets')
               .update({
-                status: 'bought',
+                status: filled ? 'bought' : 'buy_ordered',
                 sell_target_price: sellTargetFromFill(fillPrice, Number(proj.sell_target_pct)),
               })
               .eq('id', sig.pocket.id);
           } else {
-            await supabase.from('pockets').update({ status: 'sold' }).eq('id', sig.pocket.id);
+            await supabase.from('pockets').update({ status: filled ? 'sold' : 'sell_ordered' }).eq('id', sig.pocket.id);
           }
 
           await report(

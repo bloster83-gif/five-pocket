@@ -75,6 +75,9 @@ export default function UpgradeScreen() {
           </View>
         ))}
         <Text style={{ color: colors.textDim, fontSize: 11 }}>기간이 길수록 할인이 적용돼요. 만료 시 다이어리 등급으로 자동 전환됩니다.</Text>
+        <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
+          유료 서버를 24시간 운영하므로 오토 회원은 이용료가 추가됩니다.
+        </Text>
       </Card>
 
       {/* 업그레이드 방법 */}
@@ -102,16 +105,10 @@ export default function UpgradeScreen() {
         <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
           ※ 입금자명을 가입 시 실명과 동일하게 해주셔야 확인이 빨라요.
         </Text>
-      </Card>
-
-      {/* 환불 안내 */}
-      <Card>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>환불 안내</Text>
-        <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 20 }}>
-          결제(입금) 후 <Text style={{ color: colors.text, fontWeight: '800' }}>2주(14일) 이내</Text> 해지 시 이미 이용한 일수를
-          일할 계산하여 남은 금액을 환불합니다. <Text style={{ color: colors.text, fontWeight: '800' }}>2주(14일)를 초과</Text>한
-          경우 환불이 불가합니다. (가입 동의서 기준)
-        </Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={{ color: colors.textDim, fontSize: 13 }}>관리자 연락처</Text>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>010-3769-7976</Text>
+        </View>
       </Card>
 
       <Text style={{ color: colors.textDim, fontSize: 12, textAlign: 'center' }}>
