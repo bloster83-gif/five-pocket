@@ -7,6 +7,7 @@ import { confirmAction, notify } from '@/lib/alert';
 import { Card, Field } from '@/components/ui';
 import { colors, radius, spacing } from '@/theme';
 import { formatPhone } from '@/lib/phoneAuth';
+import { deleteAccount } from '@/lib/account';
 import type { MemberTier, Profile } from '@/types/db';
 
 // profiles.tier 컬럼이 아직 없을 때(마이그레이션 전) 나는 에러인지 판별
@@ -166,6 +167,34 @@ export default function AdminScreen() {
       `"${u.display_name ?? u.email ?? u.id}" 님을 Diary 등급(수동 매매)으로 되돌릴까요?\n자동매매가 즉시 중지됩니다.`,
       () => applyTier(u, 'diary', null),
       '변경'
+    );
+  };
+
+  // 관리자: 회원 강제 탈퇴(완전 삭제) — 2단계 확인
+  const onDeleteUser = (u: Profile) => {
+    const name = u.display_name ?? u.full_name ?? u.email ?? u.id;
+    confirmAction(
+      '회원 탈퇴시키기',
+      `"${name}" 님의 계정과 모든 데이터(프로젝트·포켓·매매일지·목표·계좌)를 영구 삭제해요. 복구할 수 없습니다. 계속할까요?`,
+      () =>
+        confirmAction(
+          '정말 삭제할까요?',
+          `"${name}" 님을 완전히 탈퇴시킵니다. 되돌릴 수 없어요.`,
+          async () => {
+            setSavingId(u.id);
+            try {
+              await deleteAccount(u.id);
+              setUsers((prev) => prev.filter((x) => x.id !== u.id));
+              notify('탈퇴 완료', `"${name}" 님을 탈퇴 처리했어요.`);
+            } catch (e: any) {
+              notify('탈퇴 실패', e?.message ?? '탈퇴 처리 중 오류가 발생했어요.');
+            } finally {
+              setSavingId(null);
+            }
+          },
+          '탈퇴시키기'
+        ),
+      '삭제 진행'
     );
   };
 
@@ -398,6 +427,24 @@ export default function AdminScreen() {
                 </Pressable>
               ))}
             </View>
+
+            {/* 회원 탈퇴시키기 (본인 계정은 제외) */}
+            {u.id !== session?.user?.id && (
+              <Pressable
+                disabled={savingId === u.id}
+                onPress={() => onDeleteUser(u)}
+                style={{
+                  alignItems: 'center',
+                  paddingVertical: 8,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: colors.danger,
+                  opacity: savingId === u.id ? 0.5 : 1,
+                }}
+              >
+                <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>회원 탈퇴시키기</Text>
+              </Pressable>
+            )}
           </Card>
         );
       })}

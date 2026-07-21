@@ -8,6 +8,7 @@ import { Button, Card, Field, Row } from '@/components/ui';
 import { StatsContent } from '@/components/StatsContent';
 import { colors, formatMoney, radius, signColor, spacing } from '@/theme';
 import { formatPhone, isValidPhone, onlyDigits, sendPhoneOtp, verifyPhoneOtp } from '@/lib/phoneAuth';
+import { deleteAccount } from '@/lib/account';
 import { getDomesticBalance, getOverseasBalance, kisOrderBlocked, type KisBalance, type KisHolding } from '@/services/broker/kis';
 import type { BrokerAccount } from '@/types/db';
 
@@ -442,6 +443,34 @@ export default function MyScreen() {
         style={{ alignItems: 'center', paddingVertical: spacing.md }}
       >
         <Text style={{ color: colors.textDim, fontWeight: '700' }}>로그아웃</Text>
+      </Pressable>
+
+      {/* 회원 탈퇴 (완전 삭제) — 2단계 확인 */}
+      <Pressable
+        onPress={() =>
+          confirmAction(
+            '회원 탈퇴',
+            '탈퇴하면 계정과 모든 데이터(프로젝트·포켓·매매일지·목표·계좌 연결)가 영구 삭제되며 복구할 수 없어요. 계속할까요?',
+            () =>
+              confirmAction(
+                '정말 탈퇴할까요?',
+                '이 작업은 되돌릴 수 없습니다. 정말 계정을 삭제하시겠어요?',
+                async () => {
+                  try {
+                    await deleteAccount();
+                    await signOut();
+                  } catch (e: any) {
+                    notify('탈퇴 실패', e?.message ?? '탈퇴 처리 중 오류가 발생했어요.');
+                  }
+                },
+                '탈퇴하기'
+              ),
+            '탈퇴 진행'
+          )
+        }
+        style={{ alignItems: 'center', paddingVertical: spacing.sm, marginBottom: spacing.lg }}
+      >
+        <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>회원 탈퇴</Text>
       </Pressable>
     </ScrollView>
   );
