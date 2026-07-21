@@ -24,6 +24,7 @@ export default function ProjectDetailScreen() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [account, setAccount] = useState<BrokerAccount | null>(null);
   const [loading, setLoading] = useState(true);
+  const [budgetOpen, setBudgetOpen] = useState(false); // 예산 배너 펼침(포켓별 배분)
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -490,12 +491,44 @@ export default function ProjectDetailScreen() {
           </View>
         </View>
         {project.total_budget != null && (
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.cardAlt, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
-            <Text style={{ color: colors.textDim }}>💰 프로젝트 예산</Text>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{formatMoney(project.total_budget, mkt)}</Text>
+          <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, overflow: 'hidden' }}>
+            {/* 탭하면 아래로 펼쳐지며 포켓별 배분 예산을 보여줌 */}
+            <Pressable
+              onPress={() => setBudgetOpen((o) => !o)}
+              style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+            >
+              <Text style={{ color: colors.textDim }}>💰 프로젝트 예산 {budgetOpen ? '▲' : '▼'}</Text>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{formatMoney(project.total_budget, mkt)}</Text>
+            </Pressable>
+            {budgetOpen && (
+              <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, gap: 6 }}>
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>포켓별 배분 예산 (비중)</Text>
+                {[...pockets]
+                  .sort((a, b) => a.idx - b.idx)
+                  .map((k) => {
+                    const w =
+                      project.total_budget && project.total_budget > 0 && k.budget != null
+                        ? Math.round((k.budget / project.total_budget) * 1000) / 10
+                        : null;
+                    return (
+                      <View key={k.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: colors.text, fontSize: 13 }}>
+                          포켓 {k.idx + 1}
+                          {w != null ? <Text style={{ color: colors.textDim, fontSize: 11 }}>  ·  {w}%</Text> : null}
+                        </Text>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>
+                          {k.budget != null ? formatMoney(k.budget, mkt) : '-'}
+                        </Text>
+                      </View>
+                    );
+                  })}
+              </View>
+            )}
           </View>
         )}
         {pockets.map((k) => {
+          // 이 포켓의 현재 순환 순 보유(미매도) 포지션 — 여러 번 매수해도 합산해서 실제 수량/평단 계산
+          const pocketOpen = computePnL(trades.filter((t) => t.pocket_id === k.id), null);
           const card = (
             <PocketCard
               pocket={k}
@@ -504,6 +537,8 @@ export default function ProjectDetailScreen() {
               buyIntervalPct={Number(project.buy_interval_pct)}
               sellTargetPct={Number(project.sell_target_pct)}
               buyTrade={buyByPocket.get(k.id) ?? null}
+              openQty={Math.floor(pocketOpen.totalQtyOpen)}
+              openAvg={pocketOpen.avgOpenPrice}
               cycles={cyclesByPocket.get(k.id) ?? 0}
               history={historyByPocket.get(k.id) ?? []}
               realizedByTrade={realizedByTrade}
@@ -528,7 +563,6 @@ export default function ProjectDetailScreen() {
             />
           );
           // 현재가 >= 평균매수가면 이익(익절), 아니면 손실(손절)
-          const pocketOpen = computePnL(trades.filter((t) => t.pocket_id === k.id), null);
           const inProfit = price != null && pocketOpen.avgOpenPrice > 0 && price >= pocketOpen.avgOpenPrice;
           // 보유중(매수 완료) 포켓만 왼쪽으로 스와이프하면 익절/손절
           return k.status === 'bought' ? (
@@ -706,6 +740,8 @@ function PocketCard({
   buyIntervalPct,
   sellTargetPct,
   buyTrade,
+  openQty,
+  openAvg,
   cycles,
   history,
   realizedByTrade,
@@ -722,6 +758,8 @@ function PocketCard({
   buyIntervalPct: number; // 매수 간격 % (포켓별 -할인율 표시용)
   sellTargetPct: number; // 매도 목표 % (매도가 +표시용)
   buyTrade: Trade | null;
+  openQty: number; // 이 포켓 현재 순환의 순 보유 수량 (여러 매수 합산)
+  openAvg: number; // 순 보유분 평균 매수가
   cycles: number;
   history: Trade[]; // 이 포켓의 전체 체결(모든 순환) — 최신 먼저
   realizedByTrade: Map<string, number>; // 매도 체결 id → 실현손익
@@ -741,9 +779,10 @@ function PocketCard({
   const sellReady =
     k.status === 'bought' && k.sell_target_price != null && price != null && price >= k.sell_target_price;
 
-  // 매수가능 수량: 배분액 / (현재가 또는 매수목표가)
-  const refPrice = price ?? k.buy_target_price;
-  const buyableQty = estimatedShares(k.budget, refPrice);
+  // 매수가능 수량: 배분액 / 매수목표가.
+  //  실제 자동/수동 주문이 매수목표가(지정가) 기준으로 수량을 잡으므로 동일하게 목표가로 계산해야
+  //  현재가가 목표가보다 높을 때 수량이 과소 표시되지 않는다.
+  const buyableQty = estimatedShares(k.budget, k.buy_target_price);
 
   const statusPill =
     k.status === 'bought'
@@ -852,10 +891,10 @@ function PocketCard({
       {heldLike && (
         <>
           {/* 보유 정보 — 2×2 그리드 (보유수량 · 평균매수가 · 평가총액 · 평가손익) */}
-          {buyTrade &&
-            (() => {
-              const qty = buyTrade.quantity;
-              const avg = buyTrade.price;
+          {(() => {
+              // 여러 번 매수한 경우 합산한 순 보유 수량/평단 사용. (매도주문완료 등 순보유 0이면 마지막 매수로 폴백)
+              const qty = openQty > 0 ? openQty : buyTrade?.quantity ?? 0;
+              const avg = openQty > 0 ? openAvg : buyTrade?.price ?? 0;
               const evalTotal = (price ?? avg) * qty;
               const evalPnl = price != null ? (price - avg) * qty : null;
               return (
@@ -936,7 +975,7 @@ function PocketCard({
               <Text style={{ color: autoTradeOn ? colors.sell : colors.textDim, fontSize: 12, flex: 1 }}>
                 {autoTradeOn ? '🤖 목표가 도달 시 자동 매도' : '🤖 자동매매 스위치를 켜면 자동 매도돼요'}
               </Text>
-              <ManualEntryButton onPress={() => onTrade('sell', buyTrade?.quantity ?? 0, price ?? k.sell_target_price ?? 0)} />
+              <ManualEntryButton onPress={() => onTrade('sell', openQty > 0 ? openQty : buyTrade?.quantity ?? 0, price ?? k.sell_target_price ?? 0)} />
             </View>
           ) : (
             <View style={{ marginTop: spacing.sm }}>
@@ -944,7 +983,7 @@ function PocketCard({
                 title="＋ 매도 체결 입력"
                 variant="sell"
                 large
-                onPress={() => onTrade('sell', buyTrade?.quantity ?? 0, price ?? k.sell_target_price ?? 0)}
+                onPress={() => onTrade('sell', openQty > 0 ? openQty : buyTrade?.quantity ?? 0, price ?? k.sell_target_price ?? 0)}
               />
             </View>
           )}
