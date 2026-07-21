@@ -72,7 +72,7 @@ export default function LoginScreen() {
         <View style={{ gap: spacing.xs, alignItems: 'center', marginBottom: spacing.sm }}>
           <Image
             source={require('../../assets/logo.png')}
-            style={{ width: 120, height: 120, borderRadius: 28, marginBottom: 6 }}
+            style={{ width: 88, height: 88, borderRadius: 20, marginBottom: 6 }}
             resizeMode="contain"
           />
           <Text style={{ color: colors.text, fontSize: 30, fontWeight: '900' }}>Pocket Diary</Text>
