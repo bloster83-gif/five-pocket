@@ -100,13 +100,29 @@ export function formatGoalKRW(n: number | null | undefined, unit: GoalUnit): str
 }
 
 /**
- * 값 자체의 크기에 따라 억/백만원 단위를 자동으로 선택해 표기.
- * (입출금·배당금·실현손익처럼 목표 자산과 무관하게 작을 수도 큰 수도 있는 금액용)
- *  - |값| ≥ 1억 → '억', 그 미만 → '백만'
+ * 값 자체의 크기에 따라 억 / 백만원 / 만원 단위를 자동으로 선택해 표기.
+ * (인생목표 탭의 모든 금액용 — 목표 자산과 무관하게 각 값의 크기에 맞춤)
+ *  - |값| ≥ 1억(1e8)   → '억'
+ *  - 1백만 ≤ |값| < 1억 → '백만'
+ *  - |값| < 1백만(1e6)  → '만'
  */
 export function formatGoalAutoKRW(n: number | null | undefined): string {
   if (n == null || Number.isNaN(n)) return '-';
-  return formatGoalKRW(n, Math.abs(n) >= 1e8 ? 'eok' : 'mil');
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  if (abs >= 1e8) {
+    const v = abs / 1e8; // 억
+    const dec = v >= 100 ? 0 : v >= 10 ? 1 : 2;
+    return sign + '₩' + v.toLocaleString('en-US', { maximumFractionDigits: dec }) + '억';
+  }
+  if (abs >= 1e6) {
+    const v = abs / 1e6; // 백만원
+    const dec = v >= 100 ? 0 : 1;
+    return sign + '₩' + v.toLocaleString('en-US', { maximumFractionDigits: dec }) + '백만';
+  }
+  const v = abs / 1e4; // 만원
+  const dec = v >= 100 ? 0 : v >= 10 ? 1 : 2;
+  return sign + '₩' + v.toLocaleString('en-US', { maximumFractionDigits: dec }) + '만';
 }
 
 export function formatMoney(n: number | null | undefined, market: MarketCode): string {

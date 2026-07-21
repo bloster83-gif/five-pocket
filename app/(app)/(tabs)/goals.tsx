@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Button, Card, Chip, Field, FilterBar, NumberField } from '@/components/ui';
 import { BarChart, Legend } from '@/components/charts';
-import { colors, formatGoalAutoKRW, formatGoalKRW, goalUnit, radius, spacing } from '@/theme';
+import { colors, formatGoalAutoKRW, radius, spacing } from '@/theme';
 import { buildGoalRows } from '@/domain/goals';
 import { realizedEvents } from '@/domain/pockets';
 import type { CashFlow, LifeGoal, Trade } from '@/types/db';
@@ -93,11 +93,9 @@ export default function GoalsScreen() {
   };
   const nowYear = new Date().getFullYear();
 
-  // 표시 단위: 목표금액 10억 초과면 '억', 이하면 '백만원'으로 통일
-  const unit = goalUnit(nums.targetAsset);
-  const fk = (v: number | null | undefined) => formatGoalKRW(v, unit);
-  // 입출금·배당금·실현손익 등 흐름 금액은 값 크기에 맞춰 억/백만 자동 선택
-  const fa = (v: number | null | undefined) => formatGoalAutoKRW(v);
+  // 모든 금액은 값 크기에 맞춰 억/백만원/만원 단위를 자동 선택해 표기
+  const fk = (v: number | null | undefined) => formatGoalAutoKRW(v);
+  const fa = fk;
 
   // 인생목표는 원화 기준. 미국(달러) 금액은 고정환율로 원화 환산해 합산.
   const USD_KRW = 1500;
