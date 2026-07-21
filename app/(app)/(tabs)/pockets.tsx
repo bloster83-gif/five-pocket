@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -9,7 +9,7 @@ import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
 import { computePnL, estimatedShares } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
-import { kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
+import { getOverseasPrice, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 export default function PocketsScreen() {
@@ -48,19 +48,35 @@ export default function PocketsScreen() {
     }, [load])
   );
 
-  // 프로젝트별 실시간 시세 (야후) — 웹은 CORS로 막힐 수 있어 실기기에서 라이브
+  // 프로젝트별 실시간 시세 — 미국주식은 계좌 연결 시 KIS(주간가 포함) 우선, 아니면 야후
   useFocusEffect(
     useCallback(() => {
       let alive = true;
       const uniq = Array.from(new Map(projects.filter((p) => p.symbol).map((p) => [p.symbol, p])).values());
       uniq.forEach(async (p) => {
         try {
-          const q = await priceProvider.getQuote(p.symbol);
+          let price: number;
+          let previousClose: number | undefined;
+          if (p.market === 'US' && account && Platform.OS !== 'web') {
+            try {
+              const ov = await getOverseasPrice(account, p.symbol);
+              price = ov.price;
+              previousClose = ov.previousClose;
+            } catch {
+              const q = await priceProvider.getQuote(p.symbol);
+              price = q.price;
+              previousClose = q.previousClose;
+            }
+          } else {
+            const q = await priceProvider.getQuote(p.symbol);
+            price = q.price;
+            previousClose = q.previousClose;
+          }
           const changePct =
-            q.previousClose && q.previousClose > 0
-              ? Math.round(((q.price - q.previousClose) / q.previousClose) * 10000) / 100
+            previousClose && previousClose > 0
+              ? Math.round(((price - previousClose) / previousClose) * 10000) / 100
               : null;
-          if (alive) setPrices((m) => ({ ...m, [p.symbol]: { price: q.price, changePct } }));
+          if (alive) setPrices((m) => ({ ...m, [p.symbol]: { price, changePct } }));
         } catch {
           /* 시세 실패는 무시 (— 표시) */
         }
@@ -68,7 +84,7 @@ export default function PocketsScreen() {
       return () => {
         alive = false;
       };
-    }, [projects])
+    }, [projects, account])
   );
 
   // 손절 주문용 증권사 계좌 (AUTO 등급)

@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -18,7 +19,8 @@ import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatMoney, formatPrice, radius, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
-import type { Pocket, Project, Trade } from '@/types/db';
+import { getOverseasPrice } from '@/services/broker/kis';
+import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 const fmtDate = (iso: string | null) => (iso ? iso.slice(0, 10) : '-');
 
@@ -33,11 +35,23 @@ interface Metric {
 
 export default function ProjectsScreen() {
   const router = useRouter();
-  const { tier } = useAuth();
+  const { tier, session } = useAuth();
+  const [account, setAccount] = useState<BrokerAccount | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [metrics, setMetrics] = useState<Record<string, Metric>>({});
   const [pocketsByProject, setPocketsByProject] = useState<Record<string, Pocket[]>>({});
   const [loading, setLoading] = useState(true);
+
+  // 미국주식 주간가 반영용 계좌 (연결돼 있으면 KIS 시세 우선)
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    supabase
+      .from('broker_accounts')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .maybeSingle()
+      .then(({ data }) => setAccount((data as BrokerAccount) ?? null));
+  }, [session?.user?.id]);
 
   const [showSearch, setShowSearch] = useState(false);
   const [status, setStatus] = useState<'open' | 'closed' | 'all'>('open'); // 기본: 진행중만
@@ -74,19 +88,40 @@ export default function ProjectsScreen() {
         const base = computePnL(tradesByProj[p.id] ?? [], null);
         const open = base.totalQtyOpen > 0;
         try {
-          const qt = await priceProvider.getQuote(p.symbol);
-          const mkt = qt.currency === 'KRW' ? 'KRX' : qt.currency === 'USD' ? 'US' : p.market;
+          // 미국주식 + 계좌 연결 + 네이티브면 KIS 시세(주간가 포함) 우선, 실패 시 야후 폴백
+          let price: number;
+          let previousClose: number | undefined;
+          let currency: string | undefined;
+          if (p.market === 'US' && account && Platform.OS !== 'web') {
+            try {
+              const ov = await getOverseasPrice(account, p.symbol);
+              price = ov.price;
+              previousClose = ov.previousClose;
+              currency = 'USD';
+            } catch {
+              const q = await priceProvider.getQuote(p.symbol);
+              price = q.price;
+              previousClose = q.previousClose;
+              currency = q.currency;
+            }
+          } else {
+            const q = await priceProvider.getQuote(p.symbol);
+            price = q.price;
+            previousClose = q.previousClose;
+            currency = q.currency;
+          }
+          const mkt = currency === 'KRW' ? 'KRX' : currency === 'USD' ? 'US' : p.market;
           const changePct =
-            qt.previousClose && qt.previousClose > 0
-              ? Math.round(((qt.price - qt.previousClose) / qt.previousClose) * 10000) / 100
+            previousClose && previousClose > 0
+              ? Math.round(((price - previousClose) / previousClose) * 10000) / 100
               : null;
           setMetrics((m) => ({
             ...m,
             [p.id]: {
-              price: qt.price,
+              price,
               changePct,
-              value: open ? base.totalQtyOpen * qt.price : 0,
-              pnl: open ? (qt.price - base.avgOpenPrice) * base.totalQtyOpen : 0,
+              value: open ? base.totalQtyOpen * price : 0,
+              pnl: open ? (price - base.avgOpenPrice) * base.totalQtyOpen : 0,
               realized: base.realized,
               market: mkt,
             },
@@ -99,7 +134,7 @@ export default function ProjectsScreen() {
         }
       })
     );
-  }, []);
+  }, [account]);
 
   useFocusEffect(
     useCallback(() => {
