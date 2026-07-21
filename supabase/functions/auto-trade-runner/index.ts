@@ -3,13 +3,15 @@
 //
 // 앱이 꺼져 있어도 서버가 대신 자동매매를 돌립니다.
 // pg_cron 이 1분마다 이 함수를 호출하면:
-//   1) AUTO 등급 회원의 자동매매 ON 프로젝트(KRX)를 모두 조회
-//   2) 한국투자증권(KIS) 현재가 조회
+//   1) AUTO 등급 회원의 자동매매 ON 프로젝트(KRX·US)를 모두 조회
+//   2) 한국투자증권(KIS) 현재가 조회 (국내=국내시세 / 미국=해외시세, 거래소 자동탐색)
 //   3) 포켓 신호 판정 (waiting & 현재가<=매수목표 → 매수 / bought & 현재가>=매도목표 → 매도)
-//   4) KIS 지정가 주문 → auto_orders/trades 기록 + 포켓 상태 갱신
+//   4) KIS 지정가 주문 (국내=국내주문 / 미국=해외주문) → auto_orders/trades 기록 + 포켓 갱신
 //   5) Expo 푸시 알림 (profiles.expo_push_token 이 있으면)
 //
-// 장 운영시간(평일 09:00~15:30 KST) 외에는 아무 것도 하지 않습니다. (?force=1 로 강제 실행)
+// 장 운영시간(국내 평일 09:00~15:30 KST / 미국 정규장 09:30~16:00 ET) 외에는
+// 해당 시장 프로젝트를 건너뜁니다. (?force=1 로 강제 실행)
+// ※ 미국은 정규장(한국 야간)만 지원 — 한국 낮 주간거래(블루오션)는 미포함.
 //
 // 배포:
 //   supabase functions deploy auto-trade-runner
@@ -25,7 +27,14 @@ const ORDER_TR = {
   real: { buy: 'TTTC0802U', sell: 'TTTC0801U' },
   virtual: { buy: 'VTTC0802U', sell: 'VTTC0801U' },
 } as const;
-const PRICE_TR = 'FHKST01010100'; // 주식현재가 시세
+const PRICE_TR = 'FHKST01010100'; // 국내 주식현재가 시세
+const OVERSEAS_PRICE_TR = 'HHDFS00000300'; // 해외 현재가
+const US_EXCHANGES = ['NAS', 'NYS', 'AMS'] as const; // 시세 거래소
+const ORDER_EXCH: Record<string, string> = { NAS: 'NASD', NYS: 'NYSE', AMS: 'AMEX' }; // 주문 거래소
+const OVERSEAS_ORDER_TR = {
+  real: { buy: 'TTTT1002U', sell: 'TTTT1006U' },
+  virtual: { buy: 'VTTT1002U', sell: 'VTTT1001U' },
+} as const;
 
 interface BrokerAccount {
   user_id: string;
@@ -44,6 +53,7 @@ interface ProjectRow {
   symbol: string;
   name: string;
   sell_target_pct: number;
+  market: 'KRX' | 'US';
 }
 
 interface PocketRow {
@@ -157,6 +167,89 @@ async function placeOrder(
   return { orderNo: json.output?.ODNO ?? '', message: json.msg1 ?? '주문 전송 완료' };
 }
 
+// ----- 미국 정규장 (ET 평일 09:30~16:00) — Deno Intl 로 정확 판정 -----
+function isUsRegularOpen(): boolean {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const wd = parts.find((p) => p.type === 'weekday')?.value;
+  if (wd === 'Sat' || wd === 'Sun') return false;
+  const hh = Number(parts.find((p) => p.type === 'hour')?.value);
+  const mm = Number(parts.find((p) => p.type === 'minute')?.value);
+  const mins = hh * 60 + mm;
+  return mins >= 9 * 60 + 30 && mins <= 16 * 60;
+}
+
+// ----- KIS 미국주식 현재가 + 거래소코드 자동 탐색 -----
+async function getUsPrice(
+  acc: BrokerAccount,
+  token: string,
+  symbol: string
+): Promise<{ price: number; exch: string }> {
+  const sym = toKisSymbol(symbol).toUpperCase();
+  for (const excd of US_EXCHANGES) {
+    const u = new URL(`${baseUrl(acc)}/uapi/overseas-price/v1/quotations/price`);
+    u.searchParams.set('AUTH', '');
+    u.searchParams.set('EXCD', excd);
+    u.searchParams.set('SYMB', sym);
+    const res = await fetch(u.toString(), {
+      headers: {
+        authorization: `Bearer ${token}`,
+        appkey: acc.app_key,
+        appsecret: acc.app_secret,
+        tr_id: OVERSEAS_PRICE_TR,
+        custtype: 'P',
+      },
+    });
+    const json = await res.json();
+    const last = Number(json?.output?.last);
+    if (json?.rt_cd === '0' && last > 0) return { price: last, exch: excd };
+  }
+  throw new Error(`해외 현재가 조회 실패 (${symbol})`);
+}
+
+// ----- KIS 미국주식 지정가 주문 -----
+async function placeUsOrder(
+  acc: BrokerAccount,
+  token: string,
+  side: 'buy' | 'sell',
+  symbol: string,
+  exch: string,
+  qty: number,
+  price: number
+): Promise<{ orderNo: string; message: string }> {
+  const res = await fetch(`${baseUrl(acc)}/uapi/overseas-stock/v1/trading/order`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      authorization: `Bearer ${token}`,
+      appkey: acc.app_key,
+      appsecret: acc.app_secret,
+      tr_id: OVERSEAS_ORDER_TR[acc.is_virtual ? 'virtual' : 'real'][side],
+      custtype: 'P',
+    },
+    body: JSON.stringify({
+      CANO: acc.account_no,
+      ACNT_PRDT_CD: acc.account_product_code,
+      OVRS_EXCG_CD: ORDER_EXCH[exch] ?? 'NASD',
+      PDNO: toKisSymbol(symbol).toUpperCase(),
+      ORD_QTY: String(Math.floor(qty)),
+      OVRS_ORD_UNPR: price.toFixed(2), // 달러 지정가
+      ORD_SVR_DVSN_CD: '0',
+      ORD_DVSN: '00', // 지정가
+    }),
+  });
+  const json = await res.json();
+  if (!res.ok || json.rt_cd !== '0') {
+    throw new Error(json.msg1 ?? `해외 주문 실패 (HTTP ${res.status})`);
+  }
+  return { orderNo: json.output?.ODNO ?? '', message: json.msg1 ?? '해외 주문 전송 완료' };
+}
+
 // ----- Expo 푸시 알림 -----
 async function pushNotify(token: string | null | undefined, title: string, body: string) {
   if (!token) return;
@@ -177,7 +270,10 @@ Deno.serve(async (req: Request) => {
   const json = (o: unknown, status = 200) =>
     new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
 
-  if (!force && !isMarketOpen()) return json({ skipped: 'market-closed' });
+  // 국내(KST 09:00~15:30) 또는 미국 정규장(ET 09:30~16:00) 중 하나라도 열려 있어야 실행
+  const krxOpen = isMarketOpen();
+  const usOpen = isUsRegularOpen();
+  if (!force && !krxOpen && !usOpen) return json({ skipped: 'market-closed' });
 
   const admin = createClient(
     Deno.env.get('SUPABASE_URL')!,
@@ -192,14 +288,14 @@ Deno.serve(async (req: Request) => {
     .eq('tier', 'auto')
     .lt('tier_expires_at', new Date().toISOString());
 
-  // 1) 자동매매 대상 프로젝트 (KRX, 진행중, 추적 ON)
+  // 1) 자동매매 대상 프로젝트 (KRX·US, 진행중, 추적 ON)
   const { data: projects, error: pErr } = await admin
     .from('projects')
-    .select('id,user_id,symbol,name,sell_target_pct')
+    .select('id,user_id,symbol,name,sell_target_pct,market')
     .eq('auto_trade_enabled', true)
     .eq('is_active', true)
     .is('closed_at', null)
-    .eq('market', 'KRX');
+    .in('market', ['KRX', 'US']);
   if (pErr) return json({ error: pErr.message }, 500);
   if (!projects?.length) return json({ processed: 0, note: 'no projects' });
 
@@ -250,18 +346,31 @@ Deno.serve(async (req: Request) => {
 
   // 4) 프로젝트별 처리 (심볼+계좌 단위 시세 캐시)
   const priceCache = new Map<string, number>();
+  const usExchCache = new Map<string, string>();
   const results: Array<Record<string, unknown>> = [];
 
   for (const proj of targets) {
+    const isUs = proj.market === 'US';
+    // 해당 시장이 열려 있을 때만 처리 (force 면 무시)
+    if (!force && (isUs ? !usOpen : !krxOpen)) continue;
+
     const acc = accByUser.get(proj.user_id)!;
     const push = autoUsers.get(proj.user_id)?.expo_push_token as string | null | undefined;
     let token: string;
     let price: number;
+    let usExch = 'NAS';
     try {
       token = await getToken(admin, acc);
       const cacheKey = `${acc.is_virtual ? 'v' : 'r'}:${proj.symbol}`;
       if (priceCache.has(cacheKey)) {
         price = priceCache.get(cacheKey)!;
+        if (isUs) usExch = usExchCache.get(cacheKey) ?? 'NAS';
+      } else if (isUs) {
+        const r = await getUsPrice(acc, token, proj.symbol);
+        price = r.price;
+        usExch = r.exch;
+        priceCache.set(cacheKey, price);
+        usExchCache.set(cacheKey, r.exch);
       } else {
         price = await getPrice(acc, token, proj.symbol);
         priceCache.set(cacheKey, price);
@@ -300,7 +409,9 @@ Deno.serve(async (req: Request) => {
         if (qty <= 0) {
           throw new Error(side === 'buy' ? '배분 예산이 부족해 1주도 살 수 없어요.' : '보유 수량이 없어요.');
         }
-        const order = await placeOrder(acc, token, side, proj.symbol, qty, limitPrice);
+        const order = isUs
+          ? await placeUsOrder(acc, token, side, proj.symbol, usExch, qty, limitPrice)
+          : await placeOrder(acc, token, side, proj.symbol, qty, limitPrice);
 
         await admin.from('auto_orders').insert({
           user_id: proj.user_id,
@@ -339,7 +450,7 @@ Deno.serve(async (req: Request) => {
         await pushNotify(
           push,
           `🤖 자동 ${label} 주문 완료 · ${proj.symbol}`,
-          `${proj.name} · 포켓 ${k.idx + 1} · ${qty}주 @ ${limitPrice.toLocaleString()} (주문번호 ${order.orderNo || '-'})`
+          `${proj.name} · 포켓 ${k.idx + 1} · ${qty}주 @ ${isUs ? '$' : '₩'}${limitPrice.toLocaleString()} (주문번호 ${order.orderNo || '-'})`
         );
         results.push({ project: proj.id, pocket: k.idx + 1, side, qty, price: limitPrice, orderNo: order.orderNo });
       } catch (e) {
