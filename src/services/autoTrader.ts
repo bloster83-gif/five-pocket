@@ -16,7 +16,7 @@ import { useAuth } from '@/lib/auth';
 import { notifyNow } from '@/lib/notifications';
 import { estimatedShares, sellTargetFromFill, type PriceSignal } from '@/domain/pockets';
 import { computePnL } from '@/domain/pockets';
-import { kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
+import { getOrderFill, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import type { BrokerAccount, Project, Trade } from '@/types/db';
 
 export interface AutoTradeEvent {
@@ -133,14 +133,28 @@ export function useAutoTrader(
             kis_order_no: result.orderNo,
           });
 
-          // 체결 기록 + 포켓 상태 갱신 (수동 입력과 동일한 흐름)
+          // 실제 체결단가 반영: 잠시 후 체결내역 조회. 미체결/실패면 지정가로 폴백.
+          let fillPrice = limitPrice;
+          let fillQty = qty;
+          try {
+            await new Promise((r) => setTimeout(r, 2500));
+            const fill = await getOrderFill(account, proj.market === 'US' ? 'US' : 'KRX', result.orderNo, proj.symbol);
+            if (fill && fill.filledQty > 0 && fill.avgPrice > 0) {
+              fillPrice = fill.avgPrice;
+              fillQty = fill.filledQty;
+            }
+          } catch {
+            /* 조회 실패 → 지정가 유지 */
+          }
+
+          // 체결 기록 + 포켓 상태 갱신 (실제 체결가 기준)
           await supabase.from('trades').insert({
             user_id: uid,
             project_id: proj.id,
             pocket_id: sig.pocket.id,
             side: sig.kind,
-            price: limitPrice,
-            quantity: qty,
+            price: fillPrice,
+            quantity: fillQty,
             executed_at: new Date().toISOString(),
             note: `자동주문(KIS ${result.orderNo || '-'})`,
           });
@@ -149,7 +163,7 @@ export function useAutoTrader(
               .from('pockets')
               .update({
                 status: 'bought',
-                sell_target_price: sellTargetFromFill(limitPrice, Number(proj.sell_target_pct)),
+                sell_target_price: sellTargetFromFill(fillPrice, Number(proj.sell_target_pct)),
               })
               .eq('id', sig.pocket.id);
           } else {
@@ -159,7 +173,7 @@ export function useAutoTrader(
           await report(
             { at: Date.now(), kind: sig.kind, pocketIdx: sig.pocket.idx, ok: true, message: result.message },
             `🤖 자동 ${label} 주문 완료 · ${proj.symbol}`,
-            `${proj.name} · 포켓 ${sig.pocket.idx + 1} · ${qty}주 @ ${limitPrice} (주문번호 ${result.orderNo || '-'})`
+            `${proj.name} · 포켓 ${sig.pocket.idx + 1} · ${fillQty}주 @ ${fillPrice} (주문번호 ${result.orderNo || '-'})`
           );
           onExecuted?.();
         } catch (e: any) {

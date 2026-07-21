@@ -287,6 +287,113 @@ export async function placeOverseasOrder(
   return { orderNo: json.output?.ODNO ?? '', message: json.msg1 ?? '해외 주문 전송 완료' };
 }
 
+// --------------------------- 체결 조회 (실제 체결단가) ---------------------------
+
+const DAILY_CCLD_TR = { real: 'TTTC8001R', virtual: 'VTTC8001R' } as const; // 국내 주문체결
+const OVERSEAS_CCLD_TR = { real: 'TTTS3035R', virtual: 'VTTS3035R' } as const; // 해외 체결내역
+
+function todayYmd(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+}
+
+export interface OrderFill {
+  avgPrice: number; // 체결 평균단가
+  filledQty: number; // 총 체결수량
+}
+
+/**
+ * 주문번호(ODNO)로 실제 체결 평균단가·수량을 조회. 지정가 주문이 실제로 얼마에 체결됐는지 반영용.
+ * 아직 미체결이거나 조회 실패면 null → 호출측에서 지정가로 폴백.
+ */
+export async function getOrderFill(
+  account: BrokerAccount,
+  market: 'KRX' | 'US',
+  orderNo: string,
+  symbol?: string
+): Promise<OrderFill | null> {
+  if (!orderNo) return null;
+  const token = await getValidToken(account);
+  const ymd = todayYmd();
+  try {
+    if (market === 'US') {
+      const u = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/overseas-stock/v1/trading/inquire-ccnl`);
+      const params: Record<string, string> = {
+        CANO: account.account_no,
+        ACNT_PRDT_CD: account.account_product_code,
+        PDNO: symbol ? toKisSymbol(symbol).toUpperCase() : '%',
+        ORD_STRT_DT: ymd,
+        ORD_END_DT: ymd,
+        SLL_BUY_DVSN_CD: '00',
+        CCLD_NCCS_DVSN: '01', // 체결
+        OVRS_EXCG_CD: '',
+        SORT_SQN: 'DS',
+        ORD_DT: '',
+        ORD_GNO_BRNO: '',
+        ODNO: orderNo,
+        CTX_AREA_FK200: '',
+        CTX_AREA_NK200: '',
+      };
+      Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+      const res = await fetch(u.toString(), {
+        headers: {
+          authorization: `Bearer ${token}`,
+          appkey: account.app_key,
+          appsecret: account.app_secret,
+          tr_id: OVERSEAS_CCLD_TR[account.is_virtual ? 'virtual' : 'real'],
+          custtype: 'P',
+        },
+      });
+      const json = await res.json();
+      const rows = (json?.output ?? []) as any[];
+      const row = rows.find((r) => r.odno === orderNo) ?? rows[0];
+      const qty = Number(row?.ft_ccld_qty ?? row?.ccld_qty ?? 0);
+      const price = Number(row?.ft_ccld_unpr3 ?? row?.ccld_unpr ?? 0);
+      if (qty > 0 && price > 0) return { avgPrice: price, filledQty: qty };
+      return null;
+    }
+    // 국내
+    const u = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/domestic-stock/v1/trading/inquire-daily-ccld`);
+    const params: Record<string, string> = {
+      CANO: account.account_no,
+      ACNT_PRDT_CD: account.account_product_code,
+      INQR_STRT_DT: ymd,
+      INQR_END_DT: ymd,
+      SLL_BUY_DVSN_CD: '00',
+      INQR_DVSN: '00',
+      PDNO: symbol ? toKisSymbol(symbol) : '',
+      CCLD_DVSN: '01', // 체결만
+      ORD_GNO_BRNO: '',
+      ODNO: orderNo,
+      INQR_DVSN_3: '00',
+      INQR_DVSN_1: '',
+      CTX_AREA_FK100: '',
+      CTX_AREA_NK100: '',
+    };
+    Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+    const res = await fetch(u.toString(), {
+      headers: {
+        authorization: `Bearer ${token}`,
+        appkey: account.app_key,
+        appsecret: account.app_secret,
+        tr_id: DAILY_CCLD_TR[account.is_virtual ? 'virtual' : 'real'],
+        custtype: 'P',
+      },
+    });
+    const json = await res.json();
+    const rows = (json?.output1 ?? []) as any[];
+    const row = rows.find((r) => r.odno === orderNo) ?? rows[0];
+    const qty = Number(row?.tot_ccld_qty ?? 0);
+    const amt = Number(row?.tot_ccld_amt ?? 0);
+    const avg = Number(row?.avg_prvs ?? 0) || (qty > 0 ? amt / qty : 0);
+    if (qty > 0 && avg > 0) return { avgPrice: avg, filledQty: qty };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // --------------------------- 잔고 조회 ---------------------------
 
 // 국내주식 잔고조회 TR ID

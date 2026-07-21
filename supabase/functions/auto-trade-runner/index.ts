@@ -35,6 +35,8 @@ const OVERSEAS_ORDER_TR = {
   real: { buy: 'TTTT1002U', sell: 'TTTT1006U' },
   virtual: { buy: 'VTTT1002U', sell: 'VTTT1001U' },
 } as const;
+const DAILY_CCLD_TR = { real: 'TTTC8001R', virtual: 'VTTC8001R' } as const; // 국내 체결조회
+const OVERSEAS_CCLD_TR = { real: 'TTTS3035R', virtual: 'VTTS3035R' } as const; // 해외 체결조회
 
 interface BrokerAccount {
   user_id: string;
@@ -250,6 +252,97 @@ async function placeUsOrder(
   return { orderNo: json.output?.ODNO ?? '', message: json.msg1 ?? '해외 주문 전송 완료' };
 }
 
+// ----- 실제 체결단가 조회 (주문번호로 체결 평균가·수량) -----
+function todayYmd(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+}
+
+async function getOrderFill(
+  acc: BrokerAccount,
+  token: string,
+  market: 'KRX' | 'US',
+  orderNo: string,
+  symbol: string
+): Promise<{ avgPrice: number; filledQty: number } | null> {
+  if (!orderNo) return null;
+  const ymd = todayYmd();
+  try {
+    if (market === 'US') {
+      const u = new URL(`${baseUrl(acc)}/uapi/overseas-stock/v1/trading/inquire-ccnl`);
+      const params: Record<string, string> = {
+        CANO: acc.account_no,
+        ACNT_PRDT_CD: acc.account_product_code,
+        PDNO: toKisSymbol(symbol).toUpperCase(),
+        ORD_STRT_DT: ymd,
+        ORD_END_DT: ymd,
+        SLL_BUY_DVSN_CD: '00',
+        CCLD_NCCS_DVSN: '01',
+        OVRS_EXCG_CD: '',
+        SORT_SQN: 'DS',
+        ORD_DT: '',
+        ORD_GNO_BRNO: '',
+        ODNO: orderNo,
+        CTX_AREA_FK200: '',
+        CTX_AREA_NK200: '',
+      };
+      Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+      const res = await fetch(u.toString(), {
+        headers: {
+          authorization: `Bearer ${token}`,
+          appkey: acc.app_key,
+          appsecret: acc.app_secret,
+          tr_id: OVERSEAS_CCLD_TR[acc.is_virtual ? 'virtual' : 'real'],
+          custtype: 'P',
+        },
+      });
+      const json = await res.json();
+      const rows = (json?.output ?? []) as Array<Record<string, string>>;
+      const row = rows.find((r) => r.odno === orderNo) ?? rows[0];
+      const qty = Number(row?.ft_ccld_qty ?? row?.ccld_qty ?? 0);
+      const price = Number(row?.ft_ccld_unpr3 ?? row?.ccld_unpr ?? 0);
+      return qty > 0 && price > 0 ? { avgPrice: price, filledQty: qty } : null;
+    }
+    const u = new URL(`${baseUrl(acc)}/uapi/domestic-stock/v1/trading/inquire-daily-ccld`);
+    const params: Record<string, string> = {
+      CANO: acc.account_no,
+      ACNT_PRDT_CD: acc.account_product_code,
+      INQR_STRT_DT: ymd,
+      INQR_END_DT: ymd,
+      SLL_BUY_DVSN_CD: '00',
+      INQR_DVSN: '00',
+      PDNO: toKisSymbol(symbol),
+      CCLD_DVSN: '01',
+      ORD_GNO_BRNO: '',
+      ODNO: orderNo,
+      INQR_DVSN_3: '00',
+      INQR_DVSN_1: '',
+      CTX_AREA_FK100: '',
+      CTX_AREA_NK100: '',
+    };
+    Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+    const res = await fetch(u.toString(), {
+      headers: {
+        authorization: `Bearer ${token}`,
+        appkey: acc.app_key,
+        appsecret: acc.app_secret,
+        tr_id: DAILY_CCLD_TR[acc.is_virtual ? 'virtual' : 'real'],
+        custtype: 'P',
+      },
+    });
+    const json = await res.json();
+    const rows = (json?.output1 ?? []) as Array<Record<string, string>>;
+    const row = rows.find((r) => r.odno === orderNo) ?? rows[0];
+    const qty = Number(row?.tot_ccld_qty ?? 0);
+    const amt = Number(row?.tot_ccld_amt ?? 0);
+    const avg = Number(row?.avg_prvs ?? 0) || (qty > 0 ? amt / qty : 0);
+    return qty > 0 && avg > 0 ? { avgPrice: avg, filledQty: qty } : null;
+  } catch {
+    return null;
+  }
+}
+
 // ----- Expo 푸시 알림 -----
 async function pushNotify(token: string | null | undefined, title: string, body: string) {
   if (!token) return;
@@ -424,24 +517,35 @@ Deno.serve(async (req: Request) => {
           status: 'sent',
           kis_order_no: order.orderNo,
         });
+
+        // 실제 체결단가 반영 (미체결/실패면 지정가로 폴백)
+        let fillPrice = limitPrice;
+        let fillQty = qty;
+        await new Promise((r) => setTimeout(r, 2500));
+        const fill = await getOrderFill(acc, token, proj.market, order.orderNo, proj.symbol);
+        if (fill && fill.filledQty > 0 && fill.avgPrice > 0) {
+          fillPrice = fill.avgPrice;
+          fillQty = fill.filledQty;
+        }
+
         await admin.from('trades').insert({
           user_id: proj.user_id,
           project_id: proj.id,
           pocket_id: k.id,
           side,
-          price: limitPrice,
-          quantity: qty,
+          price: fillPrice,
+          quantity: fillQty,
           executed_at: new Date().toISOString(),
           note: `자동주문·서버(KIS ${order.orderNo || '-'})`,
         });
         if (side === 'buy') {
           const sellTarget =
-            Math.round(limitPrice * (1 + Number(proj.sell_target_pct) / 100) * 10000) / 10000;
+            Math.round(fillPrice * (1 + Number(proj.sell_target_pct) / 100) * 10000) / 10000;
           await admin
             .from('pockets')
             .update({ status: 'bought', sell_target_price: sellTarget })
             .eq('id', k.id);
-          openQtyByPocket.set(k.id, (openQtyByPocket.get(k.id) ?? 0) + qty);
+          openQtyByPocket.set(k.id, (openQtyByPocket.get(k.id) ?? 0) + fillQty);
         } else {
           await admin.from('pockets').update({ status: 'sold' }).eq('id', k.id);
           openQtyByPocket.set(k.id, 0);
@@ -450,9 +554,9 @@ Deno.serve(async (req: Request) => {
         await pushNotify(
           push,
           `🤖 자동 ${label} 주문 완료 · ${proj.symbol}`,
-          `${proj.name} · 포켓 ${k.idx + 1} · ${qty}주 @ ${isUs ? '$' : '₩'}${limitPrice.toLocaleString()} (주문번호 ${order.orderNo || '-'})`
+          `${proj.name} · 포켓 ${k.idx + 1} · ${fillQty}주 @ ${isUs ? '$' : '₩'}${fillPrice.toLocaleString()} (주문번호 ${order.orderNo || '-'})`
         );
-        results.push({ project: proj.id, pocket: k.idx + 1, side, qty, price: limitPrice, orderNo: order.orderNo });
+        results.push({ project: proj.id, pocket: k.idx + 1, side, qty: fillQty, price: fillPrice, orderNo: order.orderNo });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         await admin.from('auto_orders').insert({
