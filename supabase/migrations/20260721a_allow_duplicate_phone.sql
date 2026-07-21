@@ -49,6 +49,7 @@ begin
     join pg_proc p on p.oid = t.tgfoid
     where t.tgrelid = 'public.profiles'::regclass
       and not t.tgisinternal
+      and p.prokind = 'f' -- 집계/윈도우 함수는 pg_get_functiondef 불가(42809) → 일반 함수만
       and (
         pg_get_functiondef(p.oid) ilike '%사용중인 연락처%'
         or pg_get_functiondef(p.oid) ilike '%사용 중인 연락처%'
