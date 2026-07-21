@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Link } from 'expo-router';
 import { useAuth } from '@/lib/auth';
 import { hasSupabaseConfig } from '@/lib/supabase';
@@ -70,7 +70,12 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={{ gap: spacing.xs, alignItems: 'center', marginBottom: spacing.sm }}>
-          <Text style={{ color: colors.buy, fontSize: 30, fontWeight: '900' }}>5 Pocket Diary</Text>
+          <Image
+            source={require('../../assets/logo.png')}
+            style={{ width: 160, height: 160, borderRadius: 36, marginBottom: 6 }}
+            resizeMode="contain"
+          />
+          <Text style={{ color: colors.text, fontSize: 30, fontWeight: '900' }}>5 Pocket Diary</Text>
           <Text style={{ color: colors.textDim }}>5분할 매수·매도 전략</Text>
         </View>
 

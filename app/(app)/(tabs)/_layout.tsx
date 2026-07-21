@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Tabs, useRouter } from 'expo-router';
-import { Pressable, Text, View } from 'react-native';
+import { Image, Pressable, Text, View } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { setProjectCount, useProjectCount } from '@/lib/badges';
@@ -8,6 +8,16 @@ import { colors, spacing } from '@/theme';
 
 function TabIcon({ emoji, color }: { emoji: string; color: string }) {
   return <Text style={{ fontSize: 20, opacity: color === colors.buy ? 1 : 0.6 }}>{emoji}</Text>;
+}
+
+// 헤더 중앙: 로고(5 포함) + 흰색 'Pocket Diary'
+function HeaderTitle() {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+      <Image source={require('../../../assets/logo.png')} style={{ width: 28, height: 28, borderRadius: 8 }} resizeMode="contain" />
+      <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 17 }}>Pocket Diary</Text>
+    </View>
+  );
 }
 
 // 헤더 왼쪽: 내 등급 배지 (Diary / AUTO). AUTO 는 남은 기간(D-day)도 표시
@@ -79,10 +89,9 @@ export default function TabsLayout() {
       screenOptions={{
         headerStyle: { backgroundColor: colors.bg },
         headerTintColor: colors.text,
-        // 모든 탭 상단 중앙에 앱 이름 고정
-        headerTitle: '5 Pocket Diary',
+        // 모든 탭 상단 중앙에 로고 + 앱 이름 고정
+        headerTitle: () => <HeaderTitle />,
         headerTitleAlign: 'center',
-        headerTitleStyle: { fontWeight: '900', fontSize: 18, color: colors.buy },
         headerLeft: () => <TierBadge />,
         headerRight: () => <AdminButton />,
         sceneStyle: { backgroundColor: colors.bg },
