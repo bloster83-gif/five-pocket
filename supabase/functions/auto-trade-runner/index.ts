@@ -343,6 +343,54 @@ async function getOrderFill(
   }
 }
 
+// ----- 미체결로 기록된 자동주문을 실제 체결단가로 자동 동기화 (매 실행마다) -----
+async function reconcilePendingFills(admin: SupabaseClient): Promise<number> {
+  const since = new Date(Date.now() - 2 * 86400 * 1000).toISOString(); // 최근 2일
+  const { data: pending } = await admin
+    .from('auto_orders')
+    .select('id,user_id,project_id,pocket_id,side,symbol,kis_order_no')
+    .eq('status', 'sent')
+    .gte('created_at', since);
+  if (!pending?.length) return 0;
+
+  const uids = [...new Set(pending.map((o) => o.user_id))];
+  const projIds = [...new Set(pending.map((o) => o.project_id))];
+  const [{ data: accounts }, { data: projs }] = await Promise.all([
+    admin.from('broker_accounts').select('*').in('user_id', uids),
+    admin.from('projects').select('id,market,sell_target_pct').in('id', projIds),
+  ]);
+  const accByUser = new Map((accounts ?? []).map((a) => [a.user_id, a as BrokerAccount]));
+  const projById = new Map((projs ?? []).map((p) => [p.id, p]));
+
+  let updated = 0;
+  for (const o of pending) {
+    const acc = accByUser.get(o.user_id);
+    const proj = projById.get(o.project_id);
+    if (!acc || !proj || !o.kis_order_no) continue;
+    try {
+      const token = await getToken(admin, acc);
+      const fill = await getOrderFill(acc, token, proj.market === 'US' ? 'US' : 'KRX', o.kis_order_no, o.symbol);
+      if (!fill || fill.avgPrice <= 0) continue;
+      await admin
+        .from('trades')
+        .update({ price: fill.avgPrice, quantity: fill.filledQty })
+        .eq('project_id', o.project_id)
+        .ilike('note', `%${o.kis_order_no}%`);
+      if (o.side === 'buy' && o.pocket_id) {
+        await admin
+          .from('pockets')
+          .update({ sell_target_price: Math.round(fill.avgPrice * (1 + Number(proj.sell_target_pct) / 100) * 10000) / 10000 })
+          .eq('id', o.pocket_id);
+      }
+      await admin.from('auto_orders').update({ status: 'filled' }).eq('id', o.id);
+      updated++;
+    } catch {
+      /* 개별 실패는 무시하고 다음에 재시도 */
+    }
+  }
+  return updated;
+}
+
 // ----- Expo 푸시 알림 -----
 async function pushNotify(token: string | null | undefined, title: string, body: string) {
   if (!token) return;
@@ -363,10 +411,8 @@ Deno.serve(async (req: Request) => {
   const json = (o: unknown, status = 200) =>
     new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
 
-  // 국내(KST 09:00~15:30) 또는 미국 정규장(ET 09:30~16:00) 중 하나라도 열려 있어야 실행
   const krxOpen = isMarketOpen();
   const usOpen = isUsRegularOpen();
-  if (!force && !krxOpen && !usOpen) return json({ skipped: 'market-closed' });
 
   const admin = createClient(
     Deno.env.get('SUPABASE_URL')!,
@@ -380,6 +426,12 @@ Deno.serve(async (req: Request) => {
     .update({ tier: 'diary', tier_expires_at: null })
     .eq('tier', 'auto')
     .lt('tier_expires_at', new Date().toISOString());
+
+  // 0.5) 미체결로 남은 자동주문을 실제 체결단가로 자동 동기화 (장 시간과 무관하게 매 실행)
+  const reconciled = await reconcilePendingFills(admin);
+
+  // 국내(KST 09:00~15:30) 또는 미국 정규장(ET 09:30~16:00) 중 하나라도 열려 있어야 신호처리
+  if (!force && !krxOpen && !usOpen) return json({ skipped: 'market-closed', reconciled });
 
   // 1) 자동매매 대상 프로젝트 (KRX·US, 진행중, 추적 ON)
   const { data: projects, error: pErr } = await admin
@@ -581,5 +633,5 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  return json({ processed: targets.length, currentPrices: Object.fromEntries(priceCache), results });
+  return json({ processed: targets.length, reconciled, currentPrices: Object.fromEntries(priceCache), results });
 });
