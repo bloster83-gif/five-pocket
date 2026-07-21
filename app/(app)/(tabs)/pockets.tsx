@@ -418,33 +418,46 @@ export default function PocketsScreen() {
                 </View>
               )}
 
-              {/* 보유 중이면 보유수량·평균매수가를 강조 박스로 */}
-              {pnl.totalQtyOpen > 0 && (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    backgroundColor: colors.buyBg,
-                    borderRadius: 10,
-                    borderWidth: 1,
-                    borderColor: colors.buy,
-                    paddingVertical: spacing.sm,
-                    paddingHorizontal: spacing.md,
-                  }}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.textDim, fontSize: 11 }}>보유 수량</Text>
-                    <Text style={{ color: colors.buy, fontSize: 18, fontWeight: '900' }}>
-                      {money(pnl.totalQtyOpen, 0)}주
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                    <Text style={{ color: colors.textDim, fontSize: 11 }}>평균 매수가</Text>
-                    <Text style={{ color: colors.text, fontSize: 18, fontWeight: '900' }}>
-                      {formatPrice(pnl.avgOpenPrice, proj.market)}
-                    </Text>
-                  </View>
-                </View>
-              )}
+              {/* 보유 중이면 보유수량 · 평균매수가(가운데) · 평가손익 강조 박스로 */}
+              {pnl.totalQtyOpen > 0 &&
+                (() => {
+                  const evalPnl = price != null ? (price - pnl.avgOpenPrice) * pnl.totalQtyOpen : null;
+                  return (
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        backgroundColor: colors.buyBg,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: colors.buy,
+                        paddingVertical: spacing.sm,
+                        paddingHorizontal: spacing.md,
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.textDim, fontSize: 11 }}>보유 수량</Text>
+                        <Text style={{ color: colors.buy, fontSize: 16, fontWeight: '900' }}>
+                          {money(pnl.totalQtyOpen, 0)}주
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ color: colors.textDim, fontSize: 11 }}>평균 매수가</Text>
+                        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '900' }} numberOfLines={1}>
+                          {formatPrice(pnl.avgOpenPrice, proj.market)}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                        <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익</Text>
+                        <Text
+                          style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 16, fontWeight: '900' }}
+                          numberOfLines={1}
+                        >
+                          {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, proj.market)}` : '-'}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })()}
 
               {/* 실현손익 / 거래없음 요약 */}
               <View style={{ flexDirection: 'row', gap: spacing.lg }}>
