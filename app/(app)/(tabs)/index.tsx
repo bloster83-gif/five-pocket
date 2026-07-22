@@ -69,7 +69,7 @@ export default function ProjectsScreen() {
     ]);
     const projs = (projData as Project[]) ?? [];
     setProjects(projs);
-    setProjectCount(projs.length); // 탭 배지용 개수 갱신
+    setProjectCount(projs.filter((p) => !p.closed_at).length); // 탭 배지: 진행중(종료 제외)만
 
     // 포켓을 프로젝트별로 묶기 (신호등 표시용)
     const pk: Record<string, Pocket[]> = {};

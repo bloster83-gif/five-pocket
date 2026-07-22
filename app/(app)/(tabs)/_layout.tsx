@@ -79,6 +79,7 @@ export default function TabsLayout() {
       .from('projects')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', uid)
+      .is('closed_at', null) // 진행중(종료 제외)만 카운트
       .then(({ count }) => {
         if (typeof count === 'number') setProjectCount(count);
       });

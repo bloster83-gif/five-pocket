@@ -156,7 +156,7 @@ export default function NewProjectScreen() {
     if (!selected) return notify('종목 선택 필요', '먼저 종목을 검색해서 선택하세요.');
     if (!parsed.basePrice || parsed.basePrice <= 0) return notify('입력 필요', '기준가를 올바르게 입력하세요.');
     if (overBudget)
-      return notify('예산 초과', `예산이 계좌 예수금(${formatMoney(cash!, 'KRX')})을 초과했어요. 예수금 이하로 입력하세요.`);
+      return notify('예산 초과', `예산이 D+2 예수금(${formatMoney(cash!, 'KRX')})을 초과했어요. 예수금 이하로 낮춰야 저장할 수 있어요.`);
     if (!session?.user?.id) return;
 
     setSaving(true);
@@ -287,11 +287,15 @@ export default function NewProjectScreen() {
         {cashLoading ? (
           <Text style={{ color: colors.textDim, fontSize: 12 }}>계좌 예수금 확인 중…</Text>
         ) : cash != null ? (
-          <View style={{ backgroundColor: overBudget ? 'rgba(248,113,113,0.12)' : colors.cardAlt, borderRadius: 8, padding: spacing.sm }}>
+          <View style={{ backgroundColor: overBudget ? 'rgba(248,113,113,0.14)' : colors.cardAlt, borderRadius: 8, padding: spacing.sm, gap: 2, borderWidth: overBudget ? 1 : 0, borderColor: colors.danger }}>
             <Text style={{ color: overBudget ? colors.danger : colors.textDim, fontSize: 12, fontWeight: overBudget ? '800' : '400' }}>
-              계좌 예수금(주문가능): {formatMoney(cash, 'KRX')}
-              {overBudget ? ' · ⚠️ 예산이 예수금을 초과했어요' : ''}
+              D+2 예수금(주문가능): {formatMoney(cash, 'KRX')}
             </Text>
+            {overBudget && (
+              <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '800' }}>
+                ⚠️ 예산이 D+2 예수금을 초과했어요. 예수금 이하로 낮춰야 저장할 수 있어요.
+              </Text>
+            )}
           </View>
         ) : null}
         {/* 포켓 개수 선택 (기본 5, 특별 종목은 6~10) */}
