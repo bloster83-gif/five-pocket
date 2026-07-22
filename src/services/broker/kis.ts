@@ -333,13 +333,27 @@ export async function resolveUsExchange(account: BrokerAccount, symbol: string):
 
 // --------------------------- 해외주식 주문 ---------------------------
 
-// 해외주식 현금주문 TR ID (미국 주간거래)
+// 해외주식 현금주문 TR ID (미국 정규장)
 const OVERSEAS_ORDER_TR = {
   real: { buy: 'TTTT1002U', sell: 'TTTT1006U' },
   virtual: { buy: 'VTTT1002U', sell: 'VTTT1001U' },
 } as const;
+// 미국 주간거래(블루오션) 현금주문 TR ID — 실전만 지원(모의투자는 주간거래 미지원)
+const OVERSEAS_DAYTIME_ORDER_TR = {
+  buy: 'TTTS6036U',
+  sell: 'TTTS6037U',
+} as const;
 // 시세 거래소코드(NAS/NYS/AMS) → 주문 거래소코드(NASD/NYSE/AMEX)
 const ORDER_EXCH: Record<string, string> = { NAS: 'NASD', NYS: 'NYSE', AMS: 'AMEX' };
+
+// 미국 주간거래(블루오션) 시간대(대략 KST 10:00~22:30 = 정규장 시작 전)를 UTC로 판정. 평일만.
+function usDaytimeOpenNow(): boolean {
+  const d = new Date();
+  const day = d.getUTCDay();
+  if (day === 0 || day === 6) return false; // 주말
+  const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return mins >= 60 && mins < 13 * 60 + 30; // 01:00 ~ 13:30 UTC
+}
 
 /**
  * 미국주식 지정가 주문 (해외주식 현금주문).
@@ -353,9 +367,17 @@ export async function placeOverseasOrder(
   const sym = toKisSymbol(input.symbol).toUpperCase();
   const priceExch = await resolveUsExchange(account, sym);
   const ovrsExcg = ORDER_EXCH[priceExch] ?? 'NASD';
-  const trId = OVERSEAS_ORDER_TR[account.is_virtual ? 'virtual' : 'real'][input.side];
   const qty = Math.floor(input.quantity);
   if (qty <= 0) throw new Error('주문 수량이 0입니다.');
+
+  // 정규장이 아니고 주간거래 시간대면(실전만) 주간거래(블루오션) 주문으로 전송, 그 외엔 정규장 주문.
+  const useDaytime = !account.is_virtual && !usRegularOpenNow() && usDaytimeOpenNow();
+  const trId = useDaytime
+    ? OVERSEAS_DAYTIME_ORDER_TR[input.side]
+    : OVERSEAS_ORDER_TR[account.is_virtual ? 'virtual' : 'real'][input.side];
+  const path = useDaytime
+    ? '/uapi/overseas-stock/v1/trading/daytime-order'
+    : '/uapi/overseas-stock/v1/trading/order';
 
   const body = {
     CANO: account.account_no,
@@ -365,10 +387,10 @@ export async function placeOverseasOrder(
     ORD_QTY: String(qty),
     OVRS_ORD_UNPR: input.price.toFixed(2), // 달러 지정가
     ORD_SVR_DVSN_CD: '0',
-    ORD_DVSN: '00', // 지정가
+    ORD_DVSN: '00', // 지정가 (주간거래도 지정가만 지원)
   };
 
-  const res = await fetch(`${kisBaseUrl(account.is_virtual)}/uapi/overseas-stock/v1/trading/order`, {
+  const res = await fetch(`${kisBaseUrl(account.is_virtual)}${path}`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json; charset=utf-8',
@@ -384,7 +406,10 @@ export async function placeOverseasOrder(
   if (!res.ok || json.rt_cd !== '0') {
     throw new Error(json.msg1 ?? `해외 주문 실패 (HTTP ${res.status})`);
   }
-  return { orderNo: json.output?.ODNO ?? '', message: json.msg1 ?? '해외 주문 전송 완료' };
+  return {
+    orderNo: json.output?.ODNO ?? '',
+    message: (json.msg1 ?? '해외 주문 전송 완료') + (useDaytime ? ' (주간거래)' : ''),
+  };
 }
 
 // --------------------------- 체결 조회 (실제 체결단가) ---------------------------

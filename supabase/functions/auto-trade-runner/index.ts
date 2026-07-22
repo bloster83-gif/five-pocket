@@ -11,7 +11,7 @@
 //
 // 장 운영시간(국내 평일 09:00~15:30 KST / 미국 정규장 09:30~16:00 ET) 외에는
 // 해당 시장 프로젝트를 건너뜁니다. (?force=1 로 강제 실행)
-// ※ 미국은 정규장(한국 야간)만 지원 — 한국 낮 주간거래(블루오션)는 미포함.
+// ※ 미국은 정규장(한국 야간) + 주간거래(블루오션, KST 10:00~22:30, 실전만) 모두 지원.
 //
 // 배포:
 //   supabase functions deploy auto-trade-runner
@@ -35,6 +35,8 @@ const OVERSEAS_ORDER_TR = {
   real: { buy: 'TTTT1002U', sell: 'TTTT1006U' },
   virtual: { buy: 'VTTT1002U', sell: 'VTTT1001U' },
 } as const;
+// 미국 주간거래(블루오션) 주문 TR — 실전만 지원(모의투자 미지원)
+const OVERSEAS_DAYTIME_ORDER_TR = { buy: 'TTTS6036U', sell: 'TTTS6037U' } as const;
 const DAILY_CCLD_TR = { real: 'TTTC8001R', virtual: 'VTTC8001R' } as const; // 국내 체결조회
 const OVERSEAS_CCLD_TR = { real: 'TTTS3035R', virtual: 'VTTS3035R' } as const; // 해외 체결조회
 
@@ -205,6 +207,23 @@ function isUsRegularOpen(): boolean {
   return mins >= 9 * 60 + 30 && mins <= 16 * 60;
 }
 
+// ----- 미국 주간거래(블루오션) 시간대 — 대략 KST 평일 10:00~22:30 (정규장 시작 전) -----
+function isUsDaytimeOpen(): boolean {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Seoul',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const wd = parts.find((p) => p.type === 'weekday')?.value;
+  if (wd === 'Sat' || wd === 'Sun') return false;
+  const hh = Number(parts.find((p) => p.type === 'hour')?.value);
+  const mm = Number(parts.find((p) => p.type === 'minute')?.value);
+  const mins = hh * 60 + mm;
+  return mins >= 10 * 60 && mins < 22 * 60 + 30;
+}
+
 // ----- KIS 미국주식 현재가 + 거래소코드 자동 탐색 -----
 async function getUsPrice(
   acc: BrokerAccount,
@@ -241,16 +260,22 @@ async function placeUsOrder(
   symbol: string,
   exch: string,
   qty: number,
-  price: number
+  price: number,
+  daytime = false
 ): Promise<{ orderNo: string; message: string }> {
-  const res = await fetch(`${baseUrl(acc)}/uapi/overseas-stock/v1/trading/order`, {
+  // 주간거래 시간대(실전)면 블루오션 주문 TR/엔드포인트로, 그 외엔 정규장 주문
+  const trId = daytime ? OVERSEAS_DAYTIME_ORDER_TR[side] : OVERSEAS_ORDER_TR[acc.is_virtual ? 'virtual' : 'real'][side];
+  const path = daytime
+    ? '/uapi/overseas-stock/v1/trading/daytime-order'
+    : '/uapi/overseas-stock/v1/trading/order';
+  const res = await fetch(`${baseUrl(acc)}${path}`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json; charset=utf-8',
       authorization: `Bearer ${token}`,
       appkey: acc.app_key,
       appsecret: acc.app_secret,
-      tr_id: OVERSEAS_ORDER_TR[acc.is_virtual ? 'virtual' : 'real'][side],
+      tr_id: trId,
       custtype: 'P',
     },
     body: JSON.stringify({
@@ -261,14 +286,17 @@ async function placeUsOrder(
       ORD_QTY: String(Math.floor(qty)),
       OVRS_ORD_UNPR: price.toFixed(2), // 달러 지정가
       ORD_SVR_DVSN_CD: '0',
-      ORD_DVSN: '00', // 지정가
+      ORD_DVSN: '00', // 지정가 (주간거래도 지정가만)
     }),
   });
   const json = await res.json();
   if (!res.ok || json.rt_cd !== '0') {
     throw new Error(json.msg1 ?? `해외 주문 실패 (HTTP ${res.status})`);
   }
-  return { orderNo: json.output?.ODNO ?? '', message: json.msg1 ?? '해외 주문 전송 완료' };
+  return {
+    orderNo: json.output?.ODNO ?? '',
+    message: (json.msg1 ?? '해외 주문 전송 완료') + (daytime ? ' (주간거래)' : ''),
+  };
 }
 
 // ----- 실제 체결단가 조회 (주문번호로 체결 평균가·수량) -----
@@ -460,6 +488,7 @@ Deno.serve(async (req: Request) => {
 
   const krxOpen = isMarketOpen();
   const usOpen = isUsRegularOpen();
+  const usDaytime = isUsDaytimeOpen(); // 미국 주간거래(블루오션) 시간대
 
   const admin = createClient(
     Deno.env.get('SUPABASE_URL')!,
@@ -477,8 +506,8 @@ Deno.serve(async (req: Request) => {
   // 0.5) 미체결로 남은 자동주문을 실제 체결단가로 자동 동기화 (장 시간과 무관하게 매 실행)
   const reconciled = await reconcilePendingFills(admin);
 
-  // 국내(KST 09:00~15:30) 또는 미국 정규장(ET 09:30~16:00) 중 하나라도 열려 있어야 신호처리
-  if (!force && !krxOpen && !usOpen) return json({ skipped: 'market-closed', reconciled });
+  // 국내(KST 09:00~15:30)·미국 정규장(ET 09:30~16:00)·미국 주간거래(KST 10:00~22:30) 중 하나라도 열려 있어야 신호처리
+  if (!force && !krxOpen && !usOpen && !usDaytime) return json({ skipped: 'market-closed', reconciled });
 
   // 1) 자동매매 대상 프로젝트 (KRX·US, 진행중, 추적 ON)
   const { data: projects, error: pErr } = await admin
@@ -543,10 +572,12 @@ Deno.serve(async (req: Request) => {
 
   for (const proj of targets) {
     const isUs = proj.market === 'US';
-    // 해당 시장이 열려 있을 때만 처리 (force 면 무시)
-    if (!force && (isUs ? !usOpen : !krxOpen)) continue;
-
     const acc = accByUser.get(proj.user_id)!;
+    // 미국 주간거래는 실전 계좌만. 정규장 아니고 주간거래 시간대 + 실전이면 주간거래로 주문.
+    const useDaytime = isUs && !acc.is_virtual && !usOpen && usDaytime;
+    // 해당 시장이 열려 있을 때만 처리 (force 면 무시)
+    if (!force && (isUs ? !usOpen && !useDaytime : !krxOpen)) continue;
+
     const push = autoUsers.get(proj.user_id)?.expo_push_token as string | null | undefined;
     let token: string;
     let price: number;
@@ -604,7 +635,7 @@ Deno.serve(async (req: Request) => {
           throw new Error(side === 'buy' ? '배분 예산이 부족해 1주도 살 수 없어요.' : '보유 수량이 없어요.');
         }
         const order = isUs
-          ? await placeUsOrder(acc, token, side, proj.symbol, usExch, qty, limitPrice)
+          ? await placeUsOrder(acc, token, side, proj.symbol, usExch, qty, limitPrice, useDaytime)
           : await placeOrder(acc, token, side, proj.symbol, qty, limitPrice);
 
         await admin.from('auto_orders').insert({
