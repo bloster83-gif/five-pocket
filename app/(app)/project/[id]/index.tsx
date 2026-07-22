@@ -417,6 +417,31 @@ export default function ProjectDetailScreen() {
         }}
       />
 
+      {/* 종료된 프로젝트 표시 (상단 배너) */}
+      {project.closed_at && (
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+            backgroundColor: colors.cardAlt,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: radius.md,
+            paddingHorizontal: spacing.md,
+            paddingVertical: spacing.sm,
+          }}
+        >
+          <Text style={{ fontSize: 16 }}>🔒</Text>
+          <Text style={{ color: colors.textDim, fontWeight: '800', fontSize: 13, flex: 1 }}>
+            종료된 프로젝트 · {project.closed_at.slice(0, 10)}
+          </Text>
+          <Pressable onPress={() => setClosed(false)} hitSlop={8} style={{ backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+            <Text style={{ color: '#08131f', fontWeight: '800', fontSize: 12 }}>재개</Text>
+          </Pressable>
+        </View>
+      )}
+
       {/* 실시간 시세 */}
       <Card>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -591,6 +616,7 @@ export default function ProjectDetailScreen() {
                   : null
               }
               onRestart={() => restartPocket(k)}
+              projectClosed={!!project.closed_at}
               onTrade={(side, sqty, sprice, budget) =>
                 router.push(
                   `/project/${project.id}/trade?pocket=${k.id}&idx=${k.idx}&side=${side}&sqty=${sqty}&sprice=${sprice}&budget=${budget ?? ''}&mkt=${mkt}`
@@ -807,6 +833,7 @@ function PocketCard({
   buyFailMsg,
   sellFailMsg,
   onRestart,
+  projectClosed,
   onTrade,
 }: {
   pocket: Pocket;
@@ -825,6 +852,7 @@ function PocketCard({
   buyFailMsg: string | null; // 자동 매수 실패 사유 (있으면 깜박이며 표시)
   sellFailMsg: string | null; // 자동 매도 실패 사유
   onRestart: () => void;
+  projectClosed: boolean; // 프로젝트 종료 시 재시작 버튼 숨김
   onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number, budget?: number) => void;
 }) {
   const [showLog, setShowLog] = useState(false);
@@ -1051,19 +1079,20 @@ function PocketCard({
         </>
       )}
 
-      {k.status === 'sold' && (
-        <View style={{ marginTop: spacing.xs, gap: spacing.sm }}>
-          <Text style={{ color: colors.textDim, fontSize: 12 }}>
-            이 포켓은 매도까지 완료됐어요. 다시 시작하면 새 매수 대기 상태가 되고, 이전 기록은 그대로 남습니다.
+      {k.status === 'sold' &&
+        (projectClosed ? (
+          // 종료된 프로젝트에서는 재시작 없이 완료 안내만
+          <Text style={{ color: colors.textDim, fontSize: 12, marginTop: spacing.xs }}>
+            이 포켓은 매도까지 완료됐어요. (종료된 프로젝트)
           </Text>
-          <Button
-            title="🔄 포켓 재시작 (다시 매수 대기)"
-            variant="buy"
-            large
-            onPress={onRestart}
-          />
-        </View>
-      )}
+        ) : (
+          <View style={{ marginTop: spacing.xs, gap: spacing.sm }}>
+            <Text style={{ color: colors.textDim, fontSize: 12 }}>
+              이 포켓은 매도까지 완료됐어요. 다시 시작하면 새 매수 대기 상태가 되고, 이전 기록은 그대로 남습니다.
+            </Text>
+            <Button title="🔄 포켓 재시작 (다시 매수 대기)" variant="buy" large onPress={onRestart} />
+          </View>
+        ))}
 
       {/* 체결 내역 (탭하면 펼침) — 재시작 이전 순환 기록도 모두 보존 */}
       {history.length > 0 && (

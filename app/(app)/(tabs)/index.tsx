@@ -313,7 +313,8 @@ export default function ProjectsScreen() {
                 <Card
                   style={
                     closed
-                      ? { backgroundColor: 'rgba(59,130,246,0.07)', borderColor: colors.sell, borderLeftWidth: 4 }
+                      ? // 종료 프로젝트: 선글라스 씌운 듯 흐리게(페이드) + 무채색 → 진행중/미국주식과 확실히 구분
+                        { opacity: 0.45, backgroundColor: 'rgba(148,162,184,0.05)', borderColor: colors.border, borderLeftWidth: 4, borderLeftColor: colors.textDim }
                       : { borderLeftWidth: 4, borderLeftColor: mkBadge.color }
                   }
                 >

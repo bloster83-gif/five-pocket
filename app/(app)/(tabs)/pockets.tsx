@@ -23,7 +23,8 @@ export default function PocketsScreen() {
 
   const [onlyHolding, setOnlyHolding] = useState(false); // 보유중 스위치
   const [onlyRealized, setOnlyRealized] = useState(false); // 실현 스위치
-  const [pocketFilter, setPocketFilter] = useState<number | null>(null); // null = 전체, 0~4 = 포켓 1~5
+  // null = 전체, 0~4 = 포켓 1~5, 'plus' = 6번 이상(idx>=5) 합산
+  const [pocketFilter, setPocketFilter] = useState<number | 'plus' | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [q, setQ] = useState(''); // 종목명/티커 검색
   const [market, setMarket] = useState<'KRX' | 'US' | null>(null); // null = 전체 시장
@@ -145,7 +146,9 @@ export default function PocketsScreen() {
         const s = q.trim().toLowerCase();
         if (!proj.name.toLowerCase().includes(s) && !proj.symbol.toLowerCase().includes(s)) return false;
       }
-      if (pocketFilter != null && k.idx !== pocketFilter) return false;
+      if (pocketFilter === 'plus') {
+        if (k.idx < 5) return false; // 6번 이상(idx>=5)만
+      } else if (pocketFilter != null && k.idx !== pocketFilter) return false;
       const kt = tradesByPocket[k.id] ?? [];
       const hasSell = kt.some((t) => t.side === 'sell');
       const holding = k.status === 'bought';
@@ -242,28 +245,33 @@ export default function PocketsScreen() {
         }}
       >
         <Text style={{ color: colors.buy, fontSize: 12, fontWeight: '800' }}>🧺 포켓 번호로 보기</Text>
-        <View style={{ flexDirection: 'row', gap: 5, flexWrap: 'wrap' }}>
-          {([null, ...Array.from({ length: Math.max(5, pockets.reduce((m, k) => Math.max(m, k.idx + 1), 5)) }, (_, i) => i)] as (number | null)[]).map((i) => {
+        <View style={{ flexDirection: 'row', gap: 5 }}>
+          {(() => {
+            const hasPlus = pockets.some((k) => k.idx >= 5); // 6번 이상 포켓 존재 여부
+            // 전체, 1~5, (6+) — 한 줄 유지 (늘어나지 않게)
+            return [null, 0, 1, 2, 3, 4, ...(hasPlus ? (['plus'] as const) : [])] as (number | 'plus' | null)[];
+          })().map((i) => {
             const on = pocketFilter === i;
-            const c = i == null ? colors.buy : pocketColor(i); // 포켓마다 고유 색
+            const isPlus = i === 'plus';
+            const c = i == null ? colors.buy : isPlus ? colors.buy : pocketColor(i as number); // 포켓마다 고유 색
             return (
               <Pressable
                 key={String(i)}
                 onPress={() => setPocketFilter(i)}
                 style={{
                   flexGrow: 1,
-                  flexBasis: 38,
-                  minWidth: 38,
+                  flexBasis: 30,
+                  minWidth: 30,
                   alignItems: 'center',
                   paddingVertical: 12,
                   borderRadius: radius.md,
                   backgroundColor: on ? c : colors.cardAlt,
                   borderBottomWidth: 3,
-                  borderBottomColor: i == null ? (on ? colors.buy : 'transparent') : pocketColor(i),
+                  borderBottomColor: i == null || isPlus ? (on ? colors.buy : 'transparent') : pocketColor(i as number),
                 }}
               >
                 <Text style={{ color: on ? '#FFFFFF' : colors.textDim, fontWeight: '900', fontSize: 14 }}>
-                  {i == null ? '전체' : i + 1}
+                  {i == null ? '전체' : isPlus ? '6+' : (i as number) + 1}
                 </Text>
               </Pressable>
             );
