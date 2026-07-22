@@ -160,7 +160,6 @@ export default function RadarScreen() {
     <View style={{ flex: 1 }}>
       {/* 틀고정: 제목 + 검색/필터 바 */}
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xs, gap: spacing.sm }}>
-        <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>📡 관심종목 레이더</Text>
         <FilterBar style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Pressable
             onPress={() => setShowSearch((s) => !s)}
