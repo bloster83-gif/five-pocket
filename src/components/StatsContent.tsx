@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Card, Chip, FilterBar, Row } from '@/components/ui';
 import { BarChart } from '@/components/charts';
-import { colors, formatMoney, signColor, spacing } from '@/theme';
+import { colors, formatMoney, radius, signColor, spacing } from '@/theme';
 import { realizedEvents } from '@/domain/pockets';
 import type { Project, Trade } from '@/types/db';
 
@@ -181,53 +181,35 @@ export function StatsContent() {
       {stats.perProject.length > 0 && (
         <Card>
           <Pressable
-            onPress={() => setDetailOpen((o) => !o)}
+            onPress={() => setDetailOpen(true)}
             style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
           >
             <Text style={{ color: colors.text, fontWeight: '800' }}>프로젝트별 실현손익</Text>
-            <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 13 }}>
-              {detailOpen ? '접기 ▲' : '자세히 보기 ▼'}
-            </Text>
+            <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 13 }}>자세히 보기 ›</Text>
           </Pressable>
           {stats.perProject.map((x) => (
-            <View key={x.project.id} style={{ gap: 4 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                <Text style={{ color: colors.textDim, flex: 1 }} numberOfLines={1}>
-                  {x.project.name} <Text style={{ fontSize: 11 }}>({x.project.symbol})</Text>
-                </Text>
-                <Text style={{ color: signColor(x.realized), fontWeight: '700' }} numberOfLines={1}>
-                  {formatMoney(x.realized, x.project.market)}
-                </Text>
-              </View>
-              {/* 자세히 보기: 이 프로젝트의 매도 체결별 실현손익 상세 */}
-              {detailOpen && x.detail.length > 0 && (
-                <View
-                  style={{
-                    marginLeft: spacing.sm,
-                    paddingLeft: spacing.sm,
-                    borderLeftWidth: 2,
-                    borderLeftColor: colors.border,
-                    gap: 3,
-                    marginBottom: spacing.xs,
-                  }}
-                >
-                  {x.detail.map((d, i) => (
-                    <View key={i} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                      <Text style={{ color: colors.textDim, fontSize: 12 }}>
-                        {d.at.slice(0, 10)} · 매도 {formatMoney(d.price, x.project.market)} · {d.qty}주
-                      </Text>
-                      <Text style={{ color: signColor(d.amount), fontSize: 12, fontWeight: '700' }}>
-                        {d.amount > 0 ? '+' : ''}
-                        {formatMoney(d.amount, x.project.market)}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              )}
+            <View
+              key={x.project.id}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
+            >
+              <Text style={{ color: colors.textDim, flex: 1 }} numberOfLines={1}>
+                {x.project.name} <Text style={{ fontSize: 11 }}>({x.project.symbol})</Text>
+              </Text>
+              <Text style={{ color: signColor(x.realized), fontWeight: '700' }} numberOfLines={1}>
+                {formatMoney(x.realized, x.project.market)}
+              </Text>
             </View>
           ))}
         </Card>
       )}
+
+      {/* 프로젝트별 실현손익 자세히 보기 — 별도 창(모달) */}
+      <ProjectRealizedModal
+        visible={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        rows={stats.perProject}
+        periodLabel={year === 'all' ? '전체' : `${year}년`}
+      />
 
       {monthData.length > 0 && (
         <Card>
@@ -253,5 +235,99 @@ function StatBox({ label, value, color, hint }: { label: string; value: string; 
       <Text style={{ color: color ?? colors.text, fontSize: 22, fontWeight: '900' }}>{value}</Text>
       {hint ? <Text style={{ color: colors.textDim, fontSize: 10, marginTop: 2 }}>{hint}</Text> : null}
     </Card>
+  );
+}
+
+type ProjRealized = {
+  project: Project;
+  realized: number;
+  detail: { at: string; qty: number; price: number; amount: number }[];
+};
+
+// 프로젝트별 실현손익 상세 — 별도 창(모달). 프로젝트마다 매도 체결별 실현손익을 보여준다.
+function ProjectRealizedModal({
+  visible,
+  onClose,
+  rows,
+  periodLabel,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  rows: ProjRealized[];
+  periodLabel: string;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
+        <Pressable
+          onPress={() => {}}
+          style={{
+            backgroundColor: colors.card,
+            borderTopLeftRadius: radius.lg,
+            borderTopRightRadius: radius.lg,
+            paddingHorizontal: spacing.lg,
+            paddingTop: spacing.lg,
+            paddingBottom: spacing.xl,
+            maxHeight: '85%',
+            borderWidth: 1,
+            borderColor: colors.border,
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>
+              프로젝트별 실현손익 <Text style={{ color: colors.textDim, fontSize: 13 }}>· {periodLabel}</Text>
+            </Text>
+            <Pressable onPress={onClose} hitSlop={10} style={{ paddingHorizontal: 6 }}>
+              <Text style={{ color: colors.textDim, fontSize: 20, fontWeight: '900' }}>✕</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={{ gap: spacing.md, paddingBottom: spacing.md }} showsVerticalScrollIndicator={false}>
+            {rows.map((x) => (
+              <View
+                key={x.project.id}
+                style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 8 }}
+              >
+                {/* 프로젝트 헤더: 이름 + 합계 */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', flex: 1 }} numberOfLines={1}>
+                    {x.project.name} <Text style={{ color: colors.textDim, fontSize: 12 }}>({x.project.symbol})</Text>
+                  </Text>
+                  <Text style={{ color: signColor(x.realized), fontWeight: '900', fontSize: 15 }} numberOfLines={1}>
+                    {x.realized > 0 ? '+' : ''}
+                    {formatMoney(x.realized, x.project.market)}
+                  </Text>
+                </View>
+                {/* 매도 체결별 상세 */}
+                {x.detail.length > 0 ? (
+                  <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 6, gap: 4 }}>
+                    {x.detail.map((d, i) => (
+                      <View key={i} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                        <Text style={{ color: colors.textDim, fontSize: 12 }}>
+                          {d.at.slice(0, 10)} · 매도 {formatMoney(d.price, x.project.market)} · {d.qty}주
+                        </Text>
+                        <Text style={{ color: signColor(d.amount), fontSize: 12, fontWeight: '700' }}>
+                          {d.amount > 0 ? '+' : ''}
+                          {formatMoney(d.amount, x.project.market)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={{ color: colors.textDim, fontSize: 12 }}>매도 체결 상세가 없어요.</Text>
+                )}
+              </View>
+            ))}
+          </ScrollView>
+
+          <Pressable
+            onPress={onClose}
+            style={{ backgroundColor: colors.buy, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', marginTop: spacing.sm }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '800' }}>닫기</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
