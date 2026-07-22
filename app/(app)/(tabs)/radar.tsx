@@ -100,10 +100,10 @@ export default function RadarScreen() {
     void fetchPrices();
   }, [fetchPrices]);
 
-  // 레이더 탭이 보이는 동안 1분마다 실시간 시세 자동 갱신
+  // 레이더 탭이 보이는 동안 30초마다 실시간 시세 자동 갱신
   useFocusEffect(
     useCallback(() => {
-      const id = setInterval(() => void fetchPrices(), 60_000);
+      const id = setInterval(() => void fetchPrices(), 30_000);
       return () => clearInterval(id);
     }, [fetchPrices])
   );
@@ -278,7 +278,7 @@ export default function RadarScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
             <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: colors.buy }} />
             <Text style={{ color: colors.textDim, fontSize: 11 }}>
-              실시간 · 1분 간격 자동 갱신{updatedAt ? ` · ${new Date(updatedAt).toLocaleTimeString()}` : ''}
+              실시간 · 30초 간격 자동 갱신{updatedAt ? ` · ${new Date(updatedAt).toLocaleTimeString()}` : ''}
             </Text>
           </View>
         )}
