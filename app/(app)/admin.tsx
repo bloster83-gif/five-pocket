@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Field } from '@/components/ui';
-import { colors, radius, spacing } from '@/theme';
+import { colors, daysUntil, radius, spacing } from '@/theme';
 import { formatPhone } from '@/lib/phoneAuth';
 import { deleteAccount } from '@/lib/account';
 import type { MemberTier, Profile } from '@/types/db';
@@ -34,11 +34,6 @@ function addMonths(base: Date, n: number): Date {
   const d = new Date(base);
   d.setMonth(d.getMonth() + n);
   return d;
-}
-
-// 만료까지 남은 일수 (D-day)
-function daysLeft(iso: string): number {
-  return Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000));
 }
 
 export default function AdminScreen() {
@@ -376,7 +371,7 @@ export default function AdminScreen() {
                 {u.tier === 'auto' && (
                   <Text style={{ color: colors.warn, fontSize: 11, fontWeight: '700' }}>
                     {u.tier_expires_at
-                      ? `만료 ${u.tier_expires_at.slice(0, 10)} · D-${daysLeft(u.tier_expires_at)}`
+                      ? `만료 ${u.tier_expires_at.slice(0, 10)} · D-${daysUntil(u.tier_expires_at)}`
                       : '무기한'}
                   </Text>
                 )}

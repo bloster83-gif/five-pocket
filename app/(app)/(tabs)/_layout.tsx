@@ -4,7 +4,7 @@ import { Image, Pressable, Text, View } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { setProjectCount, useProjectCount } from '@/lib/badges';
-import { colors, spacing } from '@/theme';
+import { colors, daysUntil, spacing } from '@/theme';
 
 function TabIcon({ emoji, color }: { emoji: string; color: string }) {
   return <Text style={{ fontSize: 20, opacity: color === colors.buy ? 1 : 0.6 }}>{emoji}</Text>;
@@ -25,7 +25,7 @@ function TierBadge() {
   const { tier, profile } = useAuth();
   const isAuto = tier === 'auto';
   const exp = isAuto ? profile?.tier_expires_at : null;
-  const dday = exp ? Math.max(0, Math.ceil((new Date(exp).getTime() - Date.now()) / 86400000)) : null;
+  const dday = exp ? daysUntil(exp) : null;
   return (
     <View
       style={{

@@ -18,6 +18,21 @@ export const colors = {
 };
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 };
+
+/**
+ * 오늘 날짜 ~ 대상 날짜의 "캘린더 일수" 차 (시간 무시, 날짜 기준).
+ * 시:분까지 계산해 하루가 어긋나던 문제를 막기 위해 양쪽을 자정으로 맞춰 계산한다.
+ * 지난 날짜면 0.
+ */
+export function daysUntil(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  const target = new Date(iso);
+  if (Number.isNaN(target.getTime())) return 0;
+  target.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((target.getTime() - today.getTime()) / 86400000));
+}
 export const radius = { sm: 8, md: 12, lg: 16 };
 
 // ---- 입력값 콤마 포맷 (세자리 구분) ----
