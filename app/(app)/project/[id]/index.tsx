@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { BottomTabsBar } from '@/components/BottomTabsBar';
 import { colors, formatMoney, formatPrice, money, num, pocketColor, radius, signColor, spacing } from '@/theme';
-import { computePnL, estimatedShares, pnlPct, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
+import { alignToKrxTick, computePnL, estimatedShares, pnlPct, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
 import { useAutoTrader } from '@/services/autoTrader';
@@ -290,11 +290,14 @@ export default function ProjectDetailScreen() {
   //  AUTO+계좌: 실제 매수 주문 전송, Diary: 매수 목표가로 체결 기록.
   const buyPocket = async (k: Pocket): Promise<{ ok: boolean; msg?: string }> => {
     if (!project || !session?.user?.id) return { ok: false };
-    const buyPrice = k.buy_target_price;
+    const isKrx = project.market === 'KRX';
+    // 매수는 호가단위 내림으로 정렬한 매수 목표가 기준
+    const buyPrice = isKrx ? alignToKrxTick(k.buy_target_price, 'buy') : k.buy_target_price;
     if (!buyPrice || buyPrice <= 0) return { ok: false, msg: '매수 목표가가 없어요' };
     const qty = estimatedShares(k.budget, buyPrice);
     if (qty <= 0) return { ok: false, msg: '배분 예산으로 살 수 있는 수량이 없어요' };
-    const sellTgt = sellTargetFromFill(buyPrice, Number(project.sell_target_pct));
+    const rawSell = sellTargetFromFill(buyPrice, Number(project.sell_target_pct));
+    const sellTgt = isKrx ? alignToKrxTick(rawSell, 'sell') : rawSell;
 
     // AUTO 등급 + 계좌 + 네이티브면 실제 매수 주문 전송 (자동주문 흐름과 동일)
     if (tier === 'auto' && account && !kisOrderBlocked(project.market)) {
@@ -343,7 +346,10 @@ export default function ProjectDetailScreen() {
           .from('pockets')
           .update({
             status: filled ? 'bought' : 'buy_ordered',
-            sell_target_price: sellTargetFromFill(fillPrice, Number(project.sell_target_pct)),
+            sell_target_price: (() => {
+              const rs = sellTargetFromFill(fillPrice, Number(project.sell_target_pct));
+              return isKrx ? alignToKrxTick(rs, 'sell') : rs;
+            })(),
           })
           .eq('id', k.id);
         return { ok: true };
@@ -370,7 +376,7 @@ export default function ProjectDetailScreen() {
   const confirmBuyPocket = (k: Pocket) => {
     confirmAction(
       `포켓 ${k.idx + 1} 매수`,
-      `포켓 ${k.idx + 1}을(를) 매수 목표가 ${formatPrice(k.buy_target_price, mkt)} 기준으로 매수 주문할까요?${tier === 'auto' && account ? ' 실제 매수 주문이 전송됩니다.' : ''}`,
+      `포켓 ${k.idx + 1}을(를) 매수 목표가 ${formatPrice(mkt === 'KRX' ? alignToKrxTick(k.buy_target_price, 'buy') : k.buy_target_price, mkt)} 기준으로 매수 주문할까요?${tier === 'auto' && account ? ' 실제 매수 주문이 전송됩니다.' : ''}`,
       async () => {
         const r = await buyPocket(k);
         await load();
@@ -628,7 +634,7 @@ export default function ProjectDetailScreen() {
         />
         <Row
           label="평가 총액"
-          value={price != null ? formatMoney(pnl.totalQtyOpen * price, mkt) : '-'}
+          value={formatMoney(pnl.totalQtyOpen * pnl.avgOpenPrice, mkt)}
           valueColor={num.evalTotal}
         />
         <Row label="평가 손익 (미매도분)" value={formatMoney(pnl.unrealized, mkt)} valueColor={signColor(pnl.unrealized)} />
@@ -996,14 +1002,19 @@ function PocketCard({
   const pocketRealized = history.reduce((s, t) => s + (t.side === 'sell' ? realizedByTrade.get(t.id) ?? 0 : 0), 0);
   // 포켓별 기준가 대비 할인율 (포켓1=0%=기준가, 포켓2=-5%, …)
   const buyDiscPct = Math.round(k.idx * buyIntervalPct * 100) / 100;
-  const buyReady = k.status === 'waiting' && price != null && price <= k.buy_target_price;
+  // KRX 는 목표가를 호가단위(매수 내림·매도 올림)에 맞춰 표시·계산 (그래야 주문가와 일치)
+  const isKrx = market === 'KRX';
+  const buyTargetDisp = isKrx ? alignToKrxTick(k.buy_target_price, 'buy') : k.buy_target_price;
+  const sellTargetDisp =
+    k.sell_target_price != null ? (isKrx ? alignToKrxTick(k.sell_target_price, 'sell') : k.sell_target_price) : null;
+  const buyReady = k.status === 'waiting' && price != null && price <= buyTargetDisp;
   const sellReady =
-    k.status === 'bought' && k.sell_target_price != null && price != null && price >= k.sell_target_price;
+    k.status === 'bought' && sellTargetDisp != null && price != null && price >= sellTargetDisp;
 
-  // 매수가능 수량: 배분액 / 매수목표가.
+  // 매수가능 수량: 배분액 / 매수목표가(호가단위 정렬).
   //  실제 자동/수동 주문이 매수목표가(지정가) 기준으로 수량을 잡으므로 동일하게 목표가로 계산해야
   //  현재가가 목표가보다 높을 때 수량이 과소 표시되지 않는다.
-  const buyableQty = estimatedShares(k.budget, k.buy_target_price);
+  const buyableQty = estimatedShares(k.budget, buyTargetDisp);
 
   const statusPill =
     k.status === 'bought'
@@ -1072,7 +1083,7 @@ function PocketCard({
               </View>
             </View>
             <Text style={{ color: colors.buy, fontSize: 26, fontWeight: '900' }}>
-              {formatPrice(k.buy_target_price, market)}
+              {formatPrice(buyTargetDisp, market)}
             </Text>
           </View>
           {k.budget != null && (
@@ -1096,7 +1107,7 @@ function PocketCard({
               <Text style={{ color: autoTradeOn ? colors.buy : colors.textDim, fontSize: 12, flex: 1 }}>
                 {autoTradeOn ? '🤖 목표가 도달 시 자동 매수' : '🤖 자동매매 스위치를 켜면 자동 매수돼요'}
               </Text>
-              <ManualEntryButton onPress={() => onTrade('buy', buyableQty, price ?? k.buy_target_price)} />
+              <ManualEntryButton onPress={() => onTrade('buy', buyableQty, price ?? buyTargetDisp)} />
             </View>
           ) : (
             <View style={{ marginTop: spacing.sm }}>
@@ -1104,7 +1115,7 @@ function PocketCard({
                 title="＋ 매수 체결 입력"
                 variant="buy"
                 large
-                onPress={() => onTrade('buy', buyableQty, price ?? k.buy_target_price)}
+                onPress={() => onTrade('buy', buyableQty, price ?? buyTargetDisp)}
               />
             </View>
           )}
@@ -1118,7 +1129,8 @@ function PocketCard({
               // 여러 번 매수한 경우 합산한 순 보유 수량/평단 사용. (매도주문완료 등 순보유 0이면 마지막 매수로 폴백)
               const qty = openQty > 0 ? openQty : buyTrade?.quantity ?? 0;
               const avg = openQty > 0 ? openAvg : buyTrade?.price ?? 0;
-              const evalTotal = (price ?? avg) * qty;
+              // 평가 총액 = 평균 매수가 × 보유 수량 (매입 기준). 평가손익은 현재가 기준.
+              const evalTotal = avg * qty;
               const evalPnl = price != null ? (price - avg) * qty : null;
               return (
                 <View
@@ -1166,7 +1178,7 @@ function PocketCard({
               </View>
             </View>
             <Text style={{ color: colors.sell, fontSize: 26, fontWeight: '900' }}>
-              {k.sell_target_price != null ? formatPrice(k.sell_target_price, market) : '-'}
+              {sellTargetDisp != null ? formatPrice(sellTargetDisp, market) : '-'}
             </Text>
           </View>
           {(sellReady || sellFailMsg) && (
@@ -1200,7 +1212,7 @@ function PocketCard({
               <Text style={{ color: autoTradeOn ? colors.sell : colors.textDim, fontSize: 12, flex: 1 }}>
                 {autoTradeOn ? '🤖 목표가 도달 시 자동 매도' : '🤖 자동매매 스위치를 켜면 자동 매도돼요'}
               </Text>
-              <ManualEntryButton onPress={() => onTrade('sell', openQty > 0 ? openQty : buyTrade?.quantity ?? 0, price ?? k.sell_target_price ?? 0)} />
+              <ManualEntryButton onPress={() => onTrade('sell', openQty > 0 ? openQty : buyTrade?.quantity ?? 0, price ?? sellTargetDisp ?? 0)} />
             </View>
           ) : (
             <View style={{ marginTop: spacing.sm }}>
@@ -1208,7 +1220,7 @@ function PocketCard({
                 title="＋ 매도 체결 입력"
                 variant="sell"
                 large
-                onPress={() => onTrade('sell', openQty > 0 ? openQty : buyTrade?.quantity ?? 0, price ?? k.sell_target_price ?? 0)}
+                onPress={() => onTrade('sell', openQty > 0 ? openQty : buyTrade?.quantity ?? 0, price ?? sellTargetDisp ?? 0)}
               />
             </View>
           )}

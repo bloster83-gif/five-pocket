@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, num, pocketColor, radius, signColor, spacing } from '@/theme';
-import { computePnL, estimatedShares } from '@/domain/pockets';
+import { alignToKrxTick, computePnL, estimatedShares } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
 import { getDomesticPrice, getOverseasPrice, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
@@ -373,6 +373,11 @@ export default function PocketsScreen() {
         const changePct = quote?.changePct ?? null;
         // 현재가 >= 평균매수가면 이익(익절), 아니면 손실(손절)
         const inProfit = price != null && pnl.avgOpenPrice > 0 && price >= pnl.avgOpenPrice;
+        // KRX 는 목표가를 호가단위(매수 내림·매도 올림)로 정렬해 표시
+        const isKrx = proj.market === 'KRX';
+        const buyTargetDisp = isKrx ? alignToKrxTick(k.buy_target_price, 'buy') : k.buy_target_price;
+        const sellTargetDisp =
+          k.sell_target_price != null ? (isKrx ? alignToKrxTick(k.sell_target_price, 'sell') : k.sell_target_price) : null;
         const open = expanded === k.id;
         const statusMeta =
           k.status === 'bought'
@@ -425,28 +430,28 @@ export default function PocketsScreen() {
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <Text style={{ color: colors.textDim, fontSize: 11 }}>매수목표</Text>
                     <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>
-                      {formatPrice(k.buy_target_price, proj.market)}
+                      {formatPrice(buyTargetDisp, proj.market)}
                     </Text>
                   </View>
                   {k.budget != null && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                       <Text style={{ color: colors.textDim, fontSize: 11 }}>목표수량</Text>
                       <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>
-                        {money(estimatedShares(k.budget, k.buy_target_price), 0)}주
+                        {money(estimatedShares(k.budget, buyTargetDisp), 0)}주
                       </Text>
                     </View>
                   )}
                 </View>
               )}
-              {k.status === 'bought' && k.sell_target_price != null && (
+              {k.status === 'bought' && sellTargetDisp != null && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <Text style={{ color: colors.textDim, fontSize: 11 }}>매도목표</Text>
                   <Text style={{ color: colors.sell, fontWeight: '800', fontSize: 13 }}>
-                    {formatPrice(k.sell_target_price, proj.market)}
+                    {formatPrice(sellTargetDisp, proj.market)}
                   </Text>
                   {pnl.avgOpenPrice > 0 && (
                     <Text style={{ color: colors.sell, fontWeight: '700', fontSize: 12 }}>
-                      (예상 +{Math.round(((k.sell_target_price - pnl.avgOpenPrice) / pnl.avgOpenPrice) * 10000) / 100}%)
+                      (예상 +{Math.round(((sellTargetDisp - pnl.avgOpenPrice) / pnl.avgOpenPrice) * 10000) / 100}%)
                     </Text>
                   )}
                 </View>
@@ -455,7 +460,8 @@ export default function PocketsScreen() {
               {/* 보유 중이면 2×2 그리드 강조 박스 (보유수량 · 평균매수가 · 평가총액 · 평가손익) */}
               {pnl.totalQtyOpen > 0 &&
                 (() => {
-                  const evalTotal = (price ?? pnl.avgOpenPrice) * pnl.totalQtyOpen;
+                  // 평가 총액 = 평균 매수가 × 보유 수량 (매입 기준). 평가손익은 현재가 기준.
+                  const evalTotal = pnl.avgOpenPrice * pnl.totalQtyOpen;
                   const evalPnl = price != null ? (price - pnl.avgOpenPrice) * pnl.totalQtyOpen : null;
                   return (
                     <View
