@@ -65,6 +65,7 @@ export default function EditProjectScreen() {
     totalBudget: totalBudget ? Number(totalBudget) : null,
     weights: weights.map((w) => Number(w) || 0),
     pocketCount: pockets.length || project?.pocket_count || POCKET_COUNT,
+    market,
   };
   const normalized = useMemo(() => normalizeWeights(parsed.weights), [weights]); // eslint-disable-line react-hooks/exhaustive-deps
   const weightSum = parsed.weights.reduce((a, b) => a + b, 0);
@@ -72,7 +73,7 @@ export default function EditProjectScreen() {
     if (!parsed.basePrice || parsed.basePrice <= 0) return [];
     return buildPocketSeeds(parsed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [basePrice, buyInterval, sellTarget, totalBudget, weights]);
+  }, [basePrice, buyInterval, sellTarget, totalBudget, weights, market]);
 
   const setWeight = (i: number, v: string) => {
     const next = [...weights];

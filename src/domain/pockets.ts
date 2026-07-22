@@ -31,6 +31,31 @@ export interface StrategyInput {
   totalBudget?: number | null; // 프로젝트 전체 예산(선택)
   weights?: number[]; // 포켓별 비중(%). 미지정 시 균등(100/개수)
   pocketCount?: number; // 포켓 개수(기본 5, 6~10 가능)
+  market?: string; // 'KRX'면 목표가를 호가단위에 맞춰 정렬
+}
+
+/**
+ * KRX 호가단위(틱) — 2023-01-25 개편 기준 (일반주식·리츠·ETF 공통).
+ * (KIS 주문도 이 단위의 배수만 허용 → 목표가를 여기 맞춰야 '주식주문호가단위 오류'가 안 남)
+ */
+export function krxTickSize(price: number): number {
+  if (price < 2000) return 1;
+  if (price < 5000) return 5;
+  if (price < 20000) return 10;
+  if (price < 50000) return 50;
+  if (price < 200000) return 100;
+  if (price < 500000) return 500;
+  return 1000;
+}
+
+/** 가격을 KRX 호가단위에 맞춰 정렬 (매수=내림, 매도=올림, 그 외=반올림) */
+export function alignToKrxTick(price: number, side?: 'buy' | 'sell'): number {
+  const p = Math.round(price);
+  if (p <= 0) return 0;
+  const t = krxTickSize(p);
+  const aligned =
+    side === 'buy' ? Math.floor(p / t) * t : side === 'sell' ? Math.ceil(p / t) * t : Math.round(p / t) * t;
+  return Math.max(t, aligned);
 }
 
 /** 비중 배열을 정규화(합계 100%가 되도록). 합이 0이면 균등 분배. */
@@ -49,10 +74,16 @@ export function buildPocketSeeds(s: StrategyInput): PocketSeed[] {
   const count = s.pocketCount ? clampPocketCount(s.pocketCount) : POCKET_COUNT;
   const rawWeights = s.weights && s.weights.length === count ? s.weights : Array(count).fill(100 / count);
   const weights = normalizeWeights(rawWeights);
+  const isKrx = s.market === 'KRX';
   const seeds: PocketSeed[] = [];
   for (let i = 0; i < count; i++) {
-    const buy = round4(s.basePrice * (1 - (s.buyIntervalPct / 100) * i));
-    const sell = round4(buy * (1 + s.sellTargetPct / 100));
+    let buy = round4(s.basePrice * (1 - (s.buyIntervalPct / 100) * i));
+    let sell = round4(buy * (1 + s.sellTargetPct / 100));
+    // KRX 는 호가단위 배수만 주문 가능 → 매수는 내림, 매도는 올림으로 정렬해 저장
+    if (isKrx) {
+      buy = alignToKrxTick(buy, 'buy');
+      sell = alignToKrxTick(sell, 'sell');
+    }
     const budget = s.totalBudget && s.totalBudget > 0 ? round2((s.totalBudget * weights[i]) / 100) : null;
     seeds.push({ idx: i, buy_target_price: buy, sell_target_price: sell, weight: weights[i], budget });
   }

@@ -134,6 +134,25 @@ async function getPrice(acc: BrokerAccount, token: string, symbol: string): Prom
   return price;
 }
 
+// KRX 호가단위(틱) — 2023-01-25 개편 기준 (일반주식·리츠·ETF 공통)
+function krxTickSize(price: number): number {
+  if (price < 2000) return 1;
+  if (price < 5000) return 5;
+  if (price < 20000) return 10;
+  if (price < 50000) return 50;
+  if (price < 200000) return 100;
+  if (price < 500000) return 500;
+  return 1000;
+}
+// 지정가를 호가단위에 맞춰 정렬 (매수=내림, 매도=올림)
+function alignToKrxTick(price: number, side: 'buy' | 'sell'): number {
+  const p = Math.round(price);
+  if (p <= 0) return 0;
+  const t = krxTickSize(p);
+  const aligned = side === 'buy' ? Math.floor(p / t) * t : Math.ceil(p / t) * t;
+  return Math.max(t, aligned);
+}
+
 // ----- KIS 국내주식 현금 지정가 주문 -----
 async function placeOrder(
   acc: BrokerAccount,
@@ -159,7 +178,7 @@ async function placeOrder(
       PDNO: toKisSymbol(symbol),
       ORD_DVSN: '00', // 지정가
       ORD_QTY: String(Math.floor(qty)),
-      ORD_UNPR: String(Math.round(price)),
+      ORD_UNPR: String(alignToKrxTick(price, side)), // 호가단위 정렬
     }),
   });
   const json = await res.json();

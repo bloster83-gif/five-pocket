@@ -130,6 +130,7 @@ export default function NewProjectScreen() {
     totalBudget: totalBudget ? Number(totalBudget) : null,
     weights: weights.map((w) => Number(w) || 0),
     pocketCount,
+    market,
   };
 
   const normalized = useMemo(() => normalizeWeights(parsed.weights), [weights]);
@@ -143,7 +144,7 @@ export default function NewProjectScreen() {
     if (!parsed.basePrice || parsed.basePrice <= 0) return [];
     return buildPocketSeeds(parsed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [basePrice, buyInterval, sellTarget, totalBudget, weights, pocketCount]);
+  }, [basePrice, buyInterval, sellTarget, totalBudget, weights, pocketCount, market]);
 
   const setWeight = (i: number, v: string) => {
     const next = [...weights];

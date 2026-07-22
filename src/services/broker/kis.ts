@@ -130,6 +130,31 @@ export interface KisOrderResult {
 }
 
 /**
+ * KRX 호가단위(틱) — 2023-01-25 개편 기준 (일반주식·리츠·ETF 공통).
+ *  ~2,000:1 / ~5,000:5 / ~20,000:10 / ~50,000:50 / ~200,000:100 / ~500,000:500 / 그 이상:1,000
+ * (ETF/ETN 은 5원 단위이므로, 아래 표의 틱(≥5,000 구간은 모두 5의 배수)로 정렬해도 항상 유효)
+ */
+export function krxTickSize(price: number): number {
+  if (price < 2000) return 1;
+  if (price < 5000) return 5;
+  if (price < 20000) return 10;
+  if (price < 50000) return 50;
+  if (price < 200000) return 100;
+  if (price < 500000) return 500;
+  return 1000;
+}
+
+/** 지정가를 KRX 호가단위에 맞춰 정렬 (매수=내림, 매도=올림, 그 외=반올림) */
+export function alignToKrxTick(price: number, side?: TradeSide): number {
+  const p = Math.round(price);
+  if (p <= 0) return 0;
+  const t = krxTickSize(p);
+  const aligned =
+    side === 'buy' ? Math.floor(p / t) * t : side === 'sell' ? Math.ceil(p / t) * t : Math.round(p / t) * t;
+  return Math.max(t, aligned); // 최소 1틱 보장
+}
+
+/**
  * 국내주식 현금 매수/매도 주문 (지정가).
  * 성공 시 주문번호를 반환하고, 실패 시 KIS 메시지로 throw.
  */
@@ -140,7 +165,9 @@ export async function placeDomesticOrder(
   const token = await getValidToken(account);
   const trId = TR_ID[account.is_virtual ? 'virtual' : 'real'][input.side];
   const qty = Math.floor(input.quantity);
-  const price = Math.round(input.price); // KRX 는 원 단위 정수
+  // KRX 는 가격대별 호가단위(틱)의 배수로만 주문 가능 → 목표가를 틱에 맞게 보정
+  // (매수는 내림=목표가 이하, 매도는 올림=목표가 이상으로 정렬해 체결에 유리하게)
+  const price = alignToKrxTick(input.price, input.side);
   if (qty <= 0) throw new Error('주문 수량이 0입니다.');
 
   const body = {
