@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -464,11 +464,13 @@ function AddModal({
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={close}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
       <Pressable onPress={close} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
         <Pressable
           onPress={() => {}}
-          style={{ backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, borderWidth: 1, borderColor: colors.border, maxHeight: '80%' }}
+          style={{ backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, borderWidth: 1, borderColor: colors.border, maxHeight: '85%' }}
         >
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: spacing.md }} showsVerticalScrollIndicator={false}>
           <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>관심종목 추가</Text>
 
           <Field
@@ -485,7 +487,7 @@ function AddModal({
           {searching && <ActivityIndicator color={colors.textDim} />}
 
           {!selected && results.length > 0 && (
-            <ScrollView style={{ maxHeight: 220 }} keyboardShouldPersistTaps="handled">
+            <View>
               {results.map((r) => (
                 <Pressable
                   key={`${r.symbol}-${r.exchange}`}
@@ -503,7 +505,7 @@ function AddModal({
                   </View>
                 </Pressable>
               ))}
-            </ScrollView>
+            </View>
           )}
 
           {selected && (
@@ -541,7 +543,10 @@ function AddModal({
             </View>
           )}
 
-          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 2 }}>
+          </ScrollView>
+
+          {/* 버튼은 스크롤 밖에 고정 — 키보드가 올라와도 항상 보임 */}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
             <Pressable onPress={close} style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}>
               <Text style={{ color: colors.textDim, fontWeight: '800' }}>취소</Text>
             </Pressable>
@@ -559,6 +564,7 @@ function AddModal({
           </View>
         </Pressable>
       </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
