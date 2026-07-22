@@ -84,7 +84,8 @@ export interface Trade {
   price: number;
   quantity: number;
   executed_at: string;
-  note: string | null;
+  note: string | null; // 시스템/입력 기록 (자동주문 판별에 사용 — 사용자가 직접 편집하지 않음)
+  user_note?: string | null; // 사용자가 직접 남기는 메모
   created_at: string;
 }
 

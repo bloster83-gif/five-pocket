@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -481,9 +481,9 @@ export default function JournalScreen() {
             </Text>
             <Text style={{ color: colors.textDim, fontSize: 11 }}>자세히 ›</Text>
           </View>
-          {t.note ? (
+          {(t.user_note || t.note) ? (
             <Text style={{ color: colors.textDim, fontSize: 12 }} numberOfLines={1}>
-              📝 {t.note}
+              📝 {t.user_note || t.note}
             </Text>
           ) : null}
         </Pressable>
@@ -831,6 +831,21 @@ export default function JournalScreen() {
         trade={detail}
         project={detail?.project_id ? projMap[detail.project_id] : undefined}
         onClose={() => setDetail(null)}
+        onSaveMemo={async (t, note) => {
+          const { error } = await supabase.from('trades').update({ user_note: note }).eq('id', t.id);
+          if (error) {
+            if (/user_note|column|does not exist|PGRST204|schema cache|42703/i.test(`${error.code} ${error.message}`)) {
+              notify('DB 준비 필요', '메모 저장용 컬럼이 아직 없어요. 마이그레이션(20260722b)을 Supabase에서 실행하면 저장됩니다.');
+            } else {
+              notify('메모 저장 실패', error.message);
+            }
+            return false;
+          }
+          // 로컬 상태 반영 (목록·모달)
+          setTrades((prev) => prev.map((x) => (x.id === t.id ? { ...x, user_note: note } : x)));
+          setDetail((d) => (d && d.id === t.id ? { ...d, user_note: note } : d));
+          return true;
+        }}
         onDelete={(t) => {
           setDetail(null);
           confirmAction(
@@ -851,12 +866,22 @@ function TradeDetailModal({
   project,
   onClose,
   onDelete,
+  onSaveMemo,
 }: {
   trade: Trade | null;
   project?: Project;
   onClose: () => void;
   onDelete: (t: Trade) => void;
+  onSaveMemo: (t: Trade, note: string) => Promise<boolean>;
 }) {
+  const [memo, setMemo] = useState('');
+  const [saving, setSaving] = useState(false);
+  // 모달에 새 체결이 뜰 때마다 메모 입력값 초기화 (user_note 우선, 없으면 수동 체결의 note 를 이어서 편집)
+  useEffect(() => {
+    if (!trade) return;
+    const auto = !!trade.note && trade.note.startsWith('자동주문');
+    setMemo(trade.user_note ?? (auto ? '' : trade.note ?? ''));
+  }, [trade?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!trade) return null;
   const t = trade;
   const mkt = project?.market ?? t.market ?? 'US';
@@ -905,12 +930,50 @@ function TradeDetailModal({
             ))}
           </View>
 
-          {t.note ? (
+          {/* 자동주문 시스템 기록 (읽기 전용) */}
+          {isAutoOrder && t.note ? (
             <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
-              <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 2 }}>📝 메모</Text>
-              <Text style={{ color: colors.text, fontSize: 14, lineHeight: 20 }}>{t.note}</Text>
+              <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 2 }}>🤖 자동주문 기록</Text>
+              <Text style={{ color: colors.text, fontSize: 13, lineHeight: 19 }}>{t.note}</Text>
             </View>
           ) : null}
+
+          {/* 사용자 메모 — 직접 입력·수정 */}
+          <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm }}>
+            <Text style={{ color: colors.textDim, fontSize: 12 }}>📝 메모</Text>
+            <TextInput
+              value={memo}
+              onChangeText={setMemo}
+              placeholder="이 체결에 대한 메모를 남겨보세요 (매매 이유, 복기 등)"
+              placeholderTextColor={colors.textDim}
+              multiline
+              style={{
+                color: colors.text,
+                fontSize: 14,
+                lineHeight: 20,
+                minHeight: 46,
+                textAlignVertical: 'top',
+                backgroundColor: colors.card,
+                borderRadius: radius.sm,
+                borderWidth: 1,
+                borderColor: colors.border,
+                paddingHorizontal: spacing.md,
+                paddingVertical: 10,
+              }}
+            />
+            <Pressable
+              onPress={async () => {
+                setSaving(true);
+                const ok = await onSaveMemo(t, memo.trim());
+                setSaving(false);
+                if (ok) notify('메모 저장', '메모를 저장했어요.');
+              }}
+              disabled={saving}
+              style={{ backgroundColor: saving ? colors.border : colors.buy, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center' }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '800' }}>{saving ? '저장 중…' : '메모 저장'}</Text>
+            </Pressable>
+          </View>
 
           {isAutoOrder && (
             <Text style={{ color: colors.textDim, fontSize: 12 }}>

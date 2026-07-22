@@ -165,7 +165,8 @@ create table if not exists public.trades (
   price        numeric(20,4) not null,
   quantity     numeric(20,4) not null,
   executed_at  timestamptz not null default now(),
-  note         text,
+  note         text,          -- 시스템/입력 기록 (자동주문 판별용)
+  user_note    text,          -- 사용자가 직접 남기는 메모
   created_at   timestamptz not null default now()
 );
 
