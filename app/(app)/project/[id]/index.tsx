@@ -800,6 +800,15 @@ export default function ProjectDetailScreen() {
         <Button title="프로젝트 종료 (매매 완료)" variant="sell" onPress={promptClose} />
       )}
 
+      {/* 하단: 포켓 왼쪽 스와이프 안내 문구 */}
+      {!project.closed_at && (
+        <Text style={{ color: colors.textDim, fontSize: 11, textAlign: 'center', marginTop: spacing.xs }}>
+          💡 포켓을 왼쪽으로 밀면 — 대기중은 <Text style={{ color: colors.buy, fontWeight: '800' }}>매수주문</Text>, 보유중은{' '}
+          <Text style={{ color: colors.buy, fontWeight: '800' }}>익절</Text>/<Text style={{ color: colors.sell, fontWeight: '800' }}>손절</Text>{' '}
+          할 수 있어요.
+        </Text>
+      )}
+
     </ScrollView>
     <BottomTabsBar active="index" />
 
