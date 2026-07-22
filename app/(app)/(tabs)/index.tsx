@@ -477,10 +477,14 @@ export default function ProjectsScreen() {
                           {[0, 1, 2, 3, 4].map((idx) => {
                             const pk = pocketsByProject[item.id]?.find((p) => p.idx === idx);
                             const st = pk?.status;
-                            const ordered = st === 'buy_ordered' || st === 'sell_ordered'; // 주문완료(체결 대기)
-                            const lit = st === 'bought' || st === 'sold' || ordered;
-                            const fill = st === 'bought' ? colors.buy : st === 'sold' ? colors.sell : ordered ? colors.warn : 'transparent';
-                            const border = st === 'bought' ? colors.buy : st === 'sold' ? colors.sell : ordered ? colors.warn : colors.border;
+                            // 노란불 = 매수포인트 도달: 대기중인 포켓의 매수목표가에 현재가가 닿았을 때
+                            const reached =
+                              st === 'waiting' && pk != null && m?.price != null && m.price <= Number(pk.buy_target_price);
+                            const held = st === 'bought' || st === 'buy_ordered' || st === 'sell_ordered'; // 보유/주문 진행
+                            const sold = st === 'sold';
+                            const lit = held || sold || reached;
+                            const fill = held ? colors.buy : sold ? colors.sell : reached ? colors.warn : 'transparent';
+                            const border = held ? colors.buy : sold ? colors.sell : reached ? colors.warn : colors.border;
                             return (
                               <View
                                 key={idx}
@@ -504,7 +508,7 @@ export default function ProjectsScreen() {
                         </View>
                         {/* 미니 범례 */}
                         <View style={{ flexDirection: 'row', gap: 8 }}>
-                          <LightLegend color={colors.warn} label="주문" />
+                          <LightLegend color={colors.warn} label="매수도달" />
                           <LightLegend color={colors.buy} label="매수" />
                           <LightLegend color={colors.sell} label="매도" />
                         </View>
