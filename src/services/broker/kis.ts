@@ -170,7 +170,7 @@ export async function placeDomesticOrder(
   const price = alignToKrxTick(input.price, input.side);
   if (qty <= 0) throw new Error('주문 수량이 0입니다.');
 
-  const body = {
+  const baseBody = {
     CANO: account.account_no, // 종합계좌번호 앞 8자리
     ACNT_PRDT_CD: account.account_product_code, // 계좌상품코드 뒤 2자리
     PDNO: toKisSymbol(input.symbol), // 종목코드 6자리
@@ -179,9 +179,13 @@ export async function placeDomesticOrder(
     ORD_UNPR: String(price > 0 ? price : 0),
   };
 
-  const res = await fetch(
-    `${kisBaseUrl(account.is_virtual)}/uapi/domestic-stock/v1/trading/order-cash`,
-    {
+  // 실전이면 통합(SOR: KRX+넥스트레이드 최선주문집행) 먼저 시도 → NXT 미지원/거부 시 KRX 로 폴백.
+  // (모의투자는 NXT/통합 미지원이라 KRX 그대로)
+  const venues: (string | undefined)[] = account.is_virtual ? [undefined] : ['SOR', undefined];
+  let lastMsg = '주문 실패';
+  for (const venue of venues) {
+    const body = venue ? { ...baseBody, EXCG_ID_DVSN_CD: venue } : baseBody;
+    const res = await fetch(`${kisBaseUrl(account.is_virtual)}/uapi/domestic-stock/v1/trading/order-cash`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json; charset=utf-8',
@@ -192,14 +196,18 @@ export async function placeDomesticOrder(
         custtype: 'P', // 개인
       },
       body: JSON.stringify(body),
+    });
+    const json = await res.json();
+    if (res.ok && json.rt_cd === '0') {
+      return {
+        orderNo: json.output?.ODNO ?? '',
+        message: (json.msg1 ?? '주문 전송 완료') + (venue === 'SOR' ? ' (통합/NXT)' : ''),
+      };
     }
-  );
-  const json = await res.json();
-  // rt_cd '0' = 정상
-  if (!res.ok || json.rt_cd !== '0') {
-    throw new Error(json.msg1 ?? `주문 실패 (HTTP ${res.status})`);
+    lastMsg = json.msg1 ?? `주문 실패 (HTTP ${res.status})`;
+    // 통합(SOR) 거부면 다음 루프(KRX)로 폴백. 그 외(KRX도 실패)면 마지막에 throw.
   }
-  return { orderNo: json.output?.ODNO ?? '', message: json.msg1 ?? '주문 전송 완료' };
+  throw new Error(lastMsg);
 }
 
 // --------------------------- 해외주식 실시간 시세 ---------------------------

@@ -164,30 +164,41 @@ async function placeOrder(
   qty: number,
   price: number
 ): Promise<{ orderNo: string; message: string }> {
-  const res = await fetch(`${baseUrl(acc)}/uapi/domestic-stock/v1/trading/order-cash`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      authorization: `Bearer ${token}`,
-      appkey: acc.app_key,
-      appsecret: acc.app_secret,
-      tr_id: ORDER_TR[acc.is_virtual ? 'virtual' : 'real'][side],
-      custtype: 'P',
-    },
-    body: JSON.stringify({
-      CANO: acc.account_no,
-      ACNT_PRDT_CD: acc.account_product_code,
-      PDNO: toKisSymbol(symbol),
-      ORD_DVSN: '00', // 지정가
-      ORD_QTY: String(Math.floor(qty)),
-      ORD_UNPR: String(alignToKrxTick(price, side)), // 호가단위 정렬
-    }),
-  });
-  const json = await res.json();
-  if (!res.ok || json.rt_cd !== '0') {
-    throw new Error(json.msg1 ?? `주문 실패 (HTTP ${res.status})`);
+  const baseBody = {
+    CANO: acc.account_no,
+    ACNT_PRDT_CD: acc.account_product_code,
+    PDNO: toKisSymbol(symbol),
+    ORD_DVSN: '00', // 지정가
+    ORD_QTY: String(Math.floor(qty)),
+    ORD_UNPR: String(alignToKrxTick(price, side)), // 호가단위 정렬
+  };
+  // 실전이면 통합(SOR: KRX+넥스트레이드 최선체결) 먼저, 실패/미지원이면 KRX 폴백. 모의는 KRX 그대로.
+  const venues: (string | undefined)[] = acc.is_virtual ? [undefined] : ['SOR', undefined];
+  let lastMsg = '주문 실패';
+  for (const venue of venues) {
+    const body = venue ? { ...baseBody, EXCG_ID_DVSN_CD: venue } : baseBody;
+    const res = await fetch(`${baseUrl(acc)}/uapi/domestic-stock/v1/trading/order-cash`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        authorization: `Bearer ${token}`,
+        appkey: acc.app_key,
+        appsecret: acc.app_secret,
+        tr_id: ORDER_TR[acc.is_virtual ? 'virtual' : 'real'][side],
+        custtype: 'P',
+      },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json();
+    if (res.ok && json.rt_cd === '0') {
+      return {
+        orderNo: json.output?.ODNO ?? '',
+        message: (json.msg1 ?? '주문 전송 완료') + (venue === 'SOR' ? ' (통합/NXT)' : ''),
+      };
+    }
+    lastMsg = json.msg1 ?? `주문 실패 (HTTP ${res.status})`;
   }
-  return { orderNo: json.output?.ODNO ?? '', message: json.msg1 ?? '주문 전송 완료' };
+  throw new Error(lastMsg);
 }
 
 // ----- 미국 정규장 (ET 평일 09:30~16:00) — Deno Intl 로 정확 판정 -----
