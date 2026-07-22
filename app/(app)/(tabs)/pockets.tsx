@@ -583,13 +583,13 @@ export default function PocketsScreen() {
                         </View>
                         <View style={{ alignItems: 'flex-end' }}>
                           <Text style={{ color: colors.textDim, fontSize: 11 }}>매입 총액</Text>
-                          <Text style={{ color: num.position, fontSize: 20, fontWeight: '900' }}>{formatMoney(buyTotal, proj.market)}</Text>
+                          <Text style={{ color: num.position, fontSize: 16, fontWeight: '900' }}>{formatMoney(buyTotal, proj.market)}</Text>
                         </View>
                       </View>
                       {/* 평가 총액 */}
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)', paddingTop: 6 }}>
                         <Text style={{ color: colors.textDim, fontSize: 12 }}>평가 총액</Text>
-                        <Text style={{ color: num.evalTotal, fontSize: 15, fontWeight: '900' }}>
+                        <Text style={{ color: num.evalTotal, fontSize: 16, fontWeight: '900' }}>
                           {evalTotal != null ? formatMoney(evalTotal, proj.market) : '-'}
                         </Text>
                       </View>
