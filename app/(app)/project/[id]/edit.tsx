@@ -44,9 +44,9 @@ export default function EditProjectScreen() {
       setTotalBudget(proj.total_budget != null ? String(proj.total_budget) : '');
     }
     if (k) {
-      const ks = k as Pocket[];
+      const ks = [...(k as Pocket[])].sort((a, b) => a.idx - b.idx);
       setPockets(ks);
-      if (ks.length === POCKET_COUNT) setWeights(ks.map((x) => String(x.weight)));
+      if (ks.length > 0) setWeights(ks.map((x) => String(x.weight)));
     }
     setLoading(false);
   }, [id]);
@@ -64,6 +64,7 @@ export default function EditProjectScreen() {
     sellTargetPct: Number(sellTarget),
     totalBudget: totalBudget ? Number(totalBudget) : null,
     weights: weights.map((w) => Number(w) || 0),
+    pocketCount: pockets.length || project?.pocket_count || POCKET_COUNT,
   };
   const normalized = useMemo(() => normalizeWeights(parsed.weights), [weights]); // eslint-disable-line react-hooks/exhaustive-deps
   const weightSum = parsed.weights.reduce((a, b) => a + b, 0);

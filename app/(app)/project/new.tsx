@@ -5,8 +5,8 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
 import { Button, Card, Field, NumberField } from '@/components/ui';
-import { colors, formatMoney, formatPrice, money, spacing } from '@/theme';
-import { buildPocketSeeds, normalizeWeights, POCKET_COUNT } from '@/domain/pockets';
+import { colors, formatMoney, formatPrice, money, radius, spacing } from '@/theme';
+import { buildPocketSeeds, clampPocketCount, MAX_POCKET_COUNT, MIN_POCKET_COUNT, normalizeWeights, POCKET_COUNT } from '@/domain/pockets';
 import { searchSymbols } from '@/services/symbols';
 import { priceProvider } from '@/services/prices';
 import { getDomesticBalance, kisOrderBlocked } from '@/services/broker/kis';
@@ -37,8 +37,16 @@ export default function NewProjectScreen() {
   const [buyInterval, setBuyInterval] = useState('5');
   const [sellTarget, setSellTarget] = useState('10');
   const [totalBudget, setTotalBudget] = useState('');
+  const [pocketCount, setPocketCount] = useState(POCKET_COUNT); // 기본 5, 6~10 가능
   const [weights, setWeights] = useState<string[]>(Array(POCKET_COUNT).fill('20'));
   const [saving, setSaving] = useState(false);
+
+  // 포켓 개수 변경 → 비중 배열을 균등하게 재구성
+  const changePocketCount = (n: number) => {
+    const c = clampPocketCount(n);
+    setPocketCount(c);
+    setWeights(Array(c).fill(String(Math.round((100 / c) * 100) / 100)));
+  };
 
   // 계좌 예수금(주문가능현금) — 예산이 예수금 초과 못하게 검사 (한투 계좌 연결 시)
   const [cash, setCash] = useState<number | null>(null);
@@ -121,6 +129,7 @@ export default function NewProjectScreen() {
     sellTargetPct: Number(sellTarget),
     totalBudget: totalBudget ? Number(totalBudget) : null,
     weights: weights.map((w) => Number(w) || 0),
+    pocketCount,
   };
 
   const normalized = useMemo(() => normalizeWeights(parsed.weights), [weights]);
@@ -134,14 +143,14 @@ export default function NewProjectScreen() {
     if (!parsed.basePrice || parsed.basePrice <= 0) return [];
     return buildPocketSeeds(parsed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [basePrice, buyInterval, sellTarget, totalBudget, weights]);
+  }, [basePrice, buyInterval, sellTarget, totalBudget, weights, pocketCount]);
 
   const setWeight = (i: number, v: string) => {
     const next = [...weights];
     next[i] = v;
     setWeights(next);
   };
-  const resetEqual = () => setWeights(Array(POCKET_COUNT).fill('20'));
+  const resetEqual = () => setWeights(Array(pocketCount).fill(String(Math.round((100 / pocketCount) * 100) / 100)));
 
   const onSubmit = async () => {
     if (!selected) return notify('종목 선택 필요', '먼저 종목을 검색해서 선택하세요.');
@@ -161,7 +170,7 @@ export default function NewProjectScreen() {
         base_price: parsed.basePrice,
         buy_interval_pct: parsed.buyIntervalPct,
         sell_target_pct: parsed.sellTargetPct,
-        pocket_count: POCKET_COUNT,
+        pocket_count: pocketCount,
         total_budget: parsed.totalBudget,
       })
       .select()
@@ -285,13 +294,38 @@ export default function NewProjectScreen() {
             </Text>
           </View>
         ) : null}
+        {/* 포켓 개수 선택 (기본 5, 특별 종목은 6~10) */}
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: colors.textDim, fontSize: 13 }}>포켓 개수 (기본 5 · 늘리면 6~10)</Text>
+          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+            {Array.from({ length: MAX_POCKET_COUNT - MIN_POCKET_COUNT + 1 }, (_, k) => MIN_POCKET_COUNT + k).map((n) => (
+              <Pressable
+                key={n}
+                onPress={() => changePocketCount(n)}
+                style={{
+                  minWidth: 42,
+                  alignItems: 'center',
+                  paddingVertical: 8,
+                  paddingHorizontal: 10,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: pocketCount === n ? colors.primary : colors.border,
+                  backgroundColor: pocketCount === n ? 'rgba(34,211,166,0.14)' : colors.cardAlt,
+                }}
+              >
+                <Text style={{ color: pocketCount === n ? colors.primary : colors.textDim, fontWeight: '800' }}>{n}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text style={{ color: colors.textDim }}>
             포켓별 비중 합계: {money(weightSum, 1)}%{' '}
             {Math.abs(weightSum - 100) > 0.1 && <Text style={{ color: colors.warn }}>(자동 정규화됨)</Text>}
           </Text>
           <Pressable onPress={resetEqual}>
-            <Text style={{ color: colors.accent, fontWeight: '700' }}>균등(20%)</Text>
+            <Text style={{ color: colors.accent, fontWeight: '700' }}>균등 분배</Text>
           </Pressable>
         </View>
         {weights.map((w, i) => {

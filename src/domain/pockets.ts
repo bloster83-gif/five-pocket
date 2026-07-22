@@ -13,15 +13,24 @@
 
 import type { Pocket, PocketSeed, Trade } from '@/types/db';
 
-// 포켓 수는 5개로 고정 (5-Pocket 전략)
+// 기본 포켓 수 5개 (원하면 6~10개까지 늘릴 수 있음)
 export const POCKET_COUNT = 5;
+export const MIN_POCKET_COUNT = 5;
+export const MAX_POCKET_COUNT = 10;
+
+/** 포켓 개수를 허용 범위(5~10)로 보정 */
+export function clampPocketCount(n: number | null | undefined): number {
+  const v = Math.floor(Number(n) || POCKET_COUNT);
+  return Math.min(MAX_POCKET_COUNT, Math.max(MIN_POCKET_COUNT, v));
+}
 
 export interface StrategyInput {
   basePrice: number;
   buyIntervalPct: number; // 예: 5  → 포켓마다 5%씩 낮게 매수
   sellTargetPct: number; // 예: 10 → 체결가 대비 +10%에서 매도
   totalBudget?: number | null; // 프로젝트 전체 예산(선택)
-  weights?: number[]; // 포켓별 비중(%) 5개. 미지정 시 균등(20%씩)
+  weights?: number[]; // 포켓별 비중(%). 미지정 시 균등(100/개수)
+  pocketCount?: number; // 포켓 개수(기본 5, 6~10 가능)
 }
 
 /** 비중 배열을 정규화(합계 100%가 되도록). 합이 0이면 균등 분배. */
@@ -37,10 +46,11 @@ export function normalizeWeights(weights: number[]): number[] {
  * 포켓은 항상 5개. 반환 배열은 idx 오름차순.
  */
 export function buildPocketSeeds(s: StrategyInput): PocketSeed[] {
-  const rawWeights = s.weights && s.weights.length === POCKET_COUNT ? s.weights : Array(POCKET_COUNT).fill(20);
+  const count = s.pocketCount ? clampPocketCount(s.pocketCount) : POCKET_COUNT;
+  const rawWeights = s.weights && s.weights.length === count ? s.weights : Array(count).fill(100 / count);
   const weights = normalizeWeights(rawWeights);
   const seeds: PocketSeed[] = [];
-  for (let i = 0; i < POCKET_COUNT; i++) {
+  for (let i = 0; i < count; i++) {
     const buy = round4(s.basePrice * (1 - (s.buyIntervalPct / 100) * i));
     const sell = round4(buy * (1 + s.sellTargetPct / 100));
     const budget = s.totalBudget && s.totalBudget > 0 ? round2((s.totalBudget * weights[i]) / 100) : null;

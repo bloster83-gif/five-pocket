@@ -473,8 +473,8 @@ export default function ProjectsScreen() {
                       </View>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         {/* 포켓 5개 신호등 — 빈 원 안에 번호, 매수/매도되면 색이 채워짐(번호는 계속 보임) */}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-                          {[0, 1, 2, 3, 4].map((idx) => {
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: (item.pocket_count ?? 5) > 6 ? 4 : 7, flexShrink: 1, flexWrap: 'wrap' }}>
+                          {Array.from({ length: item.pocket_count ?? 5 }, (_, i) => i).map((idx) => {
                             const pk = pocketsByProject[item.id]?.find((p) => p.idx === idx);
                             const st = pk?.status;
                             // 노란불 = 매수포인트 도달: 대기중인 포켓의 매수목표가에 현재가가 닿았을 때
@@ -485,13 +485,14 @@ export default function ProjectsScreen() {
                             const lit = held || sold || reached;
                             const fill = held ? colors.buy : sold ? colors.sell : reached ? colors.warn : 'transparent';
                             const border = held ? colors.buy : sold ? colors.sell : reached ? colors.warn : colors.border;
+                            const dot = (item.pocket_count ?? 5) > 6 ? 15 : 18;
                             return (
                               <View
                                 key={idx}
                                 style={{
-                                  width: 18,
-                                  height: 18,
-                                  borderRadius: 9,
+                                  width: dot,
+                                  height: dot,
+                                  borderRadius: dot / 2,
                                   backgroundColor: fill,
                                   borderWidth: 1.5,
                                   borderColor: border,
@@ -499,7 +500,7 @@ export default function ProjectsScreen() {
                                   justifyContent: 'center',
                                 }}
                               >
-                                <Text style={{ color: lit ? '#fff' : colors.textDim, fontSize: 10, fontWeight: '800' }}>
+                                <Text style={{ color: lit ? '#fff' : colors.textDim, fontSize: dot > 15 ? 10 : 9, fontWeight: '800' }}>
                                   {idx + 1}
                                 </Text>
                               </View>

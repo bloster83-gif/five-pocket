@@ -242,8 +242,8 @@ export default function PocketsScreen() {
         }}
       >
         <Text style={{ color: colors.buy, fontSize: 12, fontWeight: '800' }}>🧺 포켓 번호로 보기</Text>
-        <View style={{ flexDirection: 'row', gap: 5 }}>
-          {([null, 0, 1, 2, 3, 4] as (number | null)[]).map((i) => {
+        <View style={{ flexDirection: 'row', gap: 5, flexWrap: 'wrap' }}>
+          {([null, ...Array.from({ length: Math.max(5, pockets.reduce((m, k) => Math.max(m, k.idx + 1), 5)) }, (_, i) => i)] as (number | null)[]).map((i) => {
             const on = pocketFilter === i;
             const c = i == null ? colors.buy : pocketColor(i); // 포켓마다 고유 색
             return (
@@ -251,7 +251,9 @@ export default function PocketsScreen() {
                 key={String(i)}
                 onPress={() => setPocketFilter(i)}
                 style={{
-                  flex: 1,
+                  flexGrow: 1,
+                  flexBasis: 38,
+                  minWidth: 38,
                   alignItems: 'center',
                   paddingVertical: 12,
                   borderRadius: radius.md,
