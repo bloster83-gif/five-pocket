@@ -176,6 +176,12 @@ export default function ProjectsScreen() {
 
   // 왼쪽 스와이프 → 프로젝트 종료
   const closeProject = (p: Project) => {
+    // 보유(매수 완료) 포켓이 있으면 상세 화면의 종료 흐름으로 보내 익절/손절 여부를 물어본다.
+    const held = (pocketsByProject[p.id] ?? []).filter((k) => k.status === 'bought').length;
+    if (held > 0) {
+      router.push(`/project/${p.id}?close=1`);
+      return;
+    }
     confirmAction(
       '프로젝트 종료',
       `"${p.name}"을(를) 종료할까요? 종료하면 목록에서 숨겨지고, “종료” 필터로 다시 볼 수 있어요.`,

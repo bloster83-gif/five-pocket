@@ -15,7 +15,7 @@ import { getOrderFill, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder }
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 export default function ProjectDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, close: closeParam } = useLocalSearchParams<{ id: string; close?: string }>();
   const router = useRouter();
   const { tier, session } = useAuth();
 
@@ -65,11 +65,33 @@ export default function ProjectDetailScreen() {
         if (!p) continue;
         const fill = await getOrderFill(account, p.market === 'US' ? 'US' : 'KRX', o.kis_order_no, p.symbol);
         if (!fill || fill.avgPrice <= 0) continue;
-        await supabase
+        // 이 주문에 해당하는 체결 기록이 이미 있는지 확인 (중복 방지)
+        const { data: existing } = await supabase
           .from('trades')
-          .update({ price: fill.avgPrice, quantity: fill.filledQty })
+          .select('id')
           .eq('project_id', id)
-          .ilike('note', `%${o.kis_order_no}%`);
+          .ilike('note', `%${o.kis_order_no}%`)
+          .limit(1);
+        if (existing && existing.length > 0) {
+          // 이미 기록 있으면 실제 체결가/수량으로 갱신 (주로 매수)
+          await supabase
+            .from('trades')
+            .update({ price: fill.avgPrice, quantity: fill.filledQty })
+            .eq('project_id', id)
+            .ilike('note', `%${o.kis_order_no}%`);
+        } else {
+          // 기록이 없으면(=주문완료 매도 등 체결 시점에 기록) 지금 체결 기록을 생성
+          await supabase.from('trades').insert({
+            user_id: o.user_id,
+            project_id: id,
+            pocket_id: o.pocket_id,
+            side: o.side,
+            price: fill.avgPrice,
+            quantity: fill.filledQty,
+            executed_at: new Date().toISOString(),
+            note: `자동주문(KIS ${o.kis_order_no}) ${o.side === 'sell' ? '매도' : '매수'}`,
+          });
+        }
         if (o.pocket_id) {
           if (o.side === 'buy') {
             await supabase
@@ -213,16 +235,20 @@ export default function ProjectDetailScreen() {
           /* 조회 실패 → 미체결로 간주(주문완료), 지정가 기록 */
         }
 
-        await supabase.from('trades').insert({
-          user_id: session.user.id,
-          project_id: project.id,
-          pocket_id: k.id,
-          side: 'sell',
-          price: fillPrice,
-          quantity: fillQty,
-          executed_at: new Date().toISOString(),
-          note: `자동주문(KIS ${r.orderNo || '-'}) ${word}`,
-        });
+        // 매도는 '체결'되어야 매매일지에 기록(실현손익 반영). 미체결(주문완료)이면 기록하지 않음.
+        // (체결 대기중엔 여전히 보유 상태이므로 매수 기록만 남고, 체결되면 재조회가 매도 기록을 생성)
+        if (filled) {
+          await supabase.from('trades').insert({
+            user_id: session.user.id,
+            project_id: project.id,
+            pocket_id: k.id,
+            side: 'sell',
+            price: fillPrice,
+            quantity: fillQty,
+            executed_at: new Date().toISOString(),
+            note: `자동주문(KIS ${r.orderNo || '-'}) ${word}`,
+          });
+        }
         await supabase.from('pockets').update({ status: filled ? 'sold' : 'sell_ordered' }).eq('id', k.id);
         return { ok: true };
       } catch (e: any) {
@@ -296,6 +322,16 @@ export default function ProjectDetailScreen() {
       ]
     );
   };
+
+  // 목록에서 스와이프로 종료 시(?close=1) 상세를 열자마자 종료 흐름(보유 포켓 익절/손절 질문)을 띄운다.
+  const closePromptedRef = useRef(false);
+  useEffect(() => {
+    if (closeParam === '1' && project && !closePromptedRef.current) {
+      closePromptedRef.current = true;
+      promptClose();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closeParam, project]);
 
   const toggleActive = async (val: boolean) => {
     if (!project) return;

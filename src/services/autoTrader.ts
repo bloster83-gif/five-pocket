@@ -150,17 +150,20 @@ export function useAutoTrader(
           }
 
           // 체결 기록 + 포켓 상태 갱신
-          //  체결됨 → 보유중/매도완료 / 아직 미체결 → 매수 주문완료/매도 주문완료 (서버가 체결되면 자동 전환)
-          await supabase.from('trades').insert({
-            user_id: uid,
-            project_id: proj.id,
-            pocket_id: sig.pocket.id,
-            side: sig.kind,
-            price: fillPrice,
-            quantity: fillQty,
-            executed_at: new Date().toISOString(),
-            note: `자동주문(KIS ${result.orderNo || '-'})`,
-          });
+          //  매수: 주문 시점에 기록(보유 표시용). 매도: '체결'되어야 기록(실현손익은 체결 시점).
+          //  미체결 매도(주문완료)는 기록하지 않고, 서버/재조회가 체결 확인 시 매도 기록을 생성.
+          if (sig.kind === 'buy' || filled) {
+            await supabase.from('trades').insert({
+              user_id: uid,
+              project_id: proj.id,
+              pocket_id: sig.pocket.id,
+              side: sig.kind,
+              price: fillPrice,
+              quantity: fillQty,
+              executed_at: new Date().toISOString(),
+              note: `자동주문(KIS ${result.orderNo || '-'})`,
+            });
+          }
           if (sig.kind === 'buy') {
             await supabase
               .from('pockets')

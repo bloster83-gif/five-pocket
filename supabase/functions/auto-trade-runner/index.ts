@@ -371,11 +371,31 @@ async function reconcilePendingFills(admin: SupabaseClient): Promise<number> {
       const token = await getToken(admin, acc);
       const fill = await getOrderFill(acc, token, proj.market === 'US' ? 'US' : 'KRX', o.kis_order_no, o.symbol);
       if (!fill || fill.avgPrice <= 0) continue;
-      await admin
+      // 이 주문의 체결 기록이 이미 있으면 실제 체결가로 갱신(주로 매수), 없으면(주문완료 매도 등) 생성.
+      const { data: existing } = await admin
         .from('trades')
-        .update({ price: fill.avgPrice, quantity: fill.filledQty })
+        .select('id')
         .eq('project_id', o.project_id)
-        .ilike('note', `%${o.kis_order_no}%`);
+        .ilike('note', `%${o.kis_order_no}%`)
+        .limit(1);
+      if (existing && existing.length > 0) {
+        await admin
+          .from('trades')
+          .update({ price: fill.avgPrice, quantity: fill.filledQty })
+          .eq('project_id', o.project_id)
+          .ilike('note', `%${o.kis_order_no}%`);
+      } else {
+        await admin.from('trades').insert({
+          user_id: o.user_id,
+          project_id: o.project_id,
+          pocket_id: o.pocket_id,
+          side: o.side,
+          price: fill.avgPrice,
+          quantity: fill.filledQty,
+          executed_at: new Date().toISOString(),
+          note: `자동주문·서버(KIS ${o.kis_order_no}) ${o.side === 'sell' ? '매도' : '매수'}`,
+        });
+      }
       // 주문완료 → 체결 확인되면 보유중/매도완료로 전환
       if (o.pocket_id) {
         if (o.side === 'buy') {
@@ -590,16 +610,20 @@ Deno.serve(async (req: Request) => {
           fillQty = fill.filledQty;
         }
 
-        await admin.from('trades').insert({
-          user_id: proj.user_id,
-          project_id: proj.id,
-          pocket_id: k.id,
-          side,
-          price: fillPrice,
-          quantity: fillQty,
-          executed_at: new Date().toISOString(),
-          note: `자동주문·서버(KIS ${order.orderNo || '-'})`,
-        });
+        // 매수는 주문 시점 기록(보유 표시). 매도는 '체결'되어야 기록(실현손익은 체결 시점).
+        // 미체결 매도(주문완료)는 기록하지 않고, reconcilePendingFills 가 체결 확인 시 생성.
+        if (side === 'buy' || filledNow) {
+          await admin.from('trades').insert({
+            user_id: proj.user_id,
+            project_id: proj.id,
+            pocket_id: k.id,
+            side,
+            price: fillPrice,
+            quantity: fillQty,
+            executed_at: new Date().toISOString(),
+            note: `자동주문·서버(KIS ${order.orderNo || '-'})`,
+          });
+        }
         if (side === 'buy') {
           const sellTarget =
             Math.round(fillPrice * (1 + Number(proj.sell_target_pct) / 100) * 10000) / 10000;
