@@ -1,0 +1,564 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
+import { useFocusEffect } from 'expo-router';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
+import { confirmAction, notify } from '@/lib/alert';
+import { Card, Chip, Field, FilterBar } from '@/components/ui';
+import { colors, formatPrice, money, num, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
+import { searchSymbols } from '@/services/symbols';
+import { priceProvider } from '@/services/prices';
+import type { Market, SymbolResult, WatchlistItem, WatchlistMemo } from '@/types/db';
+
+type Filter = 'all' | 'KRX' | 'US' | 'under' | 'over';
+
+// 관심종목 레이더 — 기준가를 직접 입력하고, '기준가 대비 %'(= 현재가 ÷ 기준가)로 종목을 감시한다.
+export default function RadarScreen() {
+  const { session } = useAuth();
+  const [items, setItems] = useState<WatchlistItem[]>([]);
+  const [memos, setMemos] = useState<WatchlistMemo[]>([]);
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+  const [missing, setMissing] = useState(false); // 테이블 없음(마이그레이션 미실행) 감지
+  const [filter, setFilter] = useState<Filter>('all');
+  const [showSearch, setShowSearch] = useState(false);
+  const [q, setQ] = useState('');
+  const [expanded, setExpanded] = useState<string | null>(null); // 메모가 열린 종목
+  const [addOpen, setAddOpen] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!session?.user?.id) return;
+    const { data: it, error } = await supabase
+      .from('watchlist_items')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) {
+      if (/watchlist|does not exist|PGRST205|schema cache|42P01/i.test(`${error.code} ${error.message}`)) {
+        setMissing(true);
+        setLoading(false);
+        return;
+      }
+    }
+    setItems((it as WatchlistItem[]) ?? []);
+    const { data: mm } = await supabase.from('watchlist_memos').select('*').order('created_at', { ascending: false });
+    setMemos((mm as WatchlistMemo[]) ?? []);
+    setLoading(false);
+  }, [session?.user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
+
+  // 각 종목 현재가 로드 (심볼 목록이 바뀔 때만)
+  const symbolsKey = useMemo(() => items.map((i) => i.symbol).sort().join(','), [items]);
+  useEffect(() => {
+    const syms = symbolsKey ? symbolsKey.split(',') : [];
+    if (syms.length === 0) {
+      setPrices({});
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      syms.map((s) =>
+        priceProvider
+          .getQuote(s)
+          .then((qq) => [s, qq.price] as const)
+          .catch(() => null)
+      )
+    ).then((rows) => {
+      if (cancelled) return;
+      const m: Record<string, number> = {};
+      rows.forEach((r) => {
+        if (r) m[r[0]] = r[1];
+      });
+      setPrices(m);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [symbolsKey]);
+
+  // 기준가 대비 % (현재가 ÷ 기준가 × 100). 시세 없으면 null.
+  const ratioOf = useCallback(
+    (it: WatchlistItem) => {
+      const p = prices[it.symbol];
+      if (p == null || !it.base_price || it.base_price <= 0) return null;
+      return Math.round((p / it.base_price) * 1000) / 10;
+    },
+    [prices]
+  );
+
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return items.filter((it) => {
+      if (s && !`${it.name} ${it.symbol}`.toLowerCase().includes(s)) return false;
+      if (filter === 'KRX') return it.market === 'KRX';
+      if (filter === 'US') return it.market === 'US';
+      if (filter === 'under') {
+        const r = ratioOf(it);
+        return r != null && r <= 100;
+      }
+      if (filter === 'over') {
+        const r = ratioOf(it);
+        return r != null && r >= 100;
+      }
+      return true;
+    });
+  }, [items, q, filter, ratioOf]);
+
+  const memosByItem = useMemo(() => {
+    const m: Record<string, WatchlistMemo[]> = {};
+    memos.forEach((x) => (m[x.item_id] ??= []).push(x));
+    return m;
+  }, [memos]);
+
+  const addItem = async (r: SymbolResult, basePrice: number) => {
+    if (!session?.user?.id) return;
+    const market: Market = r.market === 'KRX' ? 'KRX' : 'US';
+    const { error } = await supabase.from('watchlist_items').insert({
+      user_id: session.user.id,
+      symbol: r.symbol,
+      name: r.name,
+      market,
+      base_price: basePrice,
+    });
+    if (error) return notify('추가 실패', error.message);
+    await load();
+  };
+
+  const deleteItem = async (it: WatchlistItem) => {
+    setItems((prev) => prev.filter((x) => x.id !== it.id));
+    await supabase.from('watchlist_items').delete().eq('id', it.id);
+  };
+
+  const addMemo = async (itemId: string, note: string) => {
+    if (!session?.user?.id || !note.trim()) return;
+    const { error } = await supabase
+      .from('watchlist_memos')
+      .insert({ item_id: itemId, user_id: session.user.id, note: note.trim() });
+    if (error) return notify('메모 저장 실패', error.message);
+    await load();
+  };
+
+  const deleteMemo = async (m: WatchlistMemo) => {
+    setMemos((prev) => prev.filter((x) => x.id !== m.id));
+    await supabase.from('watchlist_memos').delete().eq('id', m.id);
+  };
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center' }}>
+        <ActivityIndicator color={colors.buy} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* 틀고정: 제목 + 검색/필터 바 */}
+      <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xs, gap: spacing.sm }}>
+        <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>📡 관심종목 레이더</Text>
+        <FilterBar style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Pressable
+            onPress={() => setShowSearch((s) => !s)}
+            style={{
+              width: 40,
+              height: 36,
+              borderRadius: 10,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: showSearch ? colors.buy : colors.card,
+            }}
+          >
+            <Text style={{ fontSize: 16 }}>🔍</Text>
+          </Pressable>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
+            <Chip label="전체" active={filter === 'all'} onPress={() => setFilter('all')} />
+            <Chip label="한국" icon="🇰🇷" active={filter === 'KRX'} onPress={() => setFilter('KRX')} />
+            <Chip label="미국" icon="🇺🇸" active={filter === 'US'} onPress={() => setFilter('US')} activeColor={colors.accent} />
+            <View style={{ width: 1, height: 22, backgroundColor: colors.border }} />
+            <Chip label="기준가 이하 (100%↓)" active={filter === 'under'} onPress={() => setFilter('under')} activeColor={colors.sell} />
+            <Chip label="기준가 이상 (100%↑)" active={filter === 'over'} onPress={() => setFilter('over')} />
+          </ScrollView>
+        </FilterBar>
+        {showSearch && (
+          <Field label="" value={q} onChangeText={setQ} placeholder="종목명/티커 검색" autoCapitalize="none" />
+        )}
+      </View>
+
+      <ScrollView
+        contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.md, paddingBottom: 120 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        {missing && (
+          <Card style={{ borderColor: colors.warn }}>
+            <Text style={{ color: colors.warn, fontWeight: '800' }}>DB 준비 필요</Text>
+            <Text style={{ color: colors.textDim, fontSize: 13 }}>
+              관심종목 레이더 테이블이 아직 없어요. Supabase에서 마이그레이션(20260722a_watchlist)을 실행하면 사용할 수 있어요.
+            </Text>
+          </Card>
+        )}
+
+        {!missing && items.length === 0 && (
+          <Card>
+            <Text style={{ color: colors.text, fontWeight: '700' }}>관심종목이 없어요</Text>
+            <Text style={{ color: colors.textDim, fontSize: 13 }}>
+              오른쪽 아래 + 버튼으로 종목을 추가하고 기준가를 입력하면, 현재가와 기준가 대비(%)를 한눈에 볼 수 있어요.
+            </Text>
+          </Card>
+        )}
+
+        {filtered.map((it) => (
+          <WatchRow
+            key={it.id}
+            item={it}
+            price={prices[it.symbol] ?? null}
+            ratio={ratioOf(it)}
+            memos={memosByItem[it.id] ?? []}
+            open={expanded === it.id}
+            onToggle={() => setExpanded((e) => (e === it.id ? null : it.id))}
+            onAddMemo={(note) => addMemo(it.id, note)}
+            onDeleteMemo={deleteMemo}
+            onDelete={() =>
+              confirmAction('관심종목 삭제', `"${it.name}"을(를) 관심종목에서 삭제할까요? 메모도 함께 삭제됩니다.`, () => deleteItem(it), '삭제')
+            }
+          />
+        ))}
+
+        {!missing && items.length > 0 && filtered.length === 0 && (
+          <Card>
+            <Text style={{ color: colors.textDim }}>필터/검색 조건에 맞는 종목이 없어요.</Text>
+          </Card>
+        )}
+
+        {!missing && items.length > 0 && (
+          <Text style={{ color: colors.textDim, fontSize: 11, textAlign: 'center' }}>
+            💡 기준가 대비 = 현재가 ÷ 기준가 · 종목을 누르면 메모를 남길 수 있어요 · 왼쪽으로 밀면 삭제.
+          </Text>
+        )}
+      </ScrollView>
+
+      {/* 우측 아래 + 버튼 — 종목 추가 */}
+      {!missing && (
+        <Pressable
+          onPress={() => setAddOpen(true)}
+          style={{
+            position: 'absolute',
+            right: spacing.lg,
+            bottom: spacing.lg,
+            backgroundColor: colors.buy,
+            width: 58,
+            height: 58,
+            borderRadius: 29,
+            alignItems: 'center',
+            justifyContent: 'center',
+            elevation: 5,
+          }}
+        >
+          <Text style={{ color: '#fff', fontSize: 28, fontWeight: '800', marginTop: -2 }}>＋</Text>
+        </Pressable>
+      )}
+
+      <AddModal
+        visible={addOpen}
+        onClose={() => setAddOpen(false)}
+        onAdd={async (r, base) => {
+          setAddOpen(false);
+          await addItem(r, base);
+        }}
+      />
+    </View>
+  );
+}
+
+// 관심종목 한 줄 — 왼쪽 스와이프 삭제, 탭하면 메모 열림
+function WatchRow({
+  item,
+  price,
+  ratio,
+  memos,
+  open,
+  onToggle,
+  onAddMemo,
+  onDeleteMemo,
+  onDelete,
+}: {
+  item: WatchlistItem;
+  price: number | null;
+  ratio: number | null;
+  memos: WatchlistMemo[];
+  open: boolean;
+  onToggle: () => void;
+  onAddMemo: (note: string) => void;
+  onDeleteMemo: (m: WatchlistMemo) => void;
+  onDelete: () => void;
+}) {
+  const [note, setNote] = useState('');
+  const mkt = item.market;
+  // 기준가 대비: 100% 이상=현재가가 기준가 위(빨강), 미만=아래(파랑)
+  const ratioColor = ratio == null ? colors.textDim : ratio >= 100 ? colors.buy : colors.sell;
+  return (
+    <Swipeable
+      renderRightActions={() => (
+        <Pressable
+          onPress={onDelete}
+          style={{ backgroundColor: colors.danger, justifyContent: 'center', paddingHorizontal: 20, borderRadius: radius.md, marginLeft: spacing.sm }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '800' }}>삭제</Text>
+        </Pressable>
+      )}
+    >
+      <Card style={{ borderLeftWidth: 5, borderLeftColor: mkt === 'KRX' ? colors.text : colors.accent }}>
+        <Pressable onPress={onToggle}>
+          {/* 1줄: 국기 + 종목명 + 기준가 대비 % */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+              <Text style={{ fontSize: 14 }}>{mkt === 'KRX' ? '🇰🇷' : '🇺🇸'}</Text>
+              <Text style={{ color: colors.text, fontWeight: '800', flex: 1 }} numberOfLines={1}>
+                {item.name}
+              </Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={{ color: colors.textDim, fontSize: 10 }}>기준가 대비</Text>
+              <Text style={{ color: ratioColor, fontWeight: '900', fontSize: 16 }}>{ratio != null ? `${ratio}%` : '—'}</Text>
+            </View>
+          </View>
+          {/* 2줄: 현재가 · 기준가 */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: 4 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={{ color: colors.textDim, fontSize: 11 }}>현재가</Text>
+              <Text style={{ color: num.live, fontWeight: '800', fontSize: 13 }}>{price != null ? formatPrice(price, mkt) : '—'}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={{ color: colors.textDim, fontSize: 11 }}>기준가</Text>
+              <Text style={{ color: num.base, fontWeight: '800', fontSize: 13 }}>{formatPrice(item.base_price, mkt)}</Text>
+            </View>
+            <Text style={{ color: colors.textDim, fontSize: 11, marginLeft: 'auto' }}>
+              📝 {memos.length} · {open ? '▲' : '▼'}
+            </Text>
+          </View>
+        </Pressable>
+
+        {/* 메모 영역 (탭하면 열림) */}
+        {open && (
+          <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.sm }}>
+            <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end' }}>
+              <View style={{ flex: 1 }}>
+                <TextInput
+                  value={note}
+                  onChangeText={setNote}
+                  placeholder="메모 입력 (매수 이유, 관찰 포인트 등)"
+                  placeholderTextColor={colors.textDim}
+                  multiline
+                  style={{
+                    backgroundColor: colors.cardAlt,
+                    borderRadius: radius.md,
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: 10,
+                    color: colors.text,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    minHeight: 40,
+                  }}
+                />
+              </View>
+              <Pressable
+                onPress={() => {
+                  if (!note.trim()) return;
+                  onAddMemo(note);
+                  setNote('');
+                }}
+                style={{ backgroundColor: colors.buy, borderRadius: radius.md, paddingHorizontal: 16, paddingVertical: 11 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800' }}>저장</Text>
+              </Pressable>
+            </View>
+            {memos.length === 0 ? (
+              <Text style={{ color: colors.textDim, fontSize: 12 }}>아직 메모가 없어요. 위에 입력하면 날짜와 함께 기록됩니다.</Text>
+            ) : (
+              memos.map((m) => (
+                <View key={m.id} style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.sm, gap: 2 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: colors.textDim, fontSize: 11 }}>{m.created_at.replace('T', ' ').slice(0, 16)}</Text>
+                    <Pressable onPress={() => onDeleteMemo(m)} hitSlop={8}>
+                      <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>삭제</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={{ color: colors.text, fontSize: 14, lineHeight: 20 }}>{m.note}</Text>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+      </Card>
+    </Swipeable>
+  );
+}
+
+// 종목 추가 모달 — 심볼 검색 → 선택 → 기준가 입력
+function AddModal({
+  visible,
+  onClose,
+  onAdd,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onAdd: (r: SymbolResult, base: number) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SymbolResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selected, setSelected] = useState<SymbolResult | null>(null);
+  const [baseRaw, setBaseRaw] = useState('');
+
+  useEffect(() => {
+    if (!visible) return;
+    if (selected) return;
+    const s = query.trim();
+    if (s.length < 1) {
+      setResults([]);
+      return;
+    }
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        setResults(await searchSymbols(s));
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [query, selected, visible]);
+
+  const reset = () => {
+    setQuery('');
+    setResults([]);
+    setSelected(null);
+    setBaseRaw('');
+  };
+  const close = () => {
+    reset();
+    onClose();
+  };
+  const pick = async (r: SymbolResult) => {
+    setSelected(r);
+    setQuery(r.name);
+    setResults([]);
+    try {
+      const q = await priceProvider.getQuote(r.symbol);
+      setBaseRaw(String(r.market === 'KRX' ? Math.round(q.price) : q.price));
+    } catch {
+      /* 웹 CORS 등: 직접 입력 */
+    }
+  };
+
+  if (!visible) return null;
+  const mkt: Market = selected?.market === 'KRX' ? 'KRX' : 'US';
+  const isKr = mkt === 'KRX';
+  const base = Number(rawNumeric(baseRaw, !isKr)) || 0;
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={close}>
+      <Pressable onPress={close} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
+        <Pressable
+          onPress={() => {}}
+          style={{ backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, borderWidth: 1, borderColor: colors.border, maxHeight: '80%' }}
+        >
+          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>관심종목 추가</Text>
+
+          <Field
+            label="종목 검색 (한글명·티커)"
+            value={query}
+            onChangeText={(t) => {
+              setQuery(t);
+              if (selected) setSelected(null);
+            }}
+            placeholder="예: 삼성전자, AAPL"
+            autoCapitalize="none"
+          />
+
+          {searching && <ActivityIndicator color={colors.textDim} />}
+
+          {!selected && results.length > 0 && (
+            <ScrollView style={{ maxHeight: 220 }} keyboardShouldPersistTaps="handled">
+              {results.map((r) => (
+                <Pressable
+                  key={`${r.symbol}-${r.exchange}`}
+                  onPress={() => pick(r)}
+                  style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                >
+                  <Text style={{ fontSize: 14 }}>{r.market === 'KRX' ? '🇰🇷' : '🇺🇸'}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: '700' }} numberOfLines={1}>
+                      {r.name}
+                    </Text>
+                    <Text style={{ color: colors.textDim, fontSize: 12 }}>
+                      {r.symbol} · {r.exchange}
+                    </Text>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+
+          {selected && (
+            <View style={{ gap: spacing.sm }}>
+              <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={{ fontSize: 16 }}>{isKr ? '🇰🇷' : '🇺🇸'}</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', flex: 1 }} numberOfLines={1}>
+                  {selected.name} <Text style={{ color: colors.textDim, fontSize: 12 }}>({selected.symbol})</Text>
+                </Text>
+                <Pressable onPress={reset} hitSlop={8}>
+                  <Text style={{ color: colors.textDim, fontSize: 12 }}>변경</Text>
+                </Pressable>
+              </View>
+              <View>
+                <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 4 }}>기준가 ({isKr ? '₩' : '$'}) — 직접 입력</Text>
+                <TextInput
+                  value={withCommas(baseRaw, !isKr)}
+                  onChangeText={(t) => setBaseRaw(rawNumeric(t, !isKr))}
+                  keyboardType="decimal-pad"
+                  placeholder="기준가 입력"
+                  placeholderTextColor={colors.textDim}
+                  style={{
+                    backgroundColor: colors.cardAlt,
+                    borderRadius: radius.md,
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: 12,
+                    color: num.base,
+                    fontSize: 20,
+                    fontWeight: '900',
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                />
+              </View>
+            </View>
+          )}
+
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 2 }}>
+            <Pressable onPress={close} style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}>
+              <Text style={{ color: colors.textDim, fontWeight: '800' }}>취소</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                if (!selected || base <= 0) return;
+                onAdd(selected, base);
+                reset();
+              }}
+              disabled={!selected || base <= 0}
+              style={{ flex: 2, backgroundColor: selected && base > 0 ? colors.buy : colors.border, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '800' }}>추가</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}

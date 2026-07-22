@@ -101,6 +101,14 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: colors.textDim,
       }}
     >
+      {/* 가장 왼쪽: 관심종목 레이더 */}
+      <Tabs.Screen
+        name="radar"
+        options={{
+          title: '레이더',
+          tabBarIcon: ({ color }) => <TabIcon emoji="📡" color={color} />,
+        }}
+      />
       <Tabs.Screen
         name="index"
         options={{

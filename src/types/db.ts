@@ -170,3 +170,23 @@ export interface SymbolResult {
   market: Market; // 'KRX' | 'US'
   exchange: string; // 표시용 거래소명
 }
+
+// 관심종목 레이더 — 기준가 직접 입력, 현재가/기준가 = '기준가 대비 %'
+export interface WatchlistItem {
+  id: string;
+  user_id: string;
+  symbol: string;
+  name: string;
+  market: Market;
+  base_price: number;
+  created_at: string;
+}
+
+// 관심종목 메모 (날짜 자동 기록)
+export interface WatchlistMemo {
+  id: string;
+  item_id: string;
+  user_id: string;
+  note: string;
+  created_at: string;
+}
