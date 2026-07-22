@@ -498,41 +498,51 @@ export default function ProjectsScreen() {
                         </Text>
                       </View>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        {/* 포켓 5개 신호등 — 빈 원 안에 번호, 매수/매도되면 색이 채워짐(번호는 계속 보임) */}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: (item.pocket_count ?? 5) > 6 ? 4 : 7, flexShrink: 1, flexWrap: 'wrap' }}>
-                          {Array.from({ length: item.pocket_count ?? 5 }, (_, i) => i).map((idx) => {
-                            const pk = pocketsByProject[item.id]?.find((p) => p.idx === idx);
-                            const st = pk?.status;
-                            // 노란불 = 매수포인트 도달: 대기중인 포켓의 매수목표가에 현재가가 닿았을 때
-                            const reached =
-                              st === 'waiting' && pk != null && m?.price != null && m.price <= Number(pk.buy_target_price);
-                            const held = st === 'bought' || st === 'buy_ordered' || st === 'sell_ordered'; // 보유/주문 진행
-                            const sold = st === 'sold';
-                            const lit = held || sold || reached;
-                            const fill = held ? colors.buy : sold ? colors.sell : reached ? colors.warn : 'transparent';
-                            const border = held ? colors.buy : sold ? colors.sell : reached ? colors.warn : colors.border;
-                            const dot = (item.pocket_count ?? 5) > 6 ? 15 : 18;
-                            return (
-                              <View
-                                key={idx}
-                                style={{
-                                  width: dot,
-                                  height: dot,
-                                  borderRadius: dot / 2,
-                                  backgroundColor: fill,
-                                  borderWidth: 1.5,
-                                  borderColor: border,
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                }}
-                              >
-                                <Text style={{ color: lit ? '#fff' : colors.textDim, fontSize: dot > 15 ? 10 : 9, fontWeight: '800' }}>
-                                  {idx + 1}
-                                </Text>
-                              </View>
-                            );
-                          })}
-                        </View>
+                        {/* 포켓 신호등 — 실제 생성된 포켓만 표시(예산·수량 0이라 안 만들어진 포켓은 빈 자리).
+                            5칸 그리드로 줄바꿈 → 6번은 1번 아래, 7번은 2번 아래에 정렬. */}
+                        {(() => {
+                          const existing = pocketsByProject[item.id] ?? [];
+                          const maxIdx = existing.length ? Math.max(...existing.map((p) => p.idx)) : -1;
+                          if (maxIdx < 0) return <View />;
+                          const dot = 16;
+                          const gap = 6;
+                          return (
+                            <View style={{ width: 5 * dot + 4 * gap, flexDirection: 'row', flexWrap: 'wrap', gap, flexShrink: 0 }}>
+                              {Array.from({ length: maxIdx + 1 }, (_, i) => i).map((idx) => {
+                                const pk = existing.find((p) => p.idx === idx);
+                                // 생성되지 않은 포켓(예산·수량 0) → 아이콘 없이 빈 자리만(정렬 유지)
+                                if (!pk) return <View key={idx} style={{ width: dot, height: dot }} />;
+                                const st = pk.status;
+                                const reached =
+                                  st === 'waiting' && m?.price != null && m.price <= Number(pk.buy_target_price);
+                                const held = st === 'bought' || st === 'buy_ordered' || st === 'sell_ordered';
+                                const sold = st === 'sold';
+                                const lit = held || sold || reached;
+                                const fill = held ? colors.buy : sold ? colors.sell : reached ? colors.warn : 'transparent';
+                                const border = held ? colors.buy : sold ? colors.sell : reached ? colors.warn : colors.border;
+                                return (
+                                  <View
+                                    key={idx}
+                                    style={{
+                                      width: dot,
+                                      height: dot,
+                                      borderRadius: dot / 2,
+                                      backgroundColor: fill,
+                                      borderWidth: 1.5,
+                                      borderColor: border,
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    <Text style={{ color: lit ? '#fff' : colors.textDim, fontSize: 9, fontWeight: '800' }}>
+                                      {idx + 1}
+                                    </Text>
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          );
+                        })()}
                         {/* 미니 범례 */}
                         <View style={{ flexDirection: 'row', gap: 8 }}>
                           <LightLegend color={colors.warn} label="매수도달" />
