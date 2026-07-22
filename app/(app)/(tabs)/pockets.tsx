@@ -136,6 +136,18 @@ export default function PocketsScreen() {
     return m;
   }, [projects]);
 
+  // 매수 대기 예수금 (진행중 프로젝트에서 아직 보유하지 않고 '대기중'인 포켓의 배분 예산 합, 시장별)
+  const waitingBudgetByMarket = useMemo(() => {
+    const m: Record<string, number> = {};
+    pockets.forEach((k) => {
+      const proj = projMap[k.project_id];
+      if (!proj || proj.closed_at) return;
+      if (k.status !== 'waiting' || k.budget == null) return;
+      m[proj.market] = (m[proj.market] ?? 0) + Number(k.budget);
+    });
+    return m;
+  }, [pockets, projMap]);
+
   // 필터: 보유중 = 매수 상태, 실현 = 매도 체결이 1건 이상 있는 포켓
   //        포켓 번호 선택 시 해당 idx 의 포켓만 (null = 전체)
   const filtered = useMemo(() => {
@@ -432,9 +444,19 @@ export default function PocketsScreen() {
           <Text style={{ color: colors.textDim }}>예산이 설정된 프로젝트가 없어요.</Text>
         ) : (
           Object.entries(budgetByMarket).map(([mkt, v]) => (
-            <View key={mkt} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.textDim }}>{mkt === 'KRX' ? '한국 (원화)' : '미국 (달러)'}</Text>
-              <Text style={{ color: num.budget, fontWeight: '900', fontSize: 22 }}>{formatMoney(v, mkt)}</Text>
+            <View key={mkt} style={{ gap: 4 }}>
+              {/* 총 예산 금액 */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: colors.textDim }}>{mkt === 'KRX' ? '한국 (원화)' : '미국 (달러)'} · 총 예산</Text>
+                <Text style={{ color: num.budget, fontWeight: '900', fontSize: 22 }}>{formatMoney(v, mkt)}</Text>
+              </View>
+              {/* 매수 대기 예수금 = 아직 보유하지 않은 대기중 포켓 예산 합 */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: colors.textDim, fontSize: 12 }}>매수 대기 예수금 (대기중 포켓)</Text>
+                <Text style={{ color: num.budget, fontWeight: '800', fontSize: 15 }}>
+                  {formatMoney(waitingBudgetByMarket[mkt] ?? 0, mkt)}
+                </Text>
+              </View>
             </View>
           ))
         )}
@@ -448,10 +470,10 @@ export default function PocketsScreen() {
             }}
           >
             <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
-              🤖 자동주문을 쓰는 경우, 증권사 계좌에 위 예산과 동일한 금액을 미리 넣어두세요.
+              🤖 자동주문을 쓰는 경우, 증권사 계좌에 위 예산(최소한 매수 대기 예수금)과 동일한 금액을 미리 넣어두세요.
             </Text>
             <Text style={{ color: colors.textDim, fontSize: 11 }}>
-              계좌 잔고가 예산보다 부족하면 목표가에 도달해도 프로젝트 설계대로 매수가 안 될 수 있어요.
+              계좌 잔고가 매수 대기 예수금보다 부족하면 목표가에 도달해도 프로젝트 설계대로 매수가 안 될 수 있어요.
             </Text>
           </View>
         )}
