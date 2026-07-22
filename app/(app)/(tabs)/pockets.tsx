@@ -457,11 +457,11 @@ export default function PocketsScreen() {
                 </View>
               )}
 
-              {/* 보유 중이면 2×2 그리드 강조 박스 (보유수량 · 평균매수가 · 평가총액 · 평가손익) */}
+              {/* 보유 중이면 강조 박스 (보유수량·평균매수가 / 매입총액·평가총액 / 평가손익) */}
               {pnl.totalQtyOpen > 0 &&
                 (() => {
-                  // 평가 총액 = 평균 매수가 × 보유 수량 (매입 기준). 평가손익은 현재가 기준.
-                  const evalTotal = pnl.avgOpenPrice * pnl.totalQtyOpen;
+                  const buyTotal = pnl.avgOpenPrice * pnl.totalQtyOpen; // 매입 총액
+                  const evalTotal = price != null ? price * pnl.totalQtyOpen : null; // 평가 총액 = 현재가 × 수량
                   const evalPnl = price != null ? (price - pnl.avgOpenPrice) * pnl.totalQtyOpen : null;
                   return (
                     <View
@@ -489,15 +489,21 @@ export default function PocketsScreen() {
                       </View>
                       <View style={{ flexDirection: 'row' }}>
                         <View style={{ flex: 1 }}>
-                          <Text style={{ color: colors.textDim, fontSize: 11 }}>평가 총액</Text>
-                          <Text style={{ color: num.evalTotal, fontSize: 15, fontWeight: '900' }}>{formatMoney(evalTotal, proj.market)}</Text>
+                          <Text style={{ color: colors.textDim, fontSize: 11 }}>매입 총액</Text>
+                          <Text style={{ color: num.position, fontSize: 15, fontWeight: '900' }}>{formatMoney(buyTotal, proj.market)}</Text>
                         </View>
                         <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                          <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익</Text>
-                          <Text style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 15, fontWeight: '900' }}>
-                            {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, proj.market)}` : '-'}
+                          <Text style={{ color: colors.textDim, fontSize: 11 }}>평가 총액</Text>
+                          <Text style={{ color: num.evalTotal, fontSize: 15, fontWeight: '900' }}>
+                            {evalTotal != null ? formatMoney(evalTotal, proj.market) : '-'}
                           </Text>
                         </View>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)', paddingTop: 6 }}>
+                        <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익</Text>
+                        <Text style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 16, fontWeight: '900' }}>
+                          {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, proj.market)}` : '-'}
+                        </Text>
                       </View>
                     </View>
                   );

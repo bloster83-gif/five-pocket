@@ -28,6 +28,7 @@ const fmtDate = (iso: string | null) => (iso ? iso.slice(0, 10) : '-');
 interface Metric {
   price: number | null; // 실시간 현재가
   changePct: number | null; // 오늘 등락률 % (전일 종가 대비)
+  buyValue: number | null; // 매입총액 (보유수량 * 평균매수가)
   value: number | null; // 평가총액 (보유수량 * 현재가)
   pnl: number | null; // 평가손익 (미실현)
   realized: number; // 실현손익 (매도 완료분)
@@ -135,6 +136,7 @@ export default function ProjectsScreen() {
             [p.id]: {
               price,
               changePct,
+              buyValue: open ? base.totalQtyOpen * base.avgOpenPrice : 0,
               value: open ? base.totalQtyOpen * price : 0,
               pnl: open ? (price - base.avgOpenPrice) * base.totalQtyOpen : 0,
               realized: base.realized,
@@ -144,7 +146,7 @@ export default function ProjectsScreen() {
         } catch {
           setMetrics((m) => ({
             ...m,
-            [p.id]: { price: null, changePct: null, value: open ? null : 0, pnl: open ? null : 0, realized: base.realized, market: p.market },
+            [p.id]: { price: null, changePct: null, buyValue: open ? base.totalQtyOpen * base.avgOpenPrice : 0, value: open ? null : 0, pnl: open ? null : 0, realized: base.realized, market: p.market },
           }));
         }
       })
@@ -440,7 +442,15 @@ export default function ProjectsScreen() {
                         gap: spacing.sm,
                       }}
                     >
-                      {/* 평가 총액 크게 */}
+                      {/* 매입 총액 (핑크) + 평가 총액 (앰버) */}
+                      {m.buyValue != null && m.buyValue > 0 && (
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={{ color: colors.textDim, fontSize: 12 }}>매입 총액</Text>
+                          <Text style={{ color: num.position, fontWeight: '800', fontSize: 15 }}>
+                            {formatMoney(m.buyValue, m.market)}
+                          </Text>
+                        </View>
+                      )}
                       {m.value != null && m.value > 0 && (
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                           <Text style={{ color: colors.textDim, fontSize: 12 }}>평가 총액</Text>

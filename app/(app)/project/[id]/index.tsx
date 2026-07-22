@@ -633,8 +633,13 @@ export default function ProjectDetailScreen() {
           valueColor={num.position}
         />
         <Row
-          label="평가 총액"
+          label="매입 총액"
           value={formatMoney(pnl.totalQtyOpen * pnl.avgOpenPrice, mkt)}
+          valueColor={num.position}
+        />
+        <Row
+          label="평가 총액"
+          value={price != null ? formatMoney(pnl.totalQtyOpen * price, mkt) : '-'}
           valueColor={num.evalTotal}
         />
         <Row label="평가 손익 (미매도분)" value={formatMoney(pnl.unrealized, mkt)} valueColor={signColor(pnl.unrealized)} />
@@ -1124,14 +1129,14 @@ function PocketCard({
 
       {heldLike && (
         <>
-          {/* 보유 정보 — 2×2 그리드 (보유수량 · 평균매수가 · 평가총액 · 평가손익) */}
+          {/* 보유 정보 그리드 (보유수량·평균매수가 / 매입총액·평가총액 / 평가손익) */}
           {(() => {
               // 여러 번 매수한 경우 합산한 순 보유 수량/평단 사용. (매도주문완료 등 순보유 0이면 마지막 매수로 폴백)
               const qty = openQty > 0 ? openQty : buyTrade?.quantity ?? 0;
               const avg = openQty > 0 ? openAvg : buyTrade?.price ?? 0;
-              // 평가 총액 = 평균 매수가 × 보유 수량 (매입 기준). 평가손익은 현재가 기준.
-              const evalTotal = avg * qty;
-              const evalPnl = price != null ? (price - avg) * qty : null;
+              const buyTotal = avg * qty; // 매입 총액 = 평균 매수가 × 보유 수량
+              const evalTotal = price != null ? price * qty : null; // 평가 총액 = 현재가 × 보유 수량
+              const evalPnl = price != null ? (price - avg) * qty : null; // 평가손익 = 평가총액 - 매입총액
               return (
                 <View
                   style={{
@@ -1155,15 +1160,21 @@ function PocketCard({
                   </View>
                   <View style={{ flexDirection: 'row' }}>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ color: colors.textDim, fontSize: 11 }}>평가 총액</Text>
-                      <Text style={{ color: num.evalTotal, fontSize: 15, fontWeight: '900' }}>{formatMoney(evalTotal, market)}</Text>
+                      <Text style={{ color: colors.textDim, fontSize: 11 }}>매입 총액</Text>
+                      <Text style={{ color: num.position, fontSize: 15, fontWeight: '900' }}>{formatMoney(buyTotal, market)}</Text>
                     </View>
                     <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                      <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익</Text>
-                      <Text style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 15, fontWeight: '900' }}>
-                        {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, market)}` : '-'}
+                      <Text style={{ color: colors.textDim, fontSize: 11 }}>평가 총액</Text>
+                      <Text style={{ color: num.evalTotal, fontSize: 15, fontWeight: '900' }}>
+                        {evalTotal != null ? formatMoney(evalTotal, market) : '-'}
                       </Text>
                     </View>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)', paddingTop: 6 }}>
+                    <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익</Text>
+                    <Text style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 16, fontWeight: '900' }}>
+                      {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, market)}` : '-'}
+                    </Text>
                   </View>
                 </View>
               );
