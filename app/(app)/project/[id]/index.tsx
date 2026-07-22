@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Animated, Pressable, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Modal, Pressable, RefreshControl, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { BottomTabsBar } from '@/components/BottomTabsBar';
-import { colors, formatMoney, formatPrice, money, num, pocketColor, radius, signColor, spacing } from '@/theme';
+import { colors, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { alignToKrxTick, computePnL, estimatedShares, pnlPct, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
@@ -23,6 +23,7 @@ export default function ProjectDetailScreen() {
   const [pockets, setPockets] = useState<Pocket[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [account, setAccount] = useState<BrokerAccount | null>(null);
+  const [autoOrderPocket, setAutoOrderPocket] = useState<Pocket | null>(null); // 왼쪽 스와이프 → 가격 직접입력 자동주문(AUTO)
   const [loading, setLoading] = useState(true);
   const [budgetOpen, setBudgetOpen] = useState(false); // 예산 배너 펼침(포켓별 배분)
 
@@ -288,12 +289,13 @@ export default function ProjectDetailScreen() {
 
   // 대기중 포켓 매수 주문 — 매수 목표가(지정가) 기준. 손절과 대칭.
   //  AUTO+계좌: 실제 매수 주문 전송, Diary: 매수 목표가로 체결 기록.
-  const buyPocket = async (k: Pocket): Promise<{ ok: boolean; msg?: string }> => {
+  const buyPocket = async (k: Pocket, customPrice?: number): Promise<{ ok: boolean; msg?: string }> => {
     if (!project || !session?.user?.id) return { ok: false };
     const isKrx = project.market === 'KRX';
-    // 매수는 호가단위 내림으로 정렬한 매수 목표가 기준
-    const buyPrice = isKrx ? alignToKrxTick(k.buy_target_price, 'buy') : k.buy_target_price;
-    if (!buyPrice || buyPrice <= 0) return { ok: false, msg: '매수 목표가가 없어요' };
+    // 매수 가격: 직접 입력(customPrice)이 있으면 그 값, 없으면 매수 목표가. KRX 는 호가단위 내림 정렬.
+    const rawBuy = customPrice && customPrice > 0 ? customPrice : k.buy_target_price;
+    const buyPrice = isKrx ? alignToKrxTick(rawBuy, 'buy') : rawBuy;
+    if (!buyPrice || buyPrice <= 0) return { ok: false, msg: '매수 가격이 없어요' };
     const qty = estimatedShares(k.budget, buyPrice);
     if (qty <= 0) return { ok: false, msg: '배분 예산으로 살 수 있는 수량이 없어요' };
     const rawSell = sellTargetFromFill(buyPrice, Number(project.sell_target_pct));
@@ -488,10 +490,6 @@ export default function ProjectDetailScreen() {
 
   return (
     <View style={{ flex: 1 }}>
-    <ScrollView
-      contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 }}
-      refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.primary} />}
-    >
       <Stack.Screen
         options={{
           title: project.name,
@@ -517,6 +515,66 @@ export default function ProjectDetailScreen() {
         }}
       />
 
+      {/* 틀고정: 실시간 시세 카드는 아래 포켓을 스크롤해도 상단에 계속 고정 */}
+      <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.sm }}>
+        <Card>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.textDim }}>
+                {project.symbol} · {marketLabel}
+              </Text>
+              <Text style={{ color: num.live, fontSize: 38, fontWeight: '900', marginTop: 2 }}>
+                {price != null ? formatPrice(price, mkt) : '—'}
+              </Text>
+              {change != null && changePct != null && (
+                <Text style={{ color: signColor(change), fontSize: 16, fontWeight: '800', marginTop: 2 }}>
+                  {change > 0 ? '▲' : change < 0 ? '▼' : ''} {formatMoney(Math.abs(change), mkt)} ({changePct > 0 ? '+' : ''}
+                  {changePct}%)
+                </Text>
+              )}
+            </View>
+            <View style={{ alignItems: 'flex-end', gap: 4 }}>
+              <Text style={{ color: colors.textDim, fontSize: 12 }}>실시간 추적</Text>
+              <Switch value={project.is_active} onValueChange={toggleActive} />
+            </View>
+          </View>
+
+          {/* 기준가 (전략 기준점) */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.cardAlt, borderRadius: radius.sm, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+            <Text style={{ color: colors.textDim, fontSize: 12 }}>기준가 (포켓1 매수 기준)</Text>
+            <Text style={{ color: num.base, fontWeight: '800' }}>{formatPrice(project.base_price, mkt)}</Text>
+          </View>
+
+          {/* 상태 표시 */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+            {!project.is_active ? (
+              <Text style={{ color: colors.textDim, fontSize: 12 }}>추적이 꺼져 있어요</Text>
+            ) : status === 'live' ? (
+              <>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.buy }} />
+                <Text style={{ color: colors.textDim, fontSize: 12 }}>
+                  실시간 · {updatedAt ? new Date(updatedAt).toLocaleTimeString() : ''} 업데이트
+                </Text>
+              </>
+            ) : status === 'loading' ? (
+              <>
+                <ActivityIndicator size="small" color={colors.textDim} />
+                <Text style={{ color: colors.textDim, fontSize: 12 }}>시세 불러오는 중…</Text>
+              </>
+            ) : (
+              <Text style={{ color: colors.warn, fontSize: 12 }}>
+                시세를 불러오지 못했어요. 폰(Expo Go)에서 실행하거나 프록시/목업 설정이 필요해요.
+              </Text>
+            )}
+          </View>
+        </Card>
+      </View>
+
+    <ScrollView
+      contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.lg, paddingBottom: 48 }}
+      refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.primary} />}
+    >
+
       {/* 종료된 프로젝트 표시 (상단 배너) */}
       {project.closed_at && (
         <View
@@ -539,58 +597,6 @@ export default function ProjectDetailScreen() {
         </View>
       )}
 
-      {/* 실시간 시세 */}
-      <Card>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.textDim }}>
-              {project.symbol} · {marketLabel}
-            </Text>
-            <Text style={{ color: num.live, fontSize: 38, fontWeight: '900', marginTop: 2 }}>
-              {price != null ? formatPrice(price, mkt) : '—'}
-            </Text>
-            {change != null && changePct != null && (
-              <Text style={{ color: signColor(change), fontSize: 16, fontWeight: '800', marginTop: 2 }}>
-                {change > 0 ? '▲' : change < 0 ? '▼' : ''} {formatMoney(Math.abs(change), mkt)} ({changePct > 0 ? '+' : ''}
-                {changePct}%)
-              </Text>
-            )}
-          </View>
-          <View style={{ alignItems: 'flex-end', gap: 4 }}>
-            <Text style={{ color: colors.textDim, fontSize: 12 }}>실시간 추적</Text>
-            <Switch value={project.is_active} onValueChange={toggleActive} />
-          </View>
-        </View>
-
-        {/* 기준가 (전략 기준점) */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.cardAlt, borderRadius: radius.sm, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
-          <Text style={{ color: colors.textDim, fontSize: 12 }}>기준가 (포켓1 매수 기준)</Text>
-          <Text style={{ color: num.base, fontWeight: '800' }}>{formatPrice(project.base_price, mkt)}</Text>
-        </View>
-
-        {/* 상태 표시 (#7 확실한 실시간 표기) */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-          {!project.is_active ? (
-            <Text style={{ color: colors.textDim, fontSize: 12 }}>추적이 꺼져 있어요</Text>
-          ) : status === 'live' ? (
-            <>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.buy }} />
-              <Text style={{ color: colors.textDim, fontSize: 12 }}>
-                실시간 · {updatedAt ? new Date(updatedAt).toLocaleTimeString() : ''} 업데이트
-              </Text>
-            </>
-          ) : status === 'loading' ? (
-            <>
-              <ActivityIndicator size="small" color={colors.textDim} />
-              <Text style={{ color: colors.textDim, fontSize: 12 }}>시세 불러오는 중…</Text>
-            </>
-          ) : (
-            <Text style={{ color: colors.warn, fontSize: 12 }}>
-              시세를 불러오지 못했어요. 폰(Expo Go)에서 실행하거나 프록시/목업 설정이 필요해요.
-            </Text>
-          )}
-        </View>
-      </Card>
 
       {/* 종료된 프로젝트: 실시간 추적 스위치·재개만 살리고, 나머지(자동매매 스위치·매수/매도·수정·삭제 등)는 흐리게(선글라스) + 터치 비활성화 */}
       <View style={{ gap: spacing.lg, opacity: project.closed_at ? 0.5 : 1 }} pointerEvents={project.closed_at ? 'none' : 'auto'}>
@@ -739,7 +745,14 @@ export default function ProjectDetailScreen() {
               {card}
             </StopLossSwipe>
           ) : k.status === 'waiting' ? (
-            <BuyOrderSwipe key={k.id} onBuy={() => confirmBuyPocket(k)}>
+            <BuyOrderSwipe
+              key={k.id}
+              onBuy={() => confirmBuyPocket(k)}
+              // 왼쪽 스와이프 자동주문(가격 직접입력)은 AUTO 등급 + 계좌 연결 시에만
+              onAutoOrder={
+                tier === 'auto' && account && !kisOrderBlocked(project.market) ? () => setAutoOrderPocket(k) : undefined
+              }
+            >
               {card}
             </BuyOrderSwipe>
           ) : (
@@ -786,6 +799,30 @@ export default function ProjectDetailScreen() {
 
     </ScrollView>
     <BottomTabsBar active="index" />
+
+    {/* AUTO 자동주문 — 매수 가격 직접입력 모달 (왼쪽 스와이프로 열림) */}
+    <AutoOrderModal
+      pocket={autoOrderPocket}
+      market={mkt}
+      defaultPrice={
+        autoOrderPocket
+          ? mkt === 'KRX'
+            ? alignToKrxTick(autoOrderPocket.buy_target_price, 'buy')
+            : autoOrderPocket.buy_target_price
+          : 0
+      }
+      budget={autoOrderPocket?.budget ?? null}
+      onClose={() => setAutoOrderPocket(null)}
+      onSubmit={async (customPrice) => {
+        const k = autoOrderPocket;
+        setAutoOrderPocket(null);
+        if (!k) return;
+        const r = await buyPocket(k, customPrice);
+        await load();
+        if (r.ok) notify('자동주문 전송', `포켓 ${k.idx + 1} · ${formatPrice(customPrice, mkt)} 지정가 자동주문을 넣었어요.`);
+        else notify('자동주문 실패', r.msg ?? '처리하지 못했어요.');
+      }}
+    />
     </View>
   );
 }
@@ -891,20 +928,23 @@ function StopLossSwipe({ onStopLoss, profit, children }: { onStopLoss: () => voi
   );
 }
 
-// 대기중 포켓 — 오른쪽으로 스와이프하면 '매수주문' 버튼이 나타나고, 끝까지 밀면 확인
-function BuyOrderSwipe({ onBuy, children }: { onBuy: () => void; children: ReactNode }) {
+// 대기중 포켓
+//  · 오른쪽 스와이프 → '매수주문'(매수 목표가 기준) — 모든 등급
+//  · 왼쪽 스와이프 → '🤖자동주문'(매수 가격 직접입력) — AUTO 등급 + 계좌 연결 시에만(onAutoOrder 있을 때)
+function BuyOrderSwipe({ onBuy, onAutoOrder, children }: { onBuy: () => void; onAutoOrder?: () => void; children: ReactNode }) {
   const ref = useRef<Swipeable>(null);
-  const label = '매수주문';
   return (
     <Swipeable
       ref={ref}
       friction={2}
       leftThreshold={48}
+      rightThreshold={48}
       overshootLeft={false}
+      overshootRight={false}
       renderLeftActions={() => (
         <View style={{ width: 80, paddingRight: spacing.sm }}>
           <View style={{ flex: 1, backgroundColor: colors.buy, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
-            {label.split('').map((ch, i) => (
+            {'매수주문'.split('').map((ch, i) => (
               <Text key={i} style={{ color: '#fff', fontWeight: '900', fontSize: 15, lineHeight: 19 }}>
                 {ch}
               </Text>
@@ -912,15 +952,109 @@ function BuyOrderSwipe({ onBuy, children }: { onBuy: () => void; children: React
           </View>
         </View>
       )}
+      renderRightActions={
+        onAutoOrder
+          ? () => (
+              <View style={{ width: 90, paddingLeft: spacing.sm }}>
+                <View style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 18, marginBottom: 2 }}>🤖</Text>
+                  {'자동주문'.split('').map((ch, i) => (
+                    <Text key={i} style={{ color: '#04121A', fontWeight: '900', fontSize: 13, lineHeight: 16 }}>
+                      {ch}
+                    </Text>
+                  ))}
+                </View>
+              </View>
+            )
+          : undefined
+      }
       onSwipeableOpen={(dir) => {
-        if (dir === 'left') {
-          ref.current?.close();
-          onBuy();
-        }
+        ref.current?.close();
+        if (dir === 'left') onBuy();
+        else if (dir === 'right') onAutoOrder?.();
       }}
     >
       {children}
     </Swipeable>
+  );
+}
+
+// AUTO 등급 자동주문 — 매수 가격을 직접 입력해 지정가 주문을 넣는 모달
+function AutoOrderModal({
+  pocket,
+  market,
+  defaultPrice,
+  budget,
+  onClose,
+  onSubmit,
+}: {
+  pocket: Pocket | null;
+  market: string;
+  defaultPrice: number;
+  budget: number | null;
+  onClose: () => void;
+  onSubmit: (price: number) => void;
+}) {
+  const [raw, setRaw] = useState('');
+  useEffect(() => {
+    if (pocket) setRaw(String(Math.round(defaultPrice)));
+  }, [pocket, defaultPrice]);
+  if (!pocket) return null;
+  const price = Number(rawNumeric(raw)) || 0;
+  const aligned = market === 'KRX' ? alignToKrxTick(price, 'buy') : price;
+  const qty = estimatedShares(budget, aligned);
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
+        <Pressable
+          onPress={() => {}}
+          style={{ backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, borderWidth: 1, borderColor: colors.primary }}
+        >
+          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>🤖 포켓 {pocket.idx + 1} 자동주문</Text>
+          <Text style={{ color: colors.textDim, fontSize: 13 }}>매수 가격을 직접 입력해 지정가 자동주문을 넣습니다.</Text>
+          <View>
+            <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 4 }}>매수 가격 ({market === 'KRX' ? '₩' : '$'})</Text>
+            <TextInput
+              value={withCommas(raw)}
+              onChangeText={(t) => setRaw(rawNumeric(t))}
+              keyboardType="number-pad"
+              placeholder={String(Math.round(defaultPrice))}
+              placeholderTextColor={colors.textDim}
+              style={{
+                backgroundColor: colors.cardAlt,
+                borderRadius: radius.md,
+                paddingHorizontal: spacing.md,
+                paddingVertical: 12,
+                color: colors.buy,
+                fontSize: 22,
+                fontWeight: '900',
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
+            />
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ color: colors.textDim, fontSize: 13 }}>예상 수량 (배분 예산 기준)</Text>
+            <Text style={{ color: num.position, fontWeight: '800', fontSize: 14 }}>{money(qty, 0)}주</Text>
+          </View>
+          {market === 'KRX' && price > 0 && aligned !== price && (
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>호가단위 보정 → {formatPrice(aligned, market)}로 주문됩니다.</Text>
+          )}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 2 }}>
+            <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}>
+              <Text style={{ color: colors.textDim, fontWeight: '800' }}>취소</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => aligned > 0 && onSubmit(aligned)}
+              disabled={aligned <= 0}
+              style={{ flex: 2, backgroundColor: aligned > 0 ? colors.buy : colors.border, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '800' }}>🤖 자동주문 넣기</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -1148,30 +1282,33 @@ function PocketCard({
                     gap: 8,
                   }}
                 >
-                  <View style={{ flexDirection: 'row' }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: colors.textDim, fontSize: 11 }}>보유 수량</Text>
-                      <Text style={{ color: num.position, fontSize: 15, fontWeight: '900' }}>{money(qty, 0)}주</Text>
+                  {/* 상단: 좌측 보유수량·평균매수가(작게) / 우측 매입 총액(크게) */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <View style={{ gap: 3 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+                        <Text style={{ color: colors.textDim, fontSize: 11 }}>보유 수량</Text>
+                        <Text style={{ color: num.position, fontSize: 13, fontWeight: '800' }}>{money(qty, 0)}주</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+                        <Text style={{ color: colors.textDim, fontSize: 11 }}>평균 매수가</Text>
+                        <Text style={{ color: num.position, fontSize: 13, fontWeight: '800' }}>{formatPrice(avg, market)}</Text>
+                      </View>
                     </View>
-                    <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                      <Text style={{ color: colors.textDim, fontSize: 11 }}>평균 매수가</Text>
-                      <Text style={{ color: num.position, fontSize: 15, fontWeight: '900' }}>{formatPrice(avg, market)}</Text>
-                    </View>
-                  </View>
-                  <View style={{ flexDirection: 'row' }}>
-                    <View style={{ flex: 1 }}>
+                    <View style={{ alignItems: 'flex-end' }}>
                       <Text style={{ color: colors.textDim, fontSize: 11 }}>매입 총액</Text>
-                      <Text style={{ color: num.position, fontSize: 15, fontWeight: '900' }}>{formatMoney(buyTotal, market)}</Text>
-                    </View>
-                    <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                      <Text style={{ color: colors.textDim, fontSize: 11 }}>평가 총액</Text>
-                      <Text style={{ color: num.evalTotal, fontSize: 15, fontWeight: '900' }}>
-                        {evalTotal != null ? formatMoney(evalTotal, market) : '-'}
-                      </Text>
+                      <Text style={{ color: num.position, fontSize: 20, fontWeight: '900' }}>{formatMoney(buyTotal, market)}</Text>
                     </View>
                   </View>
+                  {/* 평가 총액 */}
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)', paddingTop: 6 }}>
-                    <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익</Text>
+                    <Text style={{ color: colors.textDim, fontSize: 12 }}>평가 총액</Text>
+                    <Text style={{ color: num.evalTotal, fontSize: 15, fontWeight: '900' }}>
+                      {evalTotal != null ? formatMoney(evalTotal, market) : '-'}
+                    </Text>
+                  </View>
+                  {/* 평가손익 */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ color: colors.textDim, fontSize: 12 }}>평가손익</Text>
                     <Text style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 16, fontWeight: '900' }}>
                       {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, market)}` : '-'}
                     </Text>

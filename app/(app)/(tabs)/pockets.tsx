@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
-import { colors, formatMoney, formatPrice, money, num, pocketColor, radius, signColor, spacing } from '@/theme';
-import { alignToKrxTick, computePnL, estimatedShares } from '@/domain/pockets';
+import { colors, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
+import { alignToKrxTick, computePnL, estimatedShares, sellTargetFromFill } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
-import { getDomesticPrice, getOverseasPrice, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
+import { getDomesticPrice, getOrderFill, getOverseasPrice, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 export default function PocketsScreen() {
@@ -30,6 +30,7 @@ export default function PocketsScreen() {
   const [market, setMarket] = useState<'KRX' | 'US' | null>(null); // null = 전체 시장
   const [expanded, setExpanded] = useState<string | null>(null);
   const [prices, setPrices] = useState<Record<string, { price: number; changePct: number | null }>>({}); // symbol → 실시간가·등락률
+  const [autoOrder, setAutoOrder] = useState<{ pocket: Pocket; proj: Project } | null>(null); // 왼쪽 스와이프 자동주문(AUTO)
 
   const load = useCallback(async () => {
     const [{ data: p }, { data: k }, { data: t }] = await Promise.all([
@@ -219,6 +220,99 @@ export default function PocketsScreen() {
         if (!r.ok) notify(`${word} 실패`, r.msg ?? '처리하지 못했어요.');
       },
       word
+    );
+  };
+
+  // 대기중 포켓 매수 주문 — 매수 목표가(또는 직접 입력가) 기준. 손절과 대칭.
+  const buyPocket = async (k: Pocket, proj: Project, customPrice?: number): Promise<{ ok: boolean; msg?: string }> => {
+    if (!session?.user?.id) return { ok: false };
+    const isKrx = proj.market === 'KRX';
+    const rawBuy = customPrice && customPrice > 0 ? customPrice : k.buy_target_price;
+    const buyPrice = isKrx ? alignToKrxTick(rawBuy, 'buy') : rawBuy;
+    if (!buyPrice || buyPrice <= 0) return { ok: false, msg: '매수 가격이 없어요' };
+    const qty = estimatedShares(k.budget, buyPrice);
+    if (qty <= 0) return { ok: false, msg: '배분 예산으로 살 수 있는 수량이 없어요' };
+    const rawSell = sellTargetFromFill(buyPrice, Number(proj.sell_target_pct));
+    const sellTgt = isKrx ? alignToKrxTick(rawSell, 'sell') : rawSell;
+
+    if (tier === 'auto' && account && !kisOrderBlocked(proj.market)) {
+      try {
+        const input = { side: 'buy' as const, symbol: proj.symbol, quantity: qty, price: buyPrice };
+        const r = proj.market === 'US' ? await placeOverseasOrder(account, input) : await placeDomesticOrder(account, input);
+        await supabase.from('auto_orders').insert({
+          user_id: session.user.id,
+          project_id: proj.id,
+          pocket_id: k.id,
+          side: 'buy',
+          symbol: proj.symbol,
+          order_price: buyPrice,
+          quantity: qty,
+          status: 'sent',
+          kis_order_no: r.orderNo,
+        });
+        let fillPrice = buyPrice;
+        let fillQty = qty;
+        let filled = false;
+        try {
+          await new Promise((res) => setTimeout(res, 2500));
+          const fill = await getOrderFill(account, proj.market === 'US' ? 'US' : 'KRX', r.orderNo, proj.symbol);
+          if (fill && fill.filledQty > 0 && fill.avgPrice > 0) {
+            filled = true;
+            fillPrice = fill.avgPrice;
+            fillQty = fill.filledQty;
+          }
+        } catch {
+          /* 조회 실패 → 미체결로 간주 */
+        }
+        await supabase.from('trades').insert({
+          user_id: session.user.id,
+          project_id: proj.id,
+          pocket_id: k.id,
+          side: 'buy',
+          price: fillPrice,
+          quantity: fillQty,
+          executed_at: new Date().toISOString(),
+          note: `자동주문(KIS ${r.orderNo || '-'})`,
+        });
+        await supabase
+          .from('pockets')
+          .update({
+            status: filled ? 'bought' : 'buy_ordered',
+            sell_target_price: isKrx ? alignToKrxTick(sellTargetFromFill(fillPrice, Number(proj.sell_target_pct)), 'sell') : sellTargetFromFill(fillPrice, Number(proj.sell_target_pct)),
+          })
+          .eq('id', k.id);
+        return { ok: true };
+      } catch (e: any) {
+        return { ok: false, msg: e?.message ?? '주문 실패' };
+      }
+    }
+
+    // 다이어리(수동): 매수 목표가로 체결만 기록
+    await supabase.from('trades').insert({
+      user_id: session.user.id,
+      project_id: proj.id,
+      pocket_id: k.id,
+      side: 'buy',
+      price: buyPrice,
+      quantity: qty,
+      executed_at: new Date().toISOString(),
+      note: '매수',
+    });
+    await supabase.from('pockets').update({ status: 'bought', sell_target_price: sellTgt }).eq('id', k.id);
+    return { ok: true };
+  };
+
+  const confirmBuyPocket = (k: Pocket, proj: Project) => {
+    const disp = proj.market === 'KRX' ? alignToKrxTick(k.buy_target_price, 'buy') : k.buy_target_price;
+    confirmAction(
+      `포켓 ${k.idx + 1} 매수`,
+      `${proj.name} 포켓 ${k.idx + 1}을(를) 매수 목표가 ${formatPrice(disp, proj.market)} 기준으로 매수 주문할까요?${tier === 'auto' && account ? ' 실제 매수 주문이 전송됩니다.' : ''}`,
+      async () => {
+        const r = await buyPocket(k, proj);
+        await load();
+        if (!r.ok) notify('매수 실패', r.msg ?? '처리하지 못했어요.');
+      },
+      '매수'
     );
   };
 
@@ -475,32 +569,33 @@ export default function PocketsScreen() {
                         gap: 8,
                       }}
                     >
-                      <View style={{ flexDirection: 'row' }}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: colors.textDim, fontSize: 11 }}>보유 수량</Text>
-                          <Text style={{ color: num.position, fontSize: 15, fontWeight: '900' }}>{money(pnl.totalQtyOpen, 0)}주</Text>
+                      {/* 상단: 좌측 보유수량·평균매수가(작게) / 우측 매입 총액(크게) */}
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <View style={{ gap: 3 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+                            <Text style={{ color: colors.textDim, fontSize: 11 }}>보유 수량</Text>
+                            <Text style={{ color: num.position, fontSize: 13, fontWeight: '800' }}>{money(pnl.totalQtyOpen, 0)}주</Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+                            <Text style={{ color: colors.textDim, fontSize: 11 }}>평균 매수가</Text>
+                            <Text style={{ color: num.position, fontSize: 13, fontWeight: '800' }}>{formatPrice(pnl.avgOpenPrice, proj.market)}</Text>
+                          </View>
                         </View>
-                        <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                          <Text style={{ color: colors.textDim, fontSize: 11 }}>평균 매수가</Text>
-                          <Text style={{ color: num.position, fontSize: 15, fontWeight: '900' }}>
-                            {formatPrice(pnl.avgOpenPrice, proj.market)}
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={{ flexDirection: 'row' }}>
-                        <View style={{ flex: 1 }}>
+                        <View style={{ alignItems: 'flex-end' }}>
                           <Text style={{ color: colors.textDim, fontSize: 11 }}>매입 총액</Text>
-                          <Text style={{ color: num.position, fontSize: 15, fontWeight: '900' }}>{formatMoney(buyTotal, proj.market)}</Text>
-                        </View>
-                        <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                          <Text style={{ color: colors.textDim, fontSize: 11 }}>평가 총액</Text>
-                          <Text style={{ color: num.evalTotal, fontSize: 15, fontWeight: '900' }}>
-                            {evalTotal != null ? formatMoney(evalTotal, proj.market) : '-'}
-                          </Text>
+                          <Text style={{ color: num.position, fontSize: 20, fontWeight: '900' }}>{formatMoney(buyTotal, proj.market)}</Text>
                         </View>
                       </View>
+                      {/* 평가 총액 */}
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)', paddingTop: 6 }}>
-                        <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익</Text>
+                        <Text style={{ color: colors.textDim, fontSize: 12 }}>평가 총액</Text>
+                        <Text style={{ color: num.evalTotal, fontSize: 15, fontWeight: '900' }}>
+                          {evalTotal != null ? formatMoney(evalTotal, proj.market) : '-'}
+                        </Text>
+                      </View>
+                      {/* 평가손익 */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Text style={{ color: colors.textDim, fontSize: 12 }}>평가손익</Text>
                         <Text style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 16, fontWeight: '900' }}>
                           {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, proj.market)}` : '-'}
                         </Text>
@@ -541,16 +636,41 @@ export default function PocketsScreen() {
             </Card>
           </Pressable>
         );
-        // 보유중(매수 완료) 포켓만 왼쪽으로 스와이프하면 손절하기
+        // 보유중=왼쪽 스와이프 익절/손절, 대기중=오른쪽 스와이프 매수주문(+AUTO는 왼쪽 스와이프 자동주문)
         return k.status === 'bought' ? (
           <StopLossSwipe key={k.id} profit={inProfit} onStopLoss={() => confirmStopLossPocket(k, proj, inProfit)}>
             {cardEl}
           </StopLossSwipe>
+        ) : k.status === 'waiting' ? (
+          <BuyOrderSwipe
+            key={k.id}
+            onBuy={() => confirmBuyPocket(k, proj)}
+            onAutoOrder={
+              tier === 'auto' && account && !kisOrderBlocked(proj.market) ? () => setAutoOrder({ pocket: k, proj }) : undefined
+            }
+          >
+            {cardEl}
+          </BuyOrderSwipe>
         ) : (
           <View key={k.id}>{cardEl}</View>
         );
       })}
       </ScrollView>
+
+      {/* AUTO 자동주문 — 매수 가격 직접입력 모달 (왼쪽 스와이프로 열림) */}
+      <AutoOrderModal
+        target={autoOrder}
+        onClose={() => setAutoOrder(null)}
+        onSubmit={async (customPrice) => {
+          const t = autoOrder;
+          setAutoOrder(null);
+          if (!t) return;
+          const r = await buyPocket(t.pocket, t.proj, customPrice);
+          await load();
+          if (r.ok) notify('자동주문 전송', `포켓 ${t.pocket.idx + 1} · ${formatPrice(customPrice, t.proj.market)} 지정가 자동주문을 넣었어요.`);
+          else notify('자동주문 실패', r.msg ?? '처리하지 못했어요.');
+        }}
+      />
     </View>
   );
 }
@@ -587,5 +707,130 @@ function StopLossSwipe({ onStopLoss, profit, children }: { onStopLoss: () => voi
     >
       {children}
     </Swipeable>
+  );
+}
+
+// 대기중 포켓: 오른쪽 스와이프 → 매수주문(목표가), 왼쪽 스와이프 → 🤖자동주문(가격 직접입력, AUTO만)
+function BuyOrderSwipe({ onBuy, onAutoOrder, children }: { onBuy: () => void; onAutoOrder?: () => void; children: ReactNode }) {
+  const ref = useRef<Swipeable>(null);
+  return (
+    <Swipeable
+      ref={ref}
+      friction={2}
+      leftThreshold={48}
+      rightThreshold={48}
+      overshootLeft={false}
+      overshootRight={false}
+      renderLeftActions={() => (
+        <View style={{ width: 80, paddingRight: spacing.sm }}>
+          <View style={{ flex: 1, backgroundColor: colors.buy, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
+            {'매수주문'.split('').map((ch, i) => (
+              <Text key={i} style={{ color: '#fff', fontWeight: '900', fontSize: 15, lineHeight: 19 }}>
+                {ch}
+              </Text>
+            ))}
+          </View>
+        </View>
+      )}
+      renderRightActions={
+        onAutoOrder
+          ? () => (
+              <View style={{ width: 90, paddingLeft: spacing.sm }}>
+                <View style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 18, marginBottom: 2 }}>🤖</Text>
+                  {'자동주문'.split('').map((ch, i) => (
+                    <Text key={i} style={{ color: '#04121A', fontWeight: '900', fontSize: 13, lineHeight: 16 }}>
+                      {ch}
+                    </Text>
+                  ))}
+                </View>
+              </View>
+            )
+          : undefined
+      }
+      onSwipeableOpen={(dir) => {
+        ref.current?.close();
+        if (dir === 'left') onBuy();
+        else if (dir === 'right') onAutoOrder?.();
+      }}
+    >
+      {children}
+    </Swipeable>
+  );
+}
+
+// AUTO 자동주문 — 매수 가격 직접 입력 모달
+function AutoOrderModal({
+  target,
+  onClose,
+  onSubmit,
+}: {
+  target: { pocket: Pocket; proj: Project } | null;
+  onClose: () => void;
+  onSubmit: (price: number) => void;
+}) {
+  const [raw, setRaw] = useState('');
+  const market = target?.proj.market ?? 'KRX';
+  const defaultPrice =
+    target ? (market === 'KRX' ? alignToKrxTick(target.pocket.buy_target_price, 'buy') : target.pocket.buy_target_price) : 0;
+  useEffect(() => {
+    if (target) setRaw(String(Math.round(defaultPrice)));
+  }, [target, defaultPrice]);
+  if (!target) return null;
+  const price = Number(rawNumeric(raw)) || 0;
+  const aligned = market === 'KRX' ? alignToKrxTick(price, 'buy') : price;
+  const qty = estimatedShares(target.pocket.budget, aligned);
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
+        <Pressable
+          onPress={() => {}}
+          style={{ backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, borderWidth: 1, borderColor: colors.primary }}
+        >
+          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>🤖 포켓 {target.pocket.idx + 1} 자동주문</Text>
+          <Text style={{ color: colors.textDim, fontSize: 13 }}>{target.proj.name} · 매수 가격을 직접 입력해 지정가 자동주문을 넣습니다.</Text>
+          <View>
+            <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 4 }}>매수 가격 ({market === 'KRX' ? '₩' : '$'})</Text>
+            <TextInput
+              value={withCommas(raw)}
+              onChangeText={(t) => setRaw(rawNumeric(t))}
+              keyboardType="number-pad"
+              placeholder={String(Math.round(defaultPrice))}
+              placeholderTextColor={colors.textDim}
+              style={{
+                backgroundColor: colors.cardAlt,
+                borderRadius: radius.md,
+                paddingHorizontal: spacing.md,
+                paddingVertical: 12,
+                color: colors.buy,
+                fontSize: 22,
+                fontWeight: '900',
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
+            />
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ color: colors.textDim, fontSize: 13 }}>예상 수량 (배분 예산 기준)</Text>
+            <Text style={{ color: num.position, fontWeight: '800', fontSize: 14 }}>{money(qty, 0)}주</Text>
+          </View>
+          {market === 'KRX' && price > 0 && aligned !== price && (
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>호가단위 보정 → {formatPrice(aligned, market)}로 주문됩니다.</Text>
+          )}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 2 }}>
+            <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}>
+              <Text style={{ color: colors.textDim, fontWeight: '800' }}>취소</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => aligned > 0 && onSubmit(aligned)}
+              disabled={aligned <= 0}
+              style={{ flex: 2, backgroundColor: aligned > 0 ? colors.buy : colors.border, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '800' }}>🤖 자동주문 넣기</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
