@@ -346,6 +346,9 @@ export default function JournalScreen() {
     return m;
   }, [flows, from, to]);
 
+  // 이 기간에 입금/출금/배당이 하나라도 있는지 (있을 때만 손익 요약에 따로 표시)
+  const hasFlow = flowSums.deposit !== 0 || flowSums.withdrawal !== 0 || flowSums.dividend !== 0;
+
   const byDate = useMemo(() => {
     const m: Record<string, Trade[]> = {};
     for (const t of filteredTrades) {
@@ -579,9 +582,9 @@ export default function JournalScreen() {
             </View>
           </View>
 
-          {/* 합산 결과 */}
-          <View style={{ backgroundColor: colors.cardAlt, borderRadius: 10, padding: spacing.md, gap: 4 }}>
-            {flowTypeQuery ? (
+          {/* 현금흐름(입금/출금/배당) 검색 중일 때만 그 합계 표시 */}
+          {flowTypeQuery && (
+            <View style={{ backgroundColor: colors.cardAlt, borderRadius: 10, padding: spacing.md }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: colors.text, fontWeight: '800' }}>
                   {FLOW_META[flowTypeQuery].label} 합계 (기간 내)
@@ -590,26 +593,13 @@ export default function JournalScreen() {
                   {formatKRW(flowSums[flowTypeQuery])}
                 </Text>
               </View>
-            ) : (
-              <>
-                <Text style={{ color: colors.textDim, fontSize: 11 }}>
-                  실현수익 합계는 검색 결과 위의 “💰 실현수익” 카드에 표시됩니다.
-                </Text>
-                {!q.trim() && (
-                  <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: 2, flexWrap: 'wrap' }}>
-                    <Text style={{ color: colors.buy, fontSize: 12 }}>입금 {formatKRW(flowSums.deposit)}</Text>
-                    <Text style={{ color: colors.sell, fontSize: 12 }}>출금 {formatKRW(flowSums.withdrawal)}</Text>
-                    <Text style={{ color: colors.accent, fontSize: 12 }}>배당 {formatKRW(flowSums.dividend)}</Text>
-                  </View>
-                )}
-              </>
-            )}
-          </View>
+            </View>
+          )}
         </Card>
       )}
 
-      {/* 💰 손익 요약: 실현(기간) + 평가(현재 보유) 합산 (시장별) */}
-      {!flowTypeQuery && pnlSummary.length > 0 && (
+      {/* 💰 손익 요약: 실현(기간) + 평가(현재 보유) 합산 (시장별). 이 기간에 현금흐름이 있으면 함께 표시 */}
+      {!flowTypeQuery && (pnlSummary.length > 0 || hasFlow) && (
         <Card style={{ borderColor: colors.buy }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text style={{ color: colors.text, fontWeight: '800' }}>
@@ -676,14 +666,33 @@ export default function JournalScreen() {
               </View>
             );
           })}
+          {/* 이 기간에 입금/출금/배당이 있으면 따로 표시 (없으면 숨김) */}
+          {hasFlow && (
+            <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 6 }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>💵 현금 흐름 ({periodLabel})</Text>
+              {(['deposit', 'withdrawal', 'dividend'] as CashFlowType[])
+                .filter((k) => flowSums[k] !== 0)
+                .map((k) => (
+                  <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: colors.textDim, fontSize: 13 }}>{FLOW_META[k].label}</Text>
+                    <Text style={{ color: FLOW_META[k].color, fontWeight: '800', fontSize: 15 }}>
+                      {FLOW_META[k].sign}
+                      {formatKRW(flowSums[k])}
+                    </Text>
+                  </View>
+                ))}
+            </View>
+          )}
           {unrealizedTotals.count > 0 && unrealizedTotals.priced < unrealizedTotals.count && (
             <Text style={{ color: colors.textDim, fontSize: 11 }}>
               * 보유 {unrealizedTotals.count}종목 중 {unrealizedTotals.priced}종목 시세 반영 (웹은 시세 제한 · 폰에서 정확)
             </Text>
           )}
-          <Text style={{ color: colors.textDim, fontSize: 11 }}>
-            평가손익은 현재 보유분을 실시간 시세로 평가한 값이라 기간과 무관하게 최신 기준입니다.
-          </Text>
+          {pnlSummary.length > 0 && (
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>
+              평가손익은 현재 보유분을 실시간 시세로 평가한 값이라 기간과 무관하게 최신 기준입니다.
+            </Text>
+          )}
         </Card>
       )}
 
