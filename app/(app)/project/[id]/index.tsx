@@ -1005,7 +1005,7 @@ function PocketCard({
                     </View>
                     <View style={{ flex: 1, alignItems: 'flex-end' }}>
                       <Text style={{ color: colors.textDim, fontSize: 11 }}>평균 매수가</Text>
-                      <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>{formatPrice(avg, market)}</Text>
+                      <Text style={{ color: colors.buy, fontSize: 15, fontWeight: '900' }}>{formatPrice(avg, market)}</Text>
                     </View>
                   </View>
                   <View style={{ flexDirection: 'row' }}>
