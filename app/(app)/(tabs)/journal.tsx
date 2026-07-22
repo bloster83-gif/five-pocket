@@ -528,41 +528,44 @@ export default function JournalScreen() {
   return (
     <View style={{ flex: 1 }}>
       {HeaderToggle}
-      <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
 
-      {/* 검색/필터 바 (내용 카드와 구분되는 어두운 바 서식) */}
-      <FilterBar style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <Pressable
-          onPress={() => setShowSearch((s) => !s)}
-          style={{
-            width: 40,
-            height: 36,
-            borderRadius: 10,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: showSearch ? colors.buy : colors.card,
-          }}
-        >
-          <Text style={{ fontSize: 16 }}>🔍</Text>
-        </Pressable>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
-          {['오늘', '1주', '1개월', '3개월', '올해', '전체'].map((k) => (
-            <Chip key={k} label={k} active={preset === k} onPress={() => applyPreset(k)} />
-          ))}
-          <View style={{ width: 1, height: 22, backgroundColor: colors.border }} />
-          <Chip
-            label="매수만"
-            active={sideFilter === 'buy'}
-            onPress={() => setSideFilter(sideFilter === 'buy' ? null : 'buy')}
-          />
-          <Chip
-            label="매도만"
-            active={sideFilter === 'sell'}
-            onPress={() => setSideFilter(sideFilter === 'sell' ? null : 'sell')}
-            activeColor={colors.sell}
-          />
-        </ScrollView>
-      </FilterBar>
+      {/* 틀고정: 검색/필터 바는 아래 목록을 스크롤해도 상단에 고정 */}
+      <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xs }}>
+        <FilterBar style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Pressable
+            onPress={() => setShowSearch((s) => !s)}
+            style={{
+              width: 40,
+              height: 36,
+              borderRadius: 10,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: showSearch ? colors.buy : colors.card,
+            }}
+          >
+            <Text style={{ fontSize: 16 }}>🔍</Text>
+          </Pressable>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
+            {['오늘', '1주', '1개월', '3개월', '올해', '전체'].map((k) => (
+              <Chip key={k} label={k} active={preset === k} onPress={() => applyPreset(k)} />
+            ))}
+            <View style={{ width: 1, height: 22, backgroundColor: colors.border }} />
+            <Chip
+              label="매수만"
+              active={sideFilter === 'buy'}
+              onPress={() => setSideFilter(sideFilter === 'buy' ? null : 'buy')}
+            />
+            <Chip
+              label="매도만"
+              active={sideFilter === 'sell'}
+              onPress={() => setSideFilter(sideFilter === 'sell' ? null : 'sell')}
+              activeColor={colors.sell}
+            />
+          </ScrollView>
+        </FilterBar>
+      </View>
+
+      <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.md, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
 
       {showSearch && (
         <Card>
