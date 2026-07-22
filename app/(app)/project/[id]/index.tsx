@@ -389,7 +389,13 @@ export default function ProjectDetailScreen() {
   return (
     <View style={{ flex: 1 }}>
     <ScrollView
-      contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 }}
+      contentContainerStyle={{
+        padding: spacing.lg,
+        gap: spacing.lg,
+        paddingBottom: 48,
+        // 종료된 프로젝트는 상세 화면 전체를 흐리게(선글라스) 처리 — 진행중과 확실히 구분
+        opacity: project.closed_at ? 0.5 : 1,
+      }}
       refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.primary} />}
     >
       <Stack.Screen
