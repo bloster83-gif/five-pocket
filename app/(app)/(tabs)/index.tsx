@@ -298,6 +298,15 @@ export default function ProjectsScreen() {
               </Text>
             </Card>
           }
+          // 리스트 하단: 좌우 스와이프 안내 문구 (프로젝트가 있을 때만)
+          ListFooterComponent={
+            filtered.length > 0 ? (
+              <Text style={{ color: colors.textDim, fontSize: 11, textAlign: 'center', marginTop: spacing.sm }}>
+                💡 카드를 오른쪽으로 밀면 <Text style={{ color: colors.buy, fontWeight: '800' }}>복사</Text>, 왼쪽으로 밀면{' '}
+                <Text style={{ color: colors.sell, fontWeight: '800' }}>종료</Text>할 수 있어요.
+              </Text>
+            ) : null
+          }
           renderItem={({ item }) => {
             const closed = !!item.closed_at;
             const m = metrics[item.id];
