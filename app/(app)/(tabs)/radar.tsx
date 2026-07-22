@@ -166,6 +166,16 @@ export default function RadarScreen() {
     await supabase.from('watchlist_items').delete().eq('id', it.id);
   };
 
+  const updateBase = async (it: WatchlistItem, base: number) => {
+    if (base <= 0) return;
+    setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, base_price: base } : x)));
+    const { error } = await supabase.from('watchlist_items').update({ base_price: base }).eq('id', it.id);
+    if (error) {
+      notify('기준가 변경 실패', error.message);
+      load();
+    }
+  };
+
   const addMemo = async (itemId: string, note: string) => {
     if (!session?.user?.id || !note.trim()) return;
     const { error } = await supabase
@@ -253,6 +263,7 @@ export default function RadarScreen() {
             onToggle={() => setExpanded((e) => (e === it.id ? null : it.id))}
             onAddMemo={(note) => addMemo(it.id, note)}
             onDeleteMemo={deleteMemo}
+            onUpdateBase={(base) => updateBase(it, base)}
             onDelete={() =>
               confirmAction('관심종목 삭제', `"${it.name}"을(를) 관심종목에서 삭제할까요? 메모도 함께 삭제됩니다.`, () => deleteItem(it), '삭제')
             }
@@ -320,6 +331,7 @@ function WatchRow({
   onToggle,
   onAddMemo,
   onDeleteMemo,
+  onUpdateBase,
   onDelete,
   onCreateProject,
 }: {
@@ -331,11 +343,18 @@ function WatchRow({
   onToggle: () => void;
   onAddMemo: (note: string) => void;
   onDeleteMemo: (m: WatchlistMemo) => void;
+  onUpdateBase: (base: number) => void;
   onDelete: () => void;
   onCreateProject: () => void;
 }) {
   const [note, setNote] = useState('');
   const mkt = item.market;
+  const isKr = mkt === 'KRX';
+  const [baseRaw, setBaseRaw] = useState(String(item.base_price));
+  // 다른 곳에서 기준가가 바뀌면 편집값도 동기화
+  useEffect(() => {
+    setBaseRaw(String(item.base_price));
+  }, [item.base_price]);
   // 기준가 대비: 100% 이상=현재가가 기준가 위(빨강), 미만=아래(파랑)
   const ratioColor = ratio == null ? colors.textDim : ratio >= 100 ? colors.buy : colors.sell;
   // 형광펜 음영: 기준가 이하로 내려갈수록(=ratio가 100 미만으로 낮을수록) 파란 음영이 진해짐
@@ -428,9 +447,41 @@ function WatchRow({
           </View>
         </Pressable>
 
-        {/* 메모 영역 (탭하면 열림) */}
+        {/* 탭하면 열림 — 기준가 수정 + 메모 */}
         {open && (
           <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.sm }}>
+            {/* 기준가 변경 */}
+            <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+              <Text style={{ color: colors.textDim, fontSize: 12, width: 52 }}>기준가</Text>
+              <TextInput
+                value={withCommas(baseRaw, !isKr)}
+                onChangeText={(t) => setBaseRaw(rawNumeric(t, !isKr))}
+                keyboardType="decimal-pad"
+                placeholder="기준가 입력"
+                placeholderTextColor={colors.textDim}
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.cardAlt,
+                  borderRadius: radius.md,
+                  paddingHorizontal: spacing.md,
+                  paddingVertical: 8,
+                  color: num.base,
+                  fontSize: 15,
+                  fontWeight: '900',
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              />
+              <Pressable
+                onPress={() => {
+                  const b = Number(rawNumeric(baseRaw, !isKr)) || 0;
+                  if (b > 0) onUpdateBase(b);
+                }}
+                style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 9 }}
+              >
+                <Text style={{ color: '#04121A', fontWeight: '800' }}>변경</Text>
+              </Pressable>
+            </View>
             <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end' }}>
               <View style={{ flex: 1 }}>
                 <TextInput
