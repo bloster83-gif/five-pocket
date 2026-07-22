@@ -85,7 +85,15 @@ Deno.serve(async (req: Request) => {
       const out = await res.json();
       // result_code 1 = 성공
       if (String(out.result_code) !== '1') {
-        return json({ error: out.message ?? '문자 발송에 실패했어요.' }, 502);
+        // 실패 시 이 서버의 실제 나가는 IP를 함께 알려준다 (알리고 '발송서버 IP' 등록용).
+        let egressIp = '';
+        try {
+          egressIp = (await (await fetch('https://api.ipify.org')).text()).trim();
+        } catch {
+          /* ignore */
+        }
+        const ipHint = egressIp ? ` · 발송서버 IP: ${egressIp} (알리고에 이 IP를 등록하세요)` : '';
+        return json({ error: `${out.message ?? '문자 발송에 실패했어요.'}${ipHint}` }, 502);
       }
       return json({ ok: true, expiresAt });
     }
