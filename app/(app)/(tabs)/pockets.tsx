@@ -642,15 +642,19 @@ export default function PocketsScreen() {
             {cardEl}
           </StopLossSwipe>
         ) : k.status === 'waiting' ? (
-          <BuyOrderSwipe
-            key={k.id}
-            onBuy={() => confirmBuyPocket(k, proj)}
-            onAutoOrder={
-              tier === 'auto' && account && !kisOrderBlocked(proj.market) ? () => setAutoOrder({ pocket: k, proj }) : undefined
-            }
-          >
-            {cardEl}
-          </BuyOrderSwipe>
+          (() => {
+            // AUTO+계좌: 오른쪽 스와이프 → 가격 직접입력 자동주문 모달. 그 외: 목표가 매수주문.
+            const isAuto = tier === 'auto' && !!account && !kisOrderBlocked(proj.market);
+            return (
+              <BuyOrderSwipe
+                key={k.id}
+                auto={isAuto}
+                onBuy={() => (isAuto ? setAutoOrder({ pocket: k, proj }) : confirmBuyPocket(k, proj))}
+              >
+                {cardEl}
+              </BuyOrderSwipe>
+            );
+          })()
         ) : (
           <View key={k.id}>{cardEl}</View>
         );
@@ -710,48 +714,32 @@ function StopLossSwipe({ onStopLoss, profit, children }: { onStopLoss: () => voi
   );
 }
 
-// 대기중 포켓: 오른쪽 스와이프 → 매수주문(목표가), 왼쪽 스와이프 → 🤖자동주문(가격 직접입력, AUTO만)
-function BuyOrderSwipe({ onBuy, onAutoOrder, children }: { onBuy: () => void; onAutoOrder?: () => void; children: ReactNode }) {
+// 대기중 포켓 — 오른쪽으로 스와이프하면 '매수주문' 실행 (AUTO는 가격 직접입력 모달, 다이어리는 목표가)
+function BuyOrderSwipe({ onBuy, auto, children }: { onBuy: () => void; auto?: boolean; children: ReactNode }) {
   const ref = useRef<Swipeable>(null);
   return (
     <Swipeable
       ref={ref}
       friction={2}
       leftThreshold={48}
-      rightThreshold={48}
       overshootLeft={false}
-      overshootRight={false}
       renderLeftActions={() => (
-        <View style={{ width: 80, paddingRight: spacing.sm }}>
-          <View style={{ flex: 1, backgroundColor: colors.buy, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
-            {'매수주문'.split('').map((ch, i) => (
-              <Text key={i} style={{ color: '#fff', fontWeight: '900', fontSize: 15, lineHeight: 19 }}>
+        <View style={{ width: 84, paddingRight: spacing.sm }}>
+          <View style={{ flex: 1, backgroundColor: auto ? colors.primary : colors.buy, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
+            {auto && <Text style={{ fontSize: 16, marginBottom: 2 }}>🤖</Text>}
+            {(auto ? '자동주문' : '매수주문').split('').map((ch, i) => (
+              <Text key={i} style={{ color: auto ? '#04121A' : '#fff', fontWeight: '900', fontSize: 14, lineHeight: 17 }}>
                 {ch}
               </Text>
             ))}
           </View>
         </View>
       )}
-      renderRightActions={
-        onAutoOrder
-          ? () => (
-              <View style={{ width: 90, paddingLeft: spacing.sm }}>
-                <View style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ fontSize: 18, marginBottom: 2 }}>🤖</Text>
-                  {'자동주문'.split('').map((ch, i) => (
-                    <Text key={i} style={{ color: '#04121A', fontWeight: '900', fontSize: 13, lineHeight: 16 }}>
-                      {ch}
-                    </Text>
-                  ))}
-                </View>
-              </View>
-            )
-          : undefined
-      }
       onSwipeableOpen={(dir) => {
-        ref.current?.close();
-        if (dir === 'left') onBuy();
-        else if (dir === 'right') onAutoOrder?.();
+        if (dir === 'left') {
+          ref.current?.close();
+          onBuy();
+        }
       }}
     >
       {children}
