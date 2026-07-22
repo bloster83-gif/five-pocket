@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
 import { Button, Card, Field, NumberField } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, radius, spacing } from '@/theme';
-import { buildPocketSeeds, clampPocketCount, MAX_POCKET_COUNT, MIN_POCKET_COUNT, normalizeWeights, POCKET_COUNT } from '@/domain/pockets';
+import { buildPocketSeeds, clampPocketCount, estimatedShares, MAX_POCKET_COUNT, MIN_POCKET_COUNT, normalizeWeights, POCKET_COUNT } from '@/domain/pockets';
 import { searchSymbols } from '@/services/symbols';
 import { priceProvider } from '@/services/prices';
 import { getDomesticBalance, kisOrderBlocked } from '@/services/broker/kis';
@@ -182,15 +182,23 @@ export default function NewProjectScreen() {
       return notify('저장 실패', perr?.message ?? '알 수 없는 오류');
     }
 
-    const rows = seeds.map((s) => ({
-      project_id: proj.id,
-      idx: s.idx,
-      buy_target_price: s.buy_target_price,
-      sell_target_price: s.sell_target_price,
-      weight: s.weight,
-      budget: s.budget,
-      status: 'waiting' as const,
-    }));
+    // 배분 예산이 0이거나 매수 가능 수량이 0주인 포켓은 생성하지 않는다. (idx는 유지)
+    const rows = seeds
+      .filter((s) => (s.budget ?? 0) > 0 && estimatedShares(s.budget, s.buy_target_price) > 0)
+      .map((s) => ({
+        project_id: proj.id,
+        idx: s.idx,
+        buy_target_price: s.buy_target_price,
+        sell_target_price: s.sell_target_price,
+        weight: s.weight,
+        budget: s.budget,
+        status: 'waiting' as const,
+      }));
+    if (rows.length === 0) {
+      setSaving(false);
+      await supabase.from('projects').delete().eq('id', proj.id); // 방금 만든 빈 프로젝트 정리
+      return notify('포켓 생성 불가', '예산·수량이 0보다 큰 포켓이 하나도 없어요. 예산 배분을 확인해주세요.');
+    }
     const { error: kerr } = await supabase.from('pockets').insert(rows);
     setSaving(false);
     if (kerr) return notify('포켓 생성 실패', kerr.message);
@@ -335,14 +343,21 @@ export default function NewProjectScreen() {
         </View>
         {weights.map((w, i) => {
           const alloc = parsed.totalBudget ? (parsed.totalBudget * normalized[i]) / 100 : null;
+          const s = seeds[i];
+          // 예산 0 또는 매수 가능 수량 0주면 이 포켓은 생성되지 않음 (예산을 넣었을 때만 판정)
+          const excluded =
+            parsed.totalBudget != null &&
+            !!s &&
+            ((s.budget ?? 0) <= 0 || estimatedShares(s.budget, s.buy_target_price) <= 0);
           return (
-            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, opacity: excluded ? 0.5 : 1 }}>
               <Text style={{ color: colors.text, width: 56 }}>포켓 {i + 1}</Text>
               <View style={{ width: 90 }}>
                 <Field label="" value={w} onChangeText={(v) => setWeight(i, v)} keyboardType="decimal-pad" />
               </View>
               <Text style={{ color: colors.textDim, flex: 1 }}>
                 {normalized[i]}% {alloc != null ? `· ${formatPrice(alloc, market)}` : ''}
+                {excluded && <Text style={{ color: colors.warn, fontWeight: '800' }}>  · 생성 안 함</Text>}
               </Text>
             </View>
           );
