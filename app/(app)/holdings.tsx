@@ -152,77 +152,85 @@ export default function HoldingsScreen() {
         <Text style={{ color: colors.textDim, fontSize: 11 }}>국내(평가+예수금) + 미국(평가+예수금)×1,500원 고정환율</Text>
       </Card>
 
-      {/* 국내(원화) 요약 */}
-      <Card>
-        <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>🇰🇷 국내 (원화)</Text>
-        <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
-            <Text style={{ color: colors.textDim, fontSize: 11 }}>평가금액</Text>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{formatMoney(balance?.totalEval ?? 0, 'KRX')}</Text>
+      {/* 국내(원화) — 요약 + 종목을 흰색 테두리로 묶음 */}
+      <View style={{ borderColor: colors.text, borderWidth: 1.5, borderRadius: radius.lg, padding: spacing.sm, gap: spacing.sm }}>
+        {/* 국내 요약 */}
+        <Card>
+          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>🇰🇷 국내 (원화)</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.md }}>
+            <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
+              <Text style={{ color: colors.textDim, fontSize: 11 }}>평가금액</Text>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{formatMoney(balance?.totalEval ?? 0, 'KRX')}</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
+              <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익{krRate != null ? ` (${krRate > 0 ? '+' : ''}${krRate}%)` : ''}</Text>
+              <Text style={{ color: signColor(krPnl), fontWeight: '900', fontSize: 16 }}>
+                {krPnl > 0 ? '+' : ''}
+                {formatMoney(krPnl, 'KRX')}
+              </Text>
+            </View>
           </View>
-          <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
-            <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익{krRate != null ? ` (${krRate > 0 ? '+' : ''}${krRate}%)` : ''}</Text>
-            <Text style={{ color: signColor(krPnl), fontWeight: '900', fontSize: 16 }}>
-              {krPnl > 0 ? '+' : ''}
-              {formatMoney(krPnl, 'KRX')}
-            </Text>
-          </View>
-        </View>
-        <Row label="예수금 (D+2 정산·원화)" value={formatMoney(krCash, 'KRX')} />
-        <Row label="국내 보유 종목" value={`${krHoldings.length}종목`} />
-      </Card>
+          <Row label="예수금 (D+2 정산·원화)" value={formatMoney(krCash, 'KRX')} />
+          <Row label="국내 보유 종목" value={`${krHoldings.length}종목`} />
+        </Card>
 
-      {/* 미국(달러) 요약 */}
-      <Card>
-        <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>🇺🇸 미국 (달러)</Text>
-        <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
-            <Text style={{ color: colors.textDim, fontSize: 11 }}>평가금액</Text>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{formatMoney(usEval, 'US')}</Text>
-          </View>
-          <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
-            <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익{usRate != null ? ` (${usRate > 0 ? '+' : ''}${usRate}%)` : ''}</Text>
-            <Text style={{ color: signColor(usPnl), fontWeight: '900', fontSize: 16 }}>
-              {usPnl > 0 ? '+' : ''}
-              {formatMoney(usPnl, 'US')}
-            </Text>
-          </View>
-        </View>
-        <Row label="예수금 (주문가능·달러)" value={formatMoney(usCash, 'US')} />
-        <Row label="미국 보유 종목" value={`${usHoldings.length}종목`} />
-      </Card>
-
-      {/* 국내 종목 상세 */}
-      <Card>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🇰🇷 국내 종목 ({krHoldings.length})</Text>
-        {krHoldings.length === 0 ? (
-          <Text style={{ color: colors.textDim, fontSize: 13 }}>보유 중인 국내 종목이 없어요.</Text>
-        ) : (
-          krHoldings.map((h) => <HoldingRow key={`KRX-${h.symbol}`} h={h} />)
-        )}
-      </Card>
-
-      {/* 미국(달러) 상세 */}
-      <Card>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🇺🇸 미국 종목 ({usHoldings.length})</Text>
-          {usHoldings.length > 0 && (
-            <Text style={{ color: signColor(usPnl), fontWeight: '800', fontSize: 12 }}>
-              평가 {formatMoney(usEval, 'US')} · {usPnl > 0 ? '+' : ''}
-              {formatMoney(usPnl, 'US')}
-            </Text>
+        {/* 국내 종목 상세 */}
+        <Card>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🇰🇷 국내 종목 ({krHoldings.length})</Text>
+          {krHoldings.length === 0 ? (
+            <Text style={{ color: colors.textDim, fontSize: 13 }}>보유 중인 국내 종목이 없어요.</Text>
+          ) : (
+            krHoldings.map((h) => <HoldingRow key={`KRX-${h.symbol}`} h={h} />)
           )}
-        </View>
-        {usHoldings.length === 0 ? (
-          <Text style={{ color: colors.textDim, fontSize: 13 }}>보유 중인 미국 종목이 없어요.</Text>
-        ) : (
-          usHoldings.map((h) => <HoldingRow key={`US-${h.symbol}`} h={h} />)
-        )}
-      </Card>
+        </Card>
+      </View>
 
-      <Text style={{ color: colors.textDim, fontSize: 11 }}>
-        * {account.is_virtual ? '모의투자' : '실전'} 계좌 실시간 잔고 · 폰(네이티브)에서만 조회돼요. 국내/미국 요약 금액은 각
-        통화 기준입니다.
+      {/* 미국(달러) — 요약 + 종목을 파란 테두리로 묶음 */}
+      <View style={{ borderColor: colors.accent, borderWidth: 1.5, borderRadius: radius.lg, padding: spacing.sm, gap: spacing.sm }}>
+        {/* 미국 요약 */}
+        <Card>
+          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>🇺🇸 미국 (달러)</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.md }}>
+            <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
+              <Text style={{ color: colors.textDim, fontSize: 11 }}>평가금액</Text>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{formatMoney(usEval, 'US')}</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
+              <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익{usRate != null ? ` (${usRate > 0 ? '+' : ''}${usRate}%)` : ''}</Text>
+              <Text style={{ color: signColor(usPnl), fontWeight: '900', fontSize: 16 }}>
+                {usPnl > 0 ? '+' : ''}
+                {formatMoney(usPnl, 'US')}
+              </Text>
+            </View>
+          </View>
+          <Row label="예수금 (주문가능·달러)" value={formatMoney(usCash, 'US')} />
+          <Row label="미국 보유 종목" value={`${usHoldings.length}종목`} />
+        </Card>
+
+        {/* 미국 종목 상세 */}
+        <Card>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🇺🇸 미국 종목 ({usHoldings.length})</Text>
+            {usHoldings.length > 0 && (
+              <Text style={{ color: signColor(usPnl), fontWeight: '800', fontSize: 12 }}>
+                평가 {formatMoney(usEval, 'US')} · {usPnl > 0 ? '+' : ''}
+                {formatMoney(usPnl, 'US')}
+              </Text>
+            )}
+          </View>
+          {usHoldings.length === 0 ? (
+            <Text style={{ color: colors.textDim, fontSize: 13 }}>보유 중인 미국 종목이 없어요.</Text>
+          ) : (
+            usHoldings.map((h) => <HoldingRow key={`US-${h.symbol}`} h={h} />)
+          )}
+        </Card>
+      </View>
+
+      <Text style={{ color: colors.textDim, fontSize: 12, textAlign: 'center', marginTop: 2 }}>
+        📌 보유주식은 현재 증권사 계좌에서 불러온 실제 잔고입니다.
+      </Text>
+      <Text style={{ color: colors.textDim, fontSize: 11, textAlign: 'center' }}>
+        {account.is_virtual ? '모의투자' : '실전'} 계좌 · 폰(네이티브)에서만 조회돼요. 국내/미국 요약 금액은 각 통화 기준입니다.
       </Text>
     </ScrollView>
   );
