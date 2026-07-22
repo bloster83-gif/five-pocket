@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect } from 'expo-router';
@@ -9,9 +9,22 @@ import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatPrice, money, num, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { searchSymbols } from '@/services/symbols';
 import { priceProvider } from '@/services/prices';
+import { notifyNow } from '@/lib/notifications';
 import type { Market, SymbolResult, WatchlistItem, WatchlistMemo } from '@/types/db';
 
 type Filter = 'all' | 'KRX' | 'US' | 'under' | 'over';
+
+// #RRGGBB 두 색을 t(0~1)로 섞기 — 기준가 이하 종목 음영(형광펜) 강도 표현용
+function hexToRgb(h: string): [number, number, number] {
+  const n = parseInt(h.replace('#', ''), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function blendHex(a: string, b: string, t: number): string {
+  const [ar, ag, ab] = hexToRgb(a);
+  const [br, bg, bb] = hexToRgb(b);
+  const m = (x: number, y: number) => Math.round(x + (y - x) * Math.max(0, Math.min(1, t)));
+  return `rgb(${m(ar, br)},${m(ag, bg)},${m(ab, bb)})`;
+}
 
 // 관심종목 레이더 — 기준가를 직접 입력하고, '기준가 대비 %'(= 현재가 ÷ 기준가)로 종목을 감시한다.
 export default function RadarScreen() {
@@ -80,6 +93,24 @@ export default function RadarScreen() {
       cancelled = true;
     };
   }, [symbolsKey]);
+
+  // 기준가 이하로 내려가면 로컬 알림 (한 번 내려갈 때마다 1회, 다시 위로 올라가면 리셋)
+  const notifiedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    items.forEach((it) => {
+      const p = prices[it.symbol];
+      if (p == null || !it.base_price || it.base_price <= 0) return;
+      if (p < it.base_price) {
+        if (!notifiedRef.current.has(it.id)) {
+          notifiedRef.current.add(it.id);
+          const pct = Math.round((p / it.base_price) * 1000) / 10;
+          void notifyNow('📉 기준가 이하 도달', `${it.name} · 현재가 ${formatPrice(p, it.market)} (기준가 대비 ${pct}%)`);
+        }
+      } else {
+        notifiedRef.current.delete(it.id);
+      }
+    });
+  }, [prices, items]);
 
   // 기준가 대비 % (현재가 ÷ 기준가 × 100). 시세 없으면 null.
   const ratioOf = useCallback(
@@ -235,7 +266,7 @@ export default function RadarScreen() {
 
         {!missing && items.length > 0 && (
           <Text style={{ color: colors.textDim, fontSize: 11, textAlign: 'center' }}>
-            💡 기준가 대비 = 현재가 ÷ 기준가 · 종목을 누르면 메모를 남길 수 있어요 · 왼쪽으로 밀면 삭제.
+            💡 기준가 대비 = 현재가 ÷ 기준가 · 기준가 이하로 내려가면 알림 + 파란 음영(많이 떨어질수록 진하게) · 탭하면 메모 · 왼쪽으로 밀면 삭제.
           </Text>
         )}
       </ScrollView>
@@ -299,6 +330,9 @@ function WatchRow({
   const mkt = item.market;
   // 기준가 대비: 100% 이상=현재가가 기준가 위(빨강), 미만=아래(파랑)
   const ratioColor = ratio == null ? colors.textDim : ratio >= 100 ? colors.buy : colors.sell;
+  // 형광펜 음영: 기준가 이하로 내려갈수록(=ratio가 100 미만으로 낮을수록) 파란 음영이 진해짐
+  const drop = ratio != null && ratio < 100 ? 100 - ratio : 0; // 기준가 대비 몇 % 아래인지
+  const shadeBg = drop > 0 ? blendHex(colors.card, colors.sell, Math.min(drop / 25, 1) * 0.55) : undefined;
   return (
     <Swipeable
       renderRightActions={() => (
@@ -310,7 +344,13 @@ function WatchRow({
         </Pressable>
       )}
     >
-      <Card style={{ borderLeftWidth: 5, borderLeftColor: mkt === 'KRX' ? colors.text : colors.accent }}>
+      <Card
+        style={{
+          borderLeftWidth: 5,
+          borderLeftColor: mkt === 'KRX' ? colors.text : colors.accent,
+          ...(shadeBg ? { backgroundColor: shadeBg, borderColor: colors.sell } : null),
+        }}
+      >
         <Pressable onPress={onToggle}>
           {/* 1줄: 국기 + 종목명 + 기준가 대비 % */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
