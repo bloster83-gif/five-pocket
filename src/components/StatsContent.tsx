@@ -167,12 +167,17 @@ export function StatsContent() {
         <Card>
           <Text style={{ color: colors.text, fontWeight: '800' }}>프로젝트별 실현손익</Text>
           {stats.perProject.map((x) => (
-            <Row
+            <View
               key={x.project.id}
-              label={`${x.project.name} (${x.project.symbol})`}
-              value={formatMoney(x.realized, x.project.market)}
-              valueColor={signColor(x.realized)}
-            />
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
+            >
+              <Text style={{ color: colors.textDim, flex: 1 }} numberOfLines={1}>
+                {x.project.name} <Text style={{ fontSize: 11 }}>({x.project.symbol})</Text>
+              </Text>
+              <Text style={{ color: signColor(x.realized), fontWeight: '700' }} numberOfLines={1}>
+                {formatMoney(x.realized, x.project.market)}
+              </Text>
+            </View>
           ))}
         </Card>
       )}
