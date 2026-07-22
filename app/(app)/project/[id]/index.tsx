@@ -286,6 +286,100 @@ export default function ProjectDetailScreen() {
     );
   };
 
+  // 대기중 포켓 매수 주문 — 매수 목표가(지정가) 기준. 손절과 대칭.
+  //  AUTO+계좌: 실제 매수 주문 전송, Diary: 매수 목표가로 체결 기록.
+  const buyPocket = async (k: Pocket): Promise<{ ok: boolean; msg?: string }> => {
+    if (!project || !session?.user?.id) return { ok: false };
+    const buyPrice = k.buy_target_price;
+    if (!buyPrice || buyPrice <= 0) return { ok: false, msg: '매수 목표가가 없어요' };
+    const qty = estimatedShares(k.budget, buyPrice);
+    if (qty <= 0) return { ok: false, msg: '배분 예산으로 살 수 있는 수량이 없어요' };
+    const sellTgt = sellTargetFromFill(buyPrice, Number(project.sell_target_pct));
+
+    // AUTO 등급 + 계좌 + 네이티브면 실제 매수 주문 전송 (자동주문 흐름과 동일)
+    if (tier === 'auto' && account && !kisOrderBlocked(project.market)) {
+      try {
+        const input = { side: 'buy' as const, symbol: project.symbol, quantity: qty, price: buyPrice };
+        const r = project.market === 'US' ? await placeOverseasOrder(account, input) : await placeDomesticOrder(account, input);
+        await supabase.from('auto_orders').insert({
+          user_id: session.user.id,
+          project_id: project.id,
+          pocket_id: k.id,
+          side: 'buy',
+          symbol: project.symbol,
+          order_price: buyPrice,
+          quantity: qty,
+          status: 'sent',
+          kis_order_no: r.orderNo,
+        });
+
+        let fillPrice = buyPrice;
+        let fillQty = qty;
+        let filled = false;
+        try {
+          await new Promise((res) => setTimeout(res, 2500));
+          const fill = await getOrderFill(account, project.market === 'US' ? 'US' : 'KRX', r.orderNo, project.symbol);
+          if (fill && fill.filledQty > 0 && fill.avgPrice > 0) {
+            filled = true;
+            fillPrice = fill.avgPrice;
+            fillQty = fill.filledQty;
+          }
+        } catch {
+          /* 조회 실패 → 미체결(주문완료)로 간주, 지정가 기록 */
+        }
+
+        // 매수는 주문 시점에 기록(보유 표시용). 미체결이면 'buy_ordered'.
+        await supabase.from('trades').insert({
+          user_id: session.user.id,
+          project_id: project.id,
+          pocket_id: k.id,
+          side: 'buy',
+          price: fillPrice,
+          quantity: fillQty,
+          executed_at: new Date().toISOString(),
+          note: `자동주문(KIS ${r.orderNo || '-'})`,
+        });
+        await supabase
+          .from('pockets')
+          .update({
+            status: filled ? 'bought' : 'buy_ordered',
+            sell_target_price: sellTargetFromFill(fillPrice, Number(project.sell_target_pct)),
+          })
+          .eq('id', k.id);
+        return { ok: true };
+      } catch (e: any) {
+        return { ok: false, msg: e?.message ?? '주문 실패' };
+      }
+    }
+
+    // 다이어리(수동): 매수 목표가로 체결만 기록
+    await supabase.from('trades').insert({
+      user_id: session.user.id,
+      project_id: project.id,
+      pocket_id: k.id,
+      side: 'buy',
+      price: buyPrice,
+      quantity: qty,
+      executed_at: new Date().toISOString(),
+      note: '매수',
+    });
+    await supabase.from('pockets').update({ status: 'bought', sell_target_price: sellTgt }).eq('id', k.id);
+    return { ok: true };
+  };
+
+  const confirmBuyPocket = (k: Pocket) => {
+    confirmAction(
+      `포켓 ${k.idx + 1} 매수`,
+      `포켓 ${k.idx + 1}을(를) 매수 목표가 ${formatPrice(k.buy_target_price, mkt)} 기준으로 매수 주문할까요?${tier === 'auto' && account ? ' 실제 매수 주문이 전송됩니다.' : ''}`,
+      async () => {
+        const r = await buyPocket(k);
+        await load();
+        if (!r.ok) notify('매수 실패', r.msg ?? '처리하지 못했어요.');
+      },
+      '매수'
+    );
+  };
+
   // 프로젝트 종료 — 보유 포켓이 있으면 손절 여부를 물어봄
   const promptClose = () => {
     if (!project) return;
@@ -628,11 +722,15 @@ export default function ProjectDetailScreen() {
           );
           // 현재가 >= 평균매수가면 이익(익절), 아니면 손실(손절)
           const inProfit = price != null && pocketOpen.avgOpenPrice > 0 && price >= pocketOpen.avgOpenPrice;
-          // 보유중(매수 완료) 포켓만 왼쪽으로 스와이프하면 익절/손절
+          // 보유중=왼쪽 스와이프로 익절/손절, 대기중=오른쪽 스와이프로 매수주문 (매수 목표가 기준)
           return k.status === 'bought' ? (
             <StopLossSwipe key={k.id} profit={inProfit} onStopLoss={() => confirmStopLossPocket(k, inProfit)}>
               {card}
             </StopLossSwipe>
+          ) : k.status === 'waiting' ? (
+            <BuyOrderSwipe key={k.id} onBuy={() => confirmBuyPocket(k)}>
+              {card}
+            </BuyOrderSwipe>
           ) : (
             <View key={k.id}>{card}</View>
           );
@@ -774,6 +872,39 @@ function StopLossSwipe({ onStopLoss, profit, children }: { onStopLoss: () => voi
         if (dir === 'right') {
           ref.current?.close();
           onStopLoss();
+        }
+      }}
+    >
+      {children}
+    </Swipeable>
+  );
+}
+
+// 대기중 포켓 — 오른쪽으로 스와이프하면 '매수주문' 버튼이 나타나고, 끝까지 밀면 확인
+function BuyOrderSwipe({ onBuy, children }: { onBuy: () => void; children: ReactNode }) {
+  const ref = useRef<Swipeable>(null);
+  const label = '매수주문';
+  return (
+    <Swipeable
+      ref={ref}
+      friction={2}
+      leftThreshold={48}
+      overshootLeft={false}
+      renderLeftActions={() => (
+        <View style={{ width: 80, paddingRight: spacing.sm }}>
+          <View style={{ flex: 1, backgroundColor: colors.buy, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
+            {label.split('').map((ch, i) => (
+              <Text key={i} style={{ color: '#fff', fontWeight: '900', fontSize: 15, lineHeight: 19 }}>
+                {ch}
+              </Text>
+            ))}
+          </View>
+        </View>
+      )}
+      onSwipeableOpen={(dir) => {
+        if (dir === 'left') {
+          ref.current?.close();
+          onBuy();
         }
       }}
     >
