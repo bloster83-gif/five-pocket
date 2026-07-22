@@ -856,7 +856,9 @@ function PocketCard({
   projectClosed: boolean; // 프로젝트 종료 시 재시작 버튼 숨김
   onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number, budget?: number) => void;
 }) {
-  const [showLog, setShowLog] = useState(false);
+  // 종료된 프로젝트는 본문이 터치 비활성(pointerEvents=none)이라 토글을 못 누름
+  // → 종료 시에는 체결 내역을 기본 펼침으로 두어 바로 볼 수 있게 한다.
+  const [showLog, setShowLog] = useState(projectClosed);
   // 이 포켓에서 실현된 손익 합계 (모든 순환)
   const pocketRealized = history.reduce((s, t) => s + (t.side === 'sell' ? realizedByTrade.get(t.id) ?? 0 : 0), 0);
   // 포켓별 기준가 대비 할인율 (포켓1=0%=기준가, 포켓2=-5%, …)
