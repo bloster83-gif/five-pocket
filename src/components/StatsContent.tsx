@@ -62,8 +62,9 @@ export function StatsContent() {
   const stats = useMemo(() => {
     const active = projects.filter((p) => !p.closed_at).length;
     const closed = projects.filter((p) => p.closed_at).length;
-    const buys = yearTrades.filter((t) => t.side === 'buy').length;
-    const sells = yearTrades.filter((t) => t.side === 'sell').length;
+    // 매수/매도 "체결한 포켓 수" (같은 포켓에 여러 번 체결돼도 1개로, 직접입력은 각각 1개)
+    const buys = new Set(yearTrades.filter((t) => t.side === 'buy').map((t) => t.pocket_id ?? `t-${t.id}`)).size;
+    const sells = new Set(yearTrades.filter((t) => t.side === 'sell').map((t) => t.pocket_id ?? `t-${t.id}`)).size;
 
     const events = realizedEvents(trades).filter(
       (ev) =>
@@ -142,12 +143,12 @@ export function StatsContent() {
       </FilterBar>
 
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
-        <StatBox label="진행중 / 종료" value={`${stats.active} / ${stats.closed}`} />
-        <StatBox label="승률" value={stats.winRate == null ? '-' : `${stats.winRate}%`} color={colors.buy} />
+        <StatBox label="진행중 / 종료" value={`${stats.active} / ${stats.closed}`} hint="진행중·종료 프로젝트 수" />
+        <StatBox label="승률" value={stats.winRate == null ? '-' : `${stats.winRate}%`} color={colors.buy} hint="이익 난 매도 ÷ 전체 매도" />
       </View>
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
-        <StatBox label="매수 체결" value={`${stats.buys}건`} color={colors.buy} />
-        <StatBox label="매도 체결" value={`${stats.sells}건`} color={colors.sell} />
+        <StatBox label="매수 체결" value={`${stats.buys}개`} color={colors.buy} hint="매수 체결한 포켓 수" />
+        <StatBox label="매도 체결" value={`${stats.sells}개`} color={colors.sell} hint="매도 체결한 포켓 수" />
       </View>
 
       <Card>
@@ -185,6 +186,7 @@ export function StatsContent() {
       {monthData.length > 0 && (
         <Card>
           <Text style={{ color: colors.text, fontWeight: '800' }}>{year === 'all' ? '월별' : '월별(당해)'} 매매 건수</Text>
+          <Text style={{ color: colors.textDim, fontSize: 11 }}>월별 매수·매도 체결 건수 합계</Text>
           <BarChart data={monthData} height={140} />
         </Card>
       )}
@@ -198,11 +200,12 @@ export function StatsContent() {
   );
 }
 
-function StatBox({ label, value, color }: { label: string; value: string; color?: string }) {
+function StatBox({ label, value, color, hint }: { label: string; value: string; color?: string; hint?: string }) {
   return (
     <Card style={{ flex: 1 }}>
       <Text style={{ color: colors.textDim, fontSize: 12 }}>{label}</Text>
       <Text style={{ color: color ?? colors.text, fontSize: 22, fontWeight: '900' }}>{value}</Text>
+      {hint ? <Text style={{ color: colors.textDim, fontSize: 10, marginTop: 2 }}>{hint}</Text> : null}
     </Card>
   );
 }
