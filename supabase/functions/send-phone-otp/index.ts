@@ -4,14 +4,15 @@
 // 회원가입 전(로그인 전)에 호출되므로 JWT 검증을 꺼서 배포해야 합니다:
 //   supabase functions deploy send-phone-otp --no-verify-jwt
 //
-// 문자 발송사는 한국에서 많이 쓰는 "알리고(Aligo)"를 사용합니다.
-//   시크릿 설정:
-//   supabase secrets set ALIGO_API_KEY=... ALIGO_USER_ID=... ALIGO_SENDER=발신번호
-//   (발신번호는 알리고에 사전 등록된 번호여야 함)
+// 문자 발송사 (우선순위):
+//   1) 솔라피(Solapi) — IP 제한 없음(권장). API 키/시크릿 HMAC 인증.
+//      supabase secrets set SOLAPI_API_KEY=... SOLAPI_API_SECRET=... SOLAPI_SENDER=발신번호
+//   2) 알리고(Aligo) — 폴백. 발송서버 IP 등록 필요(서버 IP가 다양해 비권장).
+//      supabase secrets set ALIGO_API_KEY=... ALIGO_USER_ID=... ALIGO_SENDER=발신번호
+//   (발신번호는 각 문자사에 사전 등록·승인된 번호여야 함)
 //
-// ★ 개발/테스트 모드: 위 알리고 시크릿이 없으면 문자를 실제로 보내지 않고
+// ★ 개발/테스트 모드: 위 시크릿이 하나도 없으면 문자를 실제로 보내지 않고
 //   응답에 devCode 로 인증코드를 돌려줍니다. (문자 계약 전 흐름 테스트용)
-//   운영 시에는 반드시 알리고 시크릿을 등록해 실제 문자로 전환하세요.
 // =====================================================================
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -68,7 +69,41 @@ Deno.serve(async (req: Request) => {
     });
     if (upErr) return json({ error: upErr.message }, 500);
 
-    // 알리고로 실제 문자 발송
+    const text = `[5 Pocket Diary] 인증번호 [${code}] 를 입력해주세요.`;
+
+    // 1순위: 솔라피(Solapi) — IP 제한 없음, API 키/시크릿 HMAC 인증 (권장)
+    const solKey = Deno.env.get('SOLAPI_API_KEY');
+    const solSecret = Deno.env.get('SOLAPI_API_SECRET');
+    const solSender = Deno.env.get('SOLAPI_SENDER');
+    if (solKey && solSecret && solSender) {
+      const date = new Date().toISOString();
+      const salt = crypto.randomUUID().replace(/-/g, '');
+      const enc = new TextEncoder();
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw',
+        enc.encode(solSecret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+      const sigBuf = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(date + salt));
+      const signature = [...new Uint8Array(sigBuf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+      const res = await fetch('https://api.solapi.com/messages/v4/send', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          Authorization: `HMAC-SHA256 apiKey=${solKey}, date=${date}, salt=${salt}, signature=${signature}`,
+        },
+        body: JSON.stringify({ message: { to: phone, from: solSender, text } }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || out.errorCode || out.errorMessage) {
+        return json({ error: out.errorMessage ?? out.message ?? '문자 발송에 실패했어요. (솔라피)' }, 502);
+      }
+      return json({ ok: true, expiresAt });
+    }
+
+    // 2순위: 알리고(Aligo) — 폴백 (발송서버 IP 등록 필요)
     const apiKey = Deno.env.get('ALIGO_API_KEY');
     const userId = Deno.env.get('ALIGO_USER_ID');
     const sender = Deno.env.get('ALIGO_SENDER');
