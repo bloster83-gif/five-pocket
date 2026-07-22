@@ -389,13 +389,7 @@ export default function ProjectDetailScreen() {
   return (
     <View style={{ flex: 1 }}>
     <ScrollView
-      contentContainerStyle={{
-        padding: spacing.lg,
-        gap: spacing.lg,
-        paddingBottom: 48,
-        // 종료된 프로젝트는 상세 화면 전체를 흐리게(선글라스) 처리 — 진행중과 확실히 구분
-        opacity: project.closed_at ? 0.5 : 1,
-      }}
+      contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 }}
       refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.primary} />}
     >
       <Stack.Screen
@@ -440,11 +434,8 @@ export default function ProjectDetailScreen() {
         >
           <Text style={{ fontSize: 16 }}>🔒</Text>
           <Text style={{ color: colors.textDim, fontWeight: '800', fontSize: 13, flex: 1 }}>
-            종료된 프로젝트 · {project.closed_at.slice(0, 10)}
+            종료된 프로젝트 · {project.closed_at.slice(0, 10)} · 아래 ‘재개’ 후 편집 가능
           </Text>
-          <Pressable onPress={() => setClosed(false)} hitSlop={8} style={{ backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
-            <Text style={{ color: '#08131f', fontWeight: '800', fontSize: 12 }}>재개</Text>
-          </Pressable>
         </View>
       )}
 
@@ -500,6 +491,9 @@ export default function ProjectDetailScreen() {
           )}
         </View>
       </Card>
+
+      {/* 종료된 프로젝트: 실시간 추적 스위치·재개만 살리고, 나머지(자동매매 스위치·매수/매도·수정·삭제 등)는 흐리게(선글라스) + 터치 비활성화 */}
+      <View style={{ gap: spacing.lg, opacity: project.closed_at ? 0.5 : 1 }} pointerEvents={project.closed_at ? 'none' : 'auto'}>
 
       {/* 자동매매 켜기/끄기만 (상세 설정·계좌연결은 프로젝트 목록/MY 탭에서) */}
       {tier === 'auto' && (
@@ -665,6 +659,7 @@ export default function ProjectDetailScreen() {
             }
           />
         </View>
+      </View>
       </View>
 
       {project.closed_at ? (
