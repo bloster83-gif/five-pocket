@@ -375,9 +375,28 @@ function WatchRow({
               <Text style={{ color: colors.textDim, fontSize: 11 }}>기준가</Text>
               <Text style={{ color: num.base, fontWeight: '800', fontSize: 13 }}>{formatPrice(item.base_price, mkt)}</Text>
             </View>
-            <Text style={{ color: colors.textDim, fontSize: 11, marginLeft: 'auto' }}>
-              📝 {memos.length} · {open ? '▲' : '▼'}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+              <Text style={{ fontSize: 12 }}>📝</Text>
+              {/* 메모가 1개 이상이면 개수를 색깔 동그라미로 강조 */}
+              {memos.length > 0 ? (
+                <View
+                  style={{
+                    minWidth: 18,
+                    height: 18,
+                    borderRadius: 9,
+                    paddingHorizontal: 5,
+                    backgroundColor: colors.primary,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text style={{ color: '#04121A', fontSize: 11, fontWeight: '900' }}>{memos.length}</Text>
+                </View>
+              ) : (
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>0</Text>
+              )}
+              <Text style={{ color: colors.textDim, fontSize: 11 }}>{open ? '▲' : '▼'}</Text>
+            </View>
           </View>
         </Pressable>
 
