@@ -3,7 +3,7 @@ import { Tabs, useRouter } from 'expo-router';
 import { Image, Pressable, Text, View } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import { setProjectCount, useProjectCount } from '@/lib/badges';
+import { setProjectCount, useProjectCount, useRadarBelowCount } from '@/lib/badges';
 import { colors, daysUntil, spacing } from '@/theme';
 
 // 레이더를 가장 왼쪽 탭으로 두더라도, 앱 시작 화면은 항상 '프로젝트'(index)로 고정
@@ -73,6 +73,7 @@ function AdminButton() {
 export default function TabsLayout() {
   const { session } = useAuth();
   const projectCount = useProjectCount();
+  const radarBelow = useRadarBelowCount();
 
   // 진입 시 프로젝트 개수를 한 번 조회해 배지 초기값 세팅 (목록 탭을 아직 안 열었어도 정확)
   useEffect(() => {
@@ -110,6 +111,9 @@ export default function TabsLayout() {
         options={{
           title: '레이더',
           tabBarIcon: ({ color }) => <TabIcon emoji="📡" color={color} />,
+          // 기준가 이하로 내려간 종목 수 배지 (0이면 숨김) — 파랑(하락)
+          tabBarBadge: radarBelow > 0 ? radarBelow : undefined,
+          tabBarBadgeStyle: { backgroundColor: colors.sell, color: '#fff', fontSize: 11, fontWeight: '800' },
         }}
       />
       <Tabs.Screen

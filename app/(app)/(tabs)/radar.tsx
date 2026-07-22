@@ -10,6 +10,7 @@ import { colors, formatPrice, money, num, radius, rawNumeric, signColor, spacing
 import { searchSymbols } from '@/services/symbols';
 import { priceProvider } from '@/services/prices';
 import { notifyNow } from '@/lib/notifications';
+import { setRadarBelowCount } from '@/lib/badges';
 import type { Market, SymbolResult, WatchlistItem, WatchlistMemo } from '@/types/db';
 
 type Filter = 'all' | 'KRX' | 'US' | 'under' | 'over';
@@ -120,6 +121,12 @@ export default function RadarScreen() {
         notifiedRef.current.delete(it.id);
       }
     });
+    // 기준가 이하 종목 수를 탭 배지에 반영
+    const below = items.filter((it) => {
+      const p = prices[it.symbol];
+      return p != null && it.base_price > 0 && p < it.base_price;
+    }).length;
+    setRadarBelowCount(below);
   }, [prices, items]);
 
   // 기준가 대비 % (현재가 ÷ 기준가 × 100). 시세 없으면 null.
