@@ -931,7 +931,7 @@ function StopLossSwipe({ onStopLoss, profit, children }: { onStopLoss: () => voi
   );
 }
 
-// 대기중 포켓 — 오른쪽으로 스와이프하면 '매수주문' 버튼이 나타나고, 끝까지 밀면 실행
+// 대기중 포켓 — 보유중 포켓(손절)과 동일하게 왼쪽으로 스와이프하면 '매수주문' 버튼이 나타나고, 끝까지 밀면 실행
 //  (AUTO 등급은 가격 직접입력 모달, 다이어리는 목표가 매수 — onBuy 안에서 분기)
 function BuyOrderSwipe({ onBuy, auto, children }: { onBuy: () => void; auto?: boolean; children: ReactNode }) {
   const ref = useRef<Swipeable>(null);
@@ -939,10 +939,10 @@ function BuyOrderSwipe({ onBuy, auto, children }: { onBuy: () => void; auto?: bo
     <Swipeable
       ref={ref}
       friction={2}
-      leftThreshold={48}
-      overshootLeft={false}
-      renderLeftActions={() => (
-        <View style={{ width: 84, paddingRight: spacing.sm }}>
+      rightThreshold={48}
+      overshootRight={false}
+      renderRightActions={() => (
+        <View style={{ width: 84, paddingLeft: spacing.sm }}>
           <View style={{ flex: 1, backgroundColor: auto ? colors.primary : colors.buy, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
             {auto && <Text style={{ fontSize: 16, marginBottom: 2 }}>🤖</Text>}
             {(auto ? '자동주문' : '매수주문').split('').map((ch, i) => (
@@ -954,7 +954,7 @@ function BuyOrderSwipe({ onBuy, auto, children }: { onBuy: () => void; auto?: bo
         </View>
       )}
       onSwipeableOpen={(dir) => {
-        if (dir === 'left') {
+        if (dir === 'right') {
           ref.current?.close();
           onBuy();
         }
