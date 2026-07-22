@@ -15,6 +15,7 @@ export function StatsContent() {
   const [loading, setLoading] = useState(true);
   const [year, setYear] = useState<number | 'all'>('all');
   const [market, setMarket] = useState<'all' | 'KRX' | 'US'>('all');
+  const [detailOpen, setDetailOpen] = useState(false); // 프로젝트별 실현손익 자세히 보기
 
   const load = useCallback(async () => {
     const [{ data: p }, { data: t }] = await Promise.all([
@@ -62,9 +63,9 @@ export function StatsContent() {
   const stats = useMemo(() => {
     const active = projects.filter((p) => !p.closed_at).length;
     const closed = projects.filter((p) => p.closed_at).length;
-    // 매수/매도 "체결한 포켓 수" (같은 포켓에 여러 번 체결돼도 1개로, 직접입력은 각각 1개)
-    const buys = new Set(yearTrades.filter((t) => t.side === 'buy').map((t) => t.pocket_id ?? `t-${t.id}`)).size;
-    const sells = new Set(yearTrades.filter((t) => t.side === 'sell').map((t) => t.pocket_id ?? `t-${t.id}`)).size;
+    // 매수/매도 체결 "건수" (체결 1건당 1개로 카운팅)
+    const buys = yearTrades.filter((t) => t.side === 'buy').length;
+    const sells = yearTrades.filter((t) => t.side === 'sell').length;
 
     const events = realizedEvents(trades).filter(
       (ev) =>
@@ -74,6 +75,8 @@ export function StatsContent() {
 
     const realizedByProj: Record<string, number> = {};
     const realizedByMarket: Record<string, number> = {};
+    // 프로젝트별 매도 체결 상세 (자세히 보기용): 날짜·수량·체결가·실현손익
+    const detailByProj: Record<string, { at: string; qty: number; price: number; amount: number }[]> = {};
     let wins = 0;
     events.forEach((ev) => {
       const proj = ev.trade.project_id ? projById[ev.trade.project_id] : undefined;
@@ -81,12 +84,23 @@ export function StatsContent() {
       realizedByMarket[mkt] = (realizedByMarket[mkt] ?? 0) + ev.amount;
       if (ev.trade.project_id) {
         realizedByProj[ev.trade.project_id] = (realizedByProj[ev.trade.project_id] ?? 0) + ev.amount;
+        (detailByProj[ev.trade.project_id] ??= []).push({
+          at: ev.at,
+          qty: ev.trade.quantity,
+          price: ev.trade.price,
+          amount: ev.amount,
+        });
       }
       if (ev.amount > 0) wins++;
     });
     const perProject = projects
       .filter((p) => realizedByProj[p.id] != null)
-      .map((p) => ({ project: p, realized: realizedByProj[p.id] }));
+      .map((p) => ({
+        project: p,
+        realized: realizedByProj[p.id],
+        // 최신 체결 먼저
+        detail: (detailByProj[p.id] ?? []).slice().sort((a, b) => (a.at < b.at ? 1 : -1)),
+      }));
     const winRate = events.length ? Math.round((wins / events.length) * 100) : null;
 
     const byMonth: Record<string, number> = {};
@@ -143,12 +157,12 @@ export function StatsContent() {
       </FilterBar>
 
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
-        <StatBox label="진행중 / 종료" value={`${stats.active} / ${stats.closed}`} hint="진행중·종료 프로젝트 수" />
+        <StatBox label="진행중 / 종료 (프로젝트)" value={`${stats.active} / ${stats.closed}`} />
         <StatBox label="승률" value={stats.winRate == null ? '-' : `${stats.winRate}%`} color={colors.buy} hint="이익 난 매도 ÷ 전체 매도" />
       </View>
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
-        <StatBox label="매수 체결" value={`${stats.buys}개`} color={colors.buy} hint="매수 체결한 포켓 수" />
-        <StatBox label="매도 체결" value={`${stats.sells}개`} color={colors.sell} hint="매도 체결한 포켓 수" />
+        <StatBox label="매수 체결 건수" value={`${stats.buys}건`} color={colors.buy} />
+        <StatBox label="매도 체결 건수" value={`${stats.sells}건`} color={colors.sell} />
       </View>
 
       <Card>
@@ -166,18 +180,50 @@ export function StatsContent() {
 
       {stats.perProject.length > 0 && (
         <Card>
-          <Text style={{ color: colors.text, fontWeight: '800' }}>프로젝트별 실현손익</Text>
+          <Pressable
+            onPress={() => setDetailOpen((o) => !o)}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '800' }}>프로젝트별 실현손익</Text>
+            <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 13 }}>
+              {detailOpen ? '접기 ▲' : '자세히 보기 ▼'}
+            </Text>
+          </Pressable>
           {stats.perProject.map((x) => (
-            <View
-              key={x.project.id}
-              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
-            >
-              <Text style={{ color: colors.textDim, flex: 1 }} numberOfLines={1}>
-                {x.project.name} <Text style={{ fontSize: 11 }}>({x.project.symbol})</Text>
-              </Text>
-              <Text style={{ color: signColor(x.realized), fontWeight: '700' }} numberOfLines={1}>
-                {formatMoney(x.realized, x.project.market)}
-              </Text>
+            <View key={x.project.id} style={{ gap: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <Text style={{ color: colors.textDim, flex: 1 }} numberOfLines={1}>
+                  {x.project.name} <Text style={{ fontSize: 11 }}>({x.project.symbol})</Text>
+                </Text>
+                <Text style={{ color: signColor(x.realized), fontWeight: '700' }} numberOfLines={1}>
+                  {formatMoney(x.realized, x.project.market)}
+                </Text>
+              </View>
+              {/* 자세히 보기: 이 프로젝트의 매도 체결별 실현손익 상세 */}
+              {detailOpen && x.detail.length > 0 && (
+                <View
+                  style={{
+                    marginLeft: spacing.sm,
+                    paddingLeft: spacing.sm,
+                    borderLeftWidth: 2,
+                    borderLeftColor: colors.border,
+                    gap: 3,
+                    marginBottom: spacing.xs,
+                  }}
+                >
+                  {x.detail.map((d, i) => (
+                    <View key={i} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <Text style={{ color: colors.textDim, fontSize: 12 }}>
+                        {d.at.slice(0, 10)} · 매도 {formatMoney(d.price, x.project.market)} · {d.qty}주
+                      </Text>
+                      <Text style={{ color: signColor(d.amount), fontSize: 12, fontWeight: '700' }}>
+                        {d.amount > 0 ? '+' : ''}
+                        {formatMoney(d.amount, x.project.market)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
           ))}
         </Card>
