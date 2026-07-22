@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Button, Card, Chip, Field, FilterBar, NumberField } from '@/components/ui';
 import { BarChart, Legend } from '@/components/charts';
-import { colors, formatGoalAutoKRW, radius, spacing } from '@/theme';
+import { colors, formatGoalAutoKRW, formatMoney, radius, spacing } from '@/theme';
 import { buildGoalRows } from '@/domain/goals';
 import { realizedEvents } from '@/domain/pockets';
 import type { CashFlow, LifeGoal, Trade } from '@/types/db';
@@ -96,6 +96,8 @@ export default function GoalsScreen() {
   // 모든 금액은 값 크기에 맞춰 억/백만원/만원 단위를 자동 선택해 표기
   const fk = (v: number | null | undefined) => formatGoalAutoKRW(v);
   const fa = fk;
+  // 1원 단위까지 그대로(콤마) 표기 — 올해 목표·현재 달성액용
+  const fkFull = (v: number | null | undefined) => (v == null || Number.isNaN(v) ? '-' : formatMoney(v, 'KRX'));
 
   // 인생목표는 원화 기준. 미국(달러) 금액은 고정환율로 원화 환산해 합산.
   const USD_KRW = 1500;
@@ -423,7 +425,7 @@ export default function GoalsScreen() {
                   )}
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                  <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 16 }}>{fk(thisYearRow.planned)}</Text>
+                  <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 16 }}>{fkFull(thisYearRow.planned)}</Text>
                   <Pressable
                     onPress={() => {
                       setTargetInput(String(Math.round(thisYearRow.planned)));
@@ -494,7 +496,7 @@ export default function GoalsScreen() {
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text style={{ color: colors.text, fontWeight: '800' }}>현재 달성액</Text>
                   <Text style={{ color: colors.text, fontWeight: '900', fontSize: 20 }}>
-                    {thisYearRow.actual != null ? fk(thisYearRow.actual) : '-'}
+                    {thisYearRow.actual != null ? fkFull(thisYearRow.actual) : '-'}
                   </Text>
                 </View>
                 {thisYearProgress != null && (
