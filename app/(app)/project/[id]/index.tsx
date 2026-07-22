@@ -748,7 +748,9 @@ export default function ProjectDetailScreen() {
           // 현재가 >= 평균매수가면 이익(익절), 아니면 손실(손절)
           const inProfit = price != null && pocketOpen.avgOpenPrice > 0 && price >= pocketOpen.avgOpenPrice;
           // 보유중=왼쪽 스와이프로 익절/손절, 대기중=오른쪽 스와이프로 매수주문 (매수 목표가 기준)
-          return k.status === 'bought' ? (
+          // 매수 주문완료여도 실제 보유 수량이 있으면 보유중처럼 익절/손절 가능
+          const heldForSwipe = k.status === 'bought' || (k.status === 'buy_ordered' && Math.floor(pocketOpen.totalQtyOpen) > 0);
+          return heldForSwipe ? (
             <StopLossSwipe key={k.id} profit={inProfit} onStopLoss={() => confirmStopLossPocket(k, inProfit)}>
               {card}
             </StopLossSwipe>
@@ -1158,25 +1160,29 @@ function PocketCard({
   //  현재가가 목표가보다 높을 때 수량이 과소 표시되지 않는다.
   const buyableQty = estimatedShares(k.budget, buyTargetDisp);
 
-  const statusPill =
-    k.status === 'bought'
-      ? { text: '보유중', color: colors.buy }
-      : k.status === 'buy_ordered'
-        ? { text: '매수 주문완료', color: colors.warn }
-        : k.status === 'sell_ordered'
-          ? { text: '매도 주문완료', color: colors.warn }
-          : k.status === 'sold'
-            ? { text: '매도 완료', color: colors.sell }
-            : { text: '대기중', color: colors.textDim };
+  // 매수 주문완료여도 실제 보유(체결 기록)가 있으면 '보유중'으로 취급 —
+  // 해외 지연체결 등으로 pocket.status 갱신이 늦어도 다른 화면(리스트·포켓탭)과 일관되게 표시.
+  const effectivelyBought = k.status === 'bought' || (k.status === 'buy_ordered' && openQty > 0);
 
-  // 주문완료(체결 대기) 안내 단어
-  const pendingWord = k.status === 'buy_ordered' ? '매수' : k.status === 'sell_ordered' ? '매도' : null;
+  const statusPill = effectivelyBought
+    ? { text: '보유중', color: colors.buy }
+    : k.status === 'buy_ordered'
+      ? { text: '매수 주문완료', color: colors.warn }
+      : k.status === 'sell_ordered'
+        ? { text: '매도 주문완료', color: colors.warn }
+        : k.status === 'sold'
+          ? { text: '매도 완료', color: colors.sell }
+          : { text: '대기중', color: colors.textDim };
+
+  // 주문완료(체결 대기) 안내 단어 — 매수는 실제 보유가 없을 때만 '체결 대기'로 표시
+  const pendingWord =
+    k.status === 'buy_ordered' && !effectivelyBought ? '매수' : k.status === 'sell_ordered' ? '매도' : null;
   // 보유 정보/매도목표를 보여줄 상태 (보유중 + 매도주문완료 + 매수주문완료)
   const heldLike = k.status === 'bought' || k.status === 'buy_ordered' || k.status === 'sell_ordered';
 
   // 음영(가득 참) 배경 + 포켓 번호별 고유 색 띠
   const cardStyle = {
-    ...(k.status === 'bought'
+    ...(effectivelyBought
       ? { backgroundColor: colors.buyBg, borderColor: colors.buy }
       : pendingWord
         ? { borderColor: colors.warn }
@@ -1206,7 +1212,7 @@ function PocketCard({
           )}
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          {k.status === 'bought' && <Text style={{ fontSize: 14 }}>🔴</Text>}
+          {effectivelyBought && <Text style={{ fontSize: 14 }}>🔴</Text>}
           {pendingWord && <Text style={{ fontSize: 14 }}>🕐</Text>}
           <Text style={{ color: statusPill.color, fontWeight: '800', fontSize: 12 }}>{statusPill.text}</Text>
         </View>
