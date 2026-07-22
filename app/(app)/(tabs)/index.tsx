@@ -452,9 +452,9 @@ export default function ProjectsScreen() {
                         </View>
                       )}
                       {m.value != null && m.value > 0 && (
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                           <Text style={{ color: colors.textDim, fontSize: 12 }}>평가 총액</Text>
-                          <Text style={{ color: num.evalTotal, fontWeight: '900', fontSize: 20 }}>
+                          <Text style={{ color: num.evalTotal, fontWeight: '800', fontSize: 15 }}>
                             {formatMoney(m.value, m.market)}
                           </Text>
                         </View>
