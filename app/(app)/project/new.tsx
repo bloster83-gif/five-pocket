@@ -54,9 +54,9 @@ export default function NewProjectScreen() {
 
   const market = selected?.market ?? 'US';
 
-  // 프로젝트 복사로 진입한 경우 값 미리 채우기 (1회)
+  // 종목이 파라미터로 넘어오면 미리 채우기 (프로젝트 복사 또는 관심종목 레이더에서 진입, 1회)
   useEffect(() => {
-    if (params.copy !== '1' || !params.symbol) return;
+    if (!params.symbol) return;
     const mkt = params.market === 'KRX' ? 'KRX' : 'US';
     setSelected({ symbol: params.symbol, name: params.name ?? params.symbol, market: mkt, exchange: params.market ?? '' });
     setQuery(params.name ?? params.symbol);

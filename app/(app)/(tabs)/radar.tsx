@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
@@ -29,6 +29,7 @@ function blendHex(a: string, b: string, t: number): string {
 // 관심종목 레이더 — 기준가를 직접 입력하고, '기준가 대비 %'(= 현재가 ÷ 기준가)로 종목을 감시한다.
 export default function RadarScreen() {
   const { session } = useAuth();
+  const router = useRouter();
   const [items, setItems] = useState<WatchlistItem[]>([]);
   const [memos, setMemos] = useState<WatchlistMemo[]>([]);
   const [prices, setPrices] = useState<Record<string, number>>({});
@@ -255,6 +256,11 @@ export default function RadarScreen() {
             onDelete={() =>
               confirmAction('관심종목 삭제', `"${it.name}"을(를) 관심종목에서 삭제할까요? 메모도 함께 삭제됩니다.`, () => deleteItem(it), '삭제')
             }
+            onCreateProject={() =>
+              router.push(
+                `/project/new?symbol=${encodeURIComponent(it.symbol)}&name=${encodeURIComponent(it.name)}&market=${it.market}&base=${it.base_price}`
+              )
+            }
           />
         ))}
 
@@ -266,7 +272,7 @@ export default function RadarScreen() {
 
         {!missing && items.length > 0 && (
           <Text style={{ color: colors.textDim, fontSize: 11, textAlign: 'center' }}>
-            💡 기준가 대비 = 현재가 ÷ 기준가 · 기준가 이하로 내려가면 알림 + 파란 음영(많이 떨어질수록 진하게) · 탭하면 메모 · 왼쪽으로 밀면 삭제.
+            💡 기준가 대비 = 현재가 ÷ 기준가 · 기준가 이하로 내려가면 알림 + 파란 음영(많이 떨어질수록 진하게) · 탭하면 메모 · 오른쪽으로 밀면 프로젝트 생성 · 왼쪽으로 밀면 삭제.
           </Text>
         )}
       </ScrollView>
@@ -315,6 +321,7 @@ function WatchRow({
   onAddMemo,
   onDeleteMemo,
   onDelete,
+  onCreateProject,
 }: {
   item: WatchlistItem;
   price: number | null;
@@ -325,6 +332,7 @@ function WatchRow({
   onAddMemo: (note: string) => void;
   onDeleteMemo: (m: WatchlistMemo) => void;
   onDelete: () => void;
+  onCreateProject: () => void;
 }) {
   const [note, setNote] = useState('');
   const mkt = item.market;
@@ -333,8 +341,22 @@ function WatchRow({
   // 형광펜 음영: 기준가 이하로 내려갈수록(=ratio가 100 미만으로 낮을수록) 파란 음영이 진해짐
   const drop = ratio != null && ratio < 100 ? 100 - ratio : 0; // 기준가 대비 몇 % 아래인지
   const shadeBg = drop > 0 ? blendHex(colors.card, colors.sell, Math.min(drop / 25, 1) * 0.55) : undefined;
+  const swipeRef = useRef<Swipeable>(null);
   return (
     <Swipeable
+      ref={swipeRef}
+      // 오른쪽으로 스와이프(=왼쪽 액션) → 이 종목으로 프로젝트 생성
+      renderLeftActions={() => (
+        <Pressable
+          onPress={() => {
+            swipeRef.current?.close();
+            onCreateProject();
+          }}
+          style={{ backgroundColor: colors.buy, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16, borderRadius: radius.md, marginRight: spacing.sm, width: 130 }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '900', fontSize: 13 }}>＋ 프로젝트 생성</Text>
+        </Pressable>
+      )}
       renderRightActions={() => (
         <Pressable
           onPress={onDelete}
@@ -343,6 +365,12 @@ function WatchRow({
           <Text style={{ color: '#fff', fontWeight: '800' }}>삭제</Text>
         </Pressable>
       )}
+      onSwipeableOpen={(dir) => {
+        if (dir === 'left') {
+          swipeRef.current?.close();
+          onCreateProject();
+        }
+      }}
     >
       <Card
         style={{
