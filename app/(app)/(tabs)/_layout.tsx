@@ -6,6 +6,9 @@ import { useAuth } from '@/lib/auth';
 import { setProjectCount, useProjectCount } from '@/lib/badges';
 import { colors, daysUntil, spacing } from '@/theme';
 
+// 레이더를 가장 왼쪽 탭으로 두더라도, 앱 시작 화면은 항상 '프로젝트'(index)로 고정
+export const unstable_settings = { initialRouteName: 'index' };
+
 function TabIcon({ emoji, color }: { emoji: string; color: string }) {
   return <Text style={{ fontSize: 20, opacity: color === colors.buy ? 1 : 0.6 }}>{emoji}</Text>;
 }
