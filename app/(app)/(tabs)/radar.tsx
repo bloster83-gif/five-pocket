@@ -37,6 +37,7 @@ export default function RadarScreen() {
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false); // 테이블 없음(마이그레이션 미실행) 감지
   const [filter, setFilter] = useState<Filter>('all');
+  const [sortByChange, setSortByChange] = useState(false); // 금일 변동률 높은 순 정렬
   const [showSearch, setShowSearch] = useState(false);
   const [q, setQ] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null); // 메모가 열린 종목
@@ -131,7 +132,7 @@ export default function RadarScreen() {
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return items.filter((it) => {
+    const list = items.filter((it) => {
       if (s && !`${it.name} ${it.symbol}`.toLowerCase().includes(s)) return false;
       if (filter === 'KRX') return it.market === 'KRX';
       if (filter === 'US') return it.market === 'US';
@@ -145,7 +146,14 @@ export default function RadarScreen() {
       }
       return true;
     });
-  }, [items, q, filter, ratioOf]);
+    if (sortByChange) {
+      // 금일 변동률 높은 순 (시세 없는 종목은 뒤로)
+      return [...list].sort(
+        (a, b) => (prices[b.symbol]?.changePct ?? -Infinity) - (prices[a.symbol]?.changePct ?? -Infinity)
+      );
+    }
+    return list;
+  }, [items, q, filter, ratioOf, sortByChange, prices]);
 
   const memosByItem = useMemo(() => {
     const m: Record<string, WatchlistMemo[]> = {};
@@ -229,6 +237,8 @@ export default function RadarScreen() {
             <View style={{ width: 1, height: 22, backgroundColor: colors.border }} />
             <Chip label="기준가 이하 (100%↓)" active={filter === 'under'} onPress={() => setFilter('under')} activeColor={colors.sell} />
             <Chip label="기준가 이상 (100%↑)" active={filter === 'over'} onPress={() => setFilter('over')} />
+            <View style={{ width: 1, height: 22, backgroundColor: colors.border }} />
+            <Chip label="변동률순 📈" active={sortByChange} onPress={() => setSortByChange((v) => !v)} activeColor={colors.warn} />
           </ScrollView>
         </FilterBar>
         {showSearch && (
