@@ -595,6 +595,8 @@ Deno.serve(async (req: Request) => {
         side === 'buy'
           ? Math.floor(Number(k.budget ?? 0) / limitPrice)
           : Math.floor(openQtyByPocket.get(k.id) ?? 0);
+      // 배분 예산으로 1주도 못 사는 포켓(매수 수량 0)은 조용히 건너뛴다 (실패 기록·알람 반복 방지)
+      if (side === 'buy' && qty <= 0) continue;
       const label = side === 'buy' ? '매수' : '매도';
 
       try {

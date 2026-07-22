@@ -143,6 +143,11 @@ export default function PocketsScreen() {
       const proj = projMap[k.project_id];
       if (!proj) return false;
       if (proj.closed_at) return false; // 종료된 프로젝트의 포켓은 포켓탭에서 숨김(상세에서만 확인)
+      // 매수 가능 수량이 0주인 대기 포켓은 숨김 (거래 이력이 있으면 표시)
+      {
+        const kt0 = tradesByPocket[k.id] ?? [];
+        if (k.status === 'waiting' && kt0.length === 0 && estimatedShares(k.budget, k.buy_target_price) <= 0) return false;
+      }
       if (market && proj.market !== market) return false;
       if (q.trim()) {
         const s = q.trim().toLowerCase();

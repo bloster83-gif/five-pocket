@@ -700,7 +700,15 @@ export default function ProjectDetailScreen() {
             )}
           </View>
         )}
-        {pockets.map((k) => {
+        {pockets
+          // 매수 가능 수량이 0주인 대기 포켓은 숨김 (거래 이력이 있으면 표시)
+          .filter(
+            (k) =>
+              k.status !== 'waiting' ||
+              (cyclesByPocket.get(k.id) ?? 0) > 0 ||
+              estimatedShares(k.budget, k.buy_target_price) > 0
+          )
+          .map((k) => {
           // 이 포켓의 현재 순환 순 보유(미매도) 포지션 — 여러 번 매수해도 합산해서 실제 수량/평단 계산
           const pocketOpen = computePnL(trades.filter((t) => t.pocket_id === k.id), null);
           const card = (

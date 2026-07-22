@@ -78,6 +78,9 @@ export function useAutoTrader(
         const exp = profileRef.current?.tier_expires_at;
         if (exp && new Date(exp).getTime() <= Date.now()) return;
 
+        // 배분 예산으로 1주도 못 사는 포켓(매수 수량 0)은 자동 매수를 아예 건너뛴다 (실패 알람 반복 방지)
+        if (sig.kind === 'buy' && estimatedShares(sig.pocket.budget, sig.targetPrice) <= 0) return;
+
         const key = `${sig.pocket.id}:${sig.kind}`;
         if (inFlightRef.current.has(key)) return;
         inFlightRef.current.add(key);
