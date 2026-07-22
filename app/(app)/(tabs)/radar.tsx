@@ -33,6 +33,7 @@ export default function RadarScreen() {
   const [items, setItems] = useState<WatchlistItem[]>([]);
   const [memos, setMemos] = useState<WatchlistMemo[]>([]);
   const [prices, setPrices] = useState<Record<string, number>>({});
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null); // 마지막 시세 갱신 시각
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false); // 테이블 없음(마이그레이션 미실행) 감지
   const [filter, setFilter] = useState<Filter>('all');
@@ -66,34 +67,42 @@ export default function RadarScreen() {
     }, [load])
   );
 
-  // 각 종목 현재가 로드 (심볼 목록이 바뀔 때만)
+  // 각 종목 현재가 로드
   const symbolsKey = useMemo(() => items.map((i) => i.symbol).sort().join(','), [items]);
-  useEffect(() => {
+  const fetchPrices = useCallback(async () => {
     const syms = symbolsKey ? symbolsKey.split(',') : [];
     if (syms.length === 0) {
       setPrices({});
       return;
     }
-    let cancelled = false;
-    Promise.all(
+    const rows = await Promise.all(
       syms.map((s) =>
         priceProvider
           .getQuote(s)
           .then((qq) => [s, qq.price] as const)
           .catch(() => null)
       )
-    ).then((rows) => {
-      if (cancelled) return;
-      const m: Record<string, number> = {};
-      rows.forEach((r) => {
-        if (r) m[r[0]] = r[1];
-      });
-      setPrices(m);
+    );
+    const m: Record<string, number> = {};
+    rows.forEach((r) => {
+      if (r) m[r[0]] = r[1];
     });
-    return () => {
-      cancelled = true;
-    };
+    setPrices(m);
+    setUpdatedAt(Date.now());
   }, [symbolsKey]);
+
+  // 목록이 바뀌면 즉시 1회 시세 갱신
+  useEffect(() => {
+    void fetchPrices();
+  }, [fetchPrices]);
+
+  // 레이더 탭이 보이는 동안 1분마다 실시간 시세 자동 갱신
+  useFocusEffect(
+    useCallback(() => {
+      const id = setInterval(() => void fetchPrices(), 60_000);
+      return () => clearInterval(id);
+    }, [fetchPrices])
+  );
 
   // 기준가 이하로 내려가면 로컬 알림 (한 번 내려갈 때마다 1회, 다시 위로 올라가면 리셋)
   const notifiedRef = useRef<Set<string>>(new Set());
@@ -228,10 +237,18 @@ export default function RadarScreen() {
         {showSearch && (
           <Field label="" value={q} onChangeText={setQ} placeholder="종목명/티커 검색" autoCapitalize="none" />
         )}
+        {!missing && items.length > 0 && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: colors.buy }} />
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>
+              실시간 · 1분 간격 자동 갱신{updatedAt ? ` · ${new Date(updatedAt).toLocaleTimeString()}` : ''}
+            </Text>
+          </View>
+        )}
       </View>
 
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.md, paddingBottom: 120 }}
+        contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.sm, paddingBottom: 120 }}
         keyboardShouldPersistTaps="handled"
       >
         {missing && (
@@ -395,6 +412,8 @@ function WatchRow({
         style={{
           borderLeftWidth: 5,
           borderLeftColor: mkt === 'KRX' ? colors.text : colors.accent,
+          paddingVertical: spacing.sm,
+          gap: 2,
           ...(shadeBg ? { backgroundColor: shadeBg, borderColor: colors.sell } : null),
         }}
       >
@@ -413,7 +432,7 @@ function WatchRow({
             </View>
           </View>
           {/* 2줄: 현재가 · 기준가 */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: 4 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: 2 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Text style={{ color: colors.textDim, fontSize: 11 }}>현재가</Text>
               <Text style={{ color: num.live, fontWeight: '800', fontSize: 13 }}>{price != null ? formatPrice(price, mkt) : '—'}</Text>
