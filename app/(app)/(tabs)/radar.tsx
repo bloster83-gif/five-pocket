@@ -7,13 +7,9 @@ import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatPrice, money, num, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { searchSymbols } from '@/services/symbols';
 import { priceProvider } from '@/services/prices';
-import { notifyNow } from '@/lib/notifications';
 import { setRadarBelowCount } from '@/lib/badges';
-
-const BELOW_NOTIFIED_KEY = 'radar_below_notified'; // 기준가 이하 알림 발송 이력(로컬 영구 저장)
 import type { Market, SymbolResult, WatchlistItem, WatchlistMemo } from '@/types/db';
 
 type Filter = 'all' | 'KRX' | 'US' | 'under' | 'over';
@@ -108,56 +104,14 @@ export default function RadarScreen() {
     }, [fetchPrices])
   );
 
-  // 기준가 이하 알림은 '최초 도달 시 1회'만 — 발송 이력을 로컬에 영구 저장(재시작해도 반복 안 함).
-  // 기준가 위로 회복하면 이력에서 지워, 다음에 다시 내려가면 그때 또 1회 알림.
-  const notifiedRef = useRef<Set<string>>(new Set());
-  const [notifLoaded, setNotifLoaded] = useState(false);
+  // 기준가 이하 종목 수를 탭 배지에 반영 (알림은 보내지 않음 — 화면 음영·배지로만 표시)
   useEffect(() => {
-    AsyncStorage.getItem(BELOW_NOTIFIED_KEY)
-      .then((raw) => {
-        if (raw) {
-          try {
-            notifiedRef.current = new Set(JSON.parse(raw) as string[]);
-          } catch {
-            /* 무시 */
-          }
-        }
-      })
-      .finally(() => setNotifLoaded(true));
-  }, []);
-
-  useEffect(() => {
-    // 저장된 발송 이력을 불러오기 전에는 알림하지 않음 (앱 켜자마자 중복 알림 방지)
-    if (!notifLoaded) return;
-    let changed = false;
-    items.forEach((it) => {
-      const p = prices[it.symbol];
-      if (p == null || !it.base_price || it.base_price <= 0) return;
-      if (p < it.base_price) {
-        if (!notifiedRef.current.has(it.id)) {
-          notifiedRef.current.add(it.id);
-          changed = true;
-          const pct = Math.round((p / it.base_price) * 1000) / 10;
-          void notifyNow('📉 기준가 이하 도달', `${it.name} · 현재가 ${formatPrice(p, it.market)} (기준가 대비 ${pct}%)`);
-        }
-      } else if (notifiedRef.current.has(it.id)) {
-        notifiedRef.current.delete(it.id);
-        changed = true;
-      }
-    });
-    if (changed) {
-      // 삭제된 종목의 잔여 id 정리 후 저장
-      const alive = new Set(items.map((it) => it.id));
-      notifiedRef.current = new Set([...notifiedRef.current].filter((id) => alive.has(id)));
-      void AsyncStorage.setItem(BELOW_NOTIFIED_KEY, JSON.stringify([...notifiedRef.current]));
-    }
-    // 기준가 이하 종목 수를 탭 배지에 반영
     const below = items.filter((it) => {
       const p = prices[it.symbol];
       return p != null && it.base_price > 0 && p < it.base_price;
     }).length;
     setRadarBelowCount(below);
-  }, [prices, items, notifLoaded]);
+  }, [prices, items]);
 
   // 기준가 대비 % (현재가 ÷ 기준가 × 100). 시세 없으면 null.
   const ratioOf = useCallback(
@@ -337,7 +291,7 @@ export default function RadarScreen() {
 
         {!missing && items.length > 0 && (
           <Text style={{ color: colors.textDim, fontSize: 11, textAlign: 'center' }}>
-            💡 기준가 대비 = 현재가 ÷ 기준가 · 기준가 이하로 내려가면 알림 + 파란 음영(많이 떨어질수록 진하게) · 탭하면 메모 · 오른쪽으로 밀면 프로젝트 생성 · 왼쪽으로 밀면 삭제.
+            💡 기준가 대비 = 현재가 ÷ 기준가 · 기준가 이하로 내려가면 파란 음영(많이 떨어질수록 진하게) + 탭 배지 · 탭하면 메모 · 오른쪽으로 밀면 프로젝트 생성 · 왼쪽으로 밀면 삭제.
           </Text>
         )}
       </ScrollView>
