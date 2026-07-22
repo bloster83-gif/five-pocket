@@ -5,6 +5,7 @@ Expo(React Native) + Supabase 기반 **5분할 매수·매도 일지** 앱. 멀�
 ## 절대 규칙 (한국 주식 관례)
 - **매수·상승·이익 = 빨강(`colors.buy`), 매도·하락·손실 = 파랑(`colors.sell`)** — 미국식(초록=상승)으로 "고치지" 말 것.
 - 금액 표기: 한국주식 `₩` 소수점 없음, 미국주식 `$` 소수점 2자리 → `formatPrice`/`formatMoney` (src/theme.ts). 모든 숫자는 천단위 콤마.
+- **숫자 색상 통일(`num` in src/theme.ts)**: 앱 전체에서 같은 의미의 숫자는 같은 색. 보유수량·평균매수가=`num.position`(빨강), 기준가=`num.base`(보라), 평가총액/총자산=`num.evalTotal`(앰버), 평가·실현손익/등락=`signColor()`(+빨강/-파랑), 실시간 현재가=`num.live`(하양), 예산·예수금=`num.budget`(청록). 매수목표가는 빨강(buy)·매도목표가는 파랑(sell) 유지. 새 숫자 추가 시 이 토큰을 쓸 것.
 - 응답은 한국어로.
 
 ## 구조

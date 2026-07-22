@@ -4,7 +4,7 @@ import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { Card, Row } from '@/components/ui';
-import { colors, formatMoney, money, radius, signColor, spacing } from '@/theme';
+import { colors, formatMoney, money, num, radius, signColor, spacing } from '@/theme';
 import { getDomesticBalance, getOverseasBalance, kisOrderBlocked, type KisBalance, type KisHolding } from '@/services/broker/kis';
 import type { BrokerAccount } from '@/types/db';
 
@@ -148,7 +148,7 @@ export default function HoldingsScreen() {
             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>↻ 새로고침</Text>
           </Pressable>
         </View>
-        <Text style={{ color: colors.text, fontWeight: '900', fontSize: 26 }}>{formatMoney(totalAssetKRW, 'KRX')}</Text>
+        <Text style={{ color: num.evalTotal, fontWeight: '900', fontSize: 26 }}>{formatMoney(totalAssetKRW, 'KRX')}</Text>
         <Text style={{ color: colors.textDim, fontSize: 11 }}>국내(평가+예수금) + 미국(평가+예수금)×1,500원 고정환율</Text>
       </Card>
 
@@ -160,7 +160,7 @@ export default function HoldingsScreen() {
           <View style={{ flexDirection: 'row', gap: spacing.md }}>
             <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
               <Text style={{ color: colors.textDim, fontSize: 11 }}>평가금액</Text>
-              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{formatMoney(balance?.totalEval ?? 0, 'KRX')}</Text>
+              <Text style={{ color: num.evalTotal, fontWeight: '900', fontSize: 16 }}>{formatMoney(balance?.totalEval ?? 0, 'KRX')}</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
               <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익{krRate != null ? ` (${krRate > 0 ? '+' : ''}${krRate}%)` : ''}</Text>
@@ -170,7 +170,7 @@ export default function HoldingsScreen() {
               </Text>
             </View>
           </View>
-          <Row label="예수금 (D+2 정산·원화)" value={formatMoney(krCash, 'KRX')} />
+          <Row label="예수금 (D+2 정산·원화)" value={formatMoney(krCash, 'KRX')} valueColor={num.budget} />
           <Row label="국내 보유 종목" value={`${krHoldings.length}종목`} />
         </Card>
 
@@ -193,7 +193,7 @@ export default function HoldingsScreen() {
           <View style={{ flexDirection: 'row', gap: spacing.md }}>
             <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
               <Text style={{ color: colors.textDim, fontSize: 11 }}>평가금액</Text>
-              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{formatMoney(usEval, 'US')}</Text>
+              <Text style={{ color: num.evalTotal, fontWeight: '900', fontSize: 16 }}>{formatMoney(usEval, 'US')}</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md }}>
               <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익{usRate != null ? ` (${usRate > 0 ? '+' : ''}${usRate}%)` : ''}</Text>
@@ -203,7 +203,7 @@ export default function HoldingsScreen() {
               </Text>
             </View>
           </View>
-          <Row label="예수금 (주문가능·달러)" value={formatMoney(usCash, 'US')} />
+          <Row label="예수금 (주문가능·달러)" value={formatMoney(usCash, 'US')} valueColor={num.budget} />
           <Row label="미국 보유 종목" value={`${usHoldings.length}종목`} />
         </Card>
 

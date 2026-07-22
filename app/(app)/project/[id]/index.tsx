@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { BottomTabsBar } from '@/components/BottomTabsBar';
-import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
+import { colors, formatMoney, formatPrice, money, num, pocketColor, radius, signColor, spacing } from '@/theme';
 import { computePnL, estimatedShares, pnlPct, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
@@ -446,7 +446,7 @@ export default function ProjectDetailScreen() {
             <Text style={{ color: colors.textDim }}>
               {project.symbol} · {marketLabel}
             </Text>
-            <Text style={{ color: colors.text, fontSize: 38, fontWeight: '900', marginTop: 2 }}>
+            <Text style={{ color: num.live, fontSize: 38, fontWeight: '900', marginTop: 2 }}>
               {price != null ? formatPrice(price, mkt) : '—'}
             </Text>
             {change != null && changePct != null && (
@@ -465,7 +465,7 @@ export default function ProjectDetailScreen() {
         {/* 기준가 (전략 기준점) */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.cardAlt, borderRadius: radius.sm, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
           <Text style={{ color: colors.textDim, fontSize: 12 }}>기준가 (포켓1 매수 기준)</Text>
-          <Text style={{ color: colors.text, fontWeight: '800' }}>{formatPrice(project.base_price, mkt)}</Text>
+          <Text style={{ color: num.base, fontWeight: '800' }}>{formatPrice(project.base_price, mkt)}</Text>
         </View>
 
         {/* 상태 표시 (#7 확실한 실시간 표기) */}
@@ -530,10 +530,12 @@ export default function ProjectDetailScreen() {
         <Row
           label="보유 수량 / 평단"
           value={`${money(pnl.totalQtyOpen, 0)}주  ·  평단 ${formatPrice(pnl.avgOpenPrice, mkt)}`}
+          valueColor={num.position}
         />
         <Row
           label="평가 총액"
           value={price != null ? formatMoney(pnl.totalQtyOpen * price, mkt) : '-'}
+          valueColor={num.evalTotal}
         />
         <Row label="평가 손익 (미매도분)" value={formatMoney(pnl.unrealized, mkt)} valueColor={signColor(pnl.unrealized)} />
         <Row label="평가 수익률" value={`${pct > 0 ? '+' : ''}${pct}%`} valueColor={signColor(pct)} />
@@ -559,7 +561,7 @@ export default function ProjectDetailScreen() {
               style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
             >
               <Text style={{ color: colors.textDim }}>💰 프로젝트 예산 {budgetOpen ? '▲' : '▼'}</Text>
-              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{formatMoney(project.total_budget, mkt)}</Text>
+              <Text style={{ color: num.budget, fontWeight: '900', fontSize: 16 }}>{formatMoney(project.total_budget, mkt)}</Text>
             </Pressable>
             {budgetOpen && (
               <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, gap: 6 }}>
@@ -577,7 +579,7 @@ export default function ProjectDetailScreen() {
                           포켓 {k.idx + 1}
                           {w != null ? <Text style={{ color: colors.textDim, fontSize: 11 }}>  ·  {w}%</Text> : null}
                         </Text>
-                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>
+                        <Text style={{ color: num.budget, fontWeight: '800', fontSize: 14 }}>
                           {k.budget != null ? formatMoney(k.budget, mkt) : '-'}
                         </Text>
                       </View>
@@ -943,10 +945,10 @@ function PocketCard({
             </Text>
           </View>
           {k.budget != null && (
-            <Row label={`배분 예산 (비중 ${k.weight}%)`} value={formatPrice(k.budget, market)} />
+            <Row label={`배분 예산 (비중 ${k.weight}%)`} value={formatPrice(k.budget, market)} valueColor={num.budget} />
           )}
           {k.budget != null && (
-            <Row label="매수 가능 수량" value={`${money(buyableQty, 0)}주`} valueColor={colors.buy} />
+            <Row label="매수 가능 수량" value={`${money(buyableQty, 0)}주`} valueColor={num.position} />
           )}
           {(buyReady || buyFailMsg) && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
@@ -1001,17 +1003,17 @@ function PocketCard({
                   <View style={{ flexDirection: 'row' }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.textDim, fontSize: 11 }}>보유 수량</Text>
-                      <Text style={{ color: colors.buy, fontSize: 15, fontWeight: '900' }}>{money(qty, 0)}주</Text>
+                      <Text style={{ color: num.position, fontSize: 15, fontWeight: '900' }}>{money(qty, 0)}주</Text>
                     </View>
                     <View style={{ flex: 1, alignItems: 'flex-end' }}>
                       <Text style={{ color: colors.textDim, fontSize: 11 }}>평균 매수가</Text>
-                      <Text style={{ color: colors.buy, fontSize: 15, fontWeight: '900' }}>{formatPrice(avg, market)}</Text>
+                      <Text style={{ color: num.position, fontSize: 15, fontWeight: '900' }}>{formatPrice(avg, market)}</Text>
                     </View>
                   </View>
                   <View style={{ flexDirection: 'row' }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.textDim, fontSize: 11 }}>평가 총액</Text>
-                      <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>{formatMoney(evalTotal, market)}</Text>
+                      <Text style={{ color: num.evalTotal, fontSize: 15, fontWeight: '900' }}>{formatMoney(evalTotal, market)}</Text>
                     </View>
                     <View style={{ flex: 1, alignItems: 'flex-end' }}>
                       <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익</Text>

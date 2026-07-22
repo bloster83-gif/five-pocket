@@ -17,7 +17,7 @@ import { setProjectCount } from '@/lib/badges';
 import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
-import { colors, formatMoney, formatPrice, radius, signColor, spacing } from '@/theme';
+import { colors, formatMoney, formatPrice, num, radius, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
 import { getDomesticPrice, getOverseasPrice } from '@/services/broker/kis';
@@ -374,7 +374,7 @@ export default function ProjectsScreen() {
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
                       <Text style={{ color: colors.textDim, fontSize: 12 }}>현재가</Text>
-                      <Text style={{ color: closed ? colors.textDim : colors.text, fontWeight: '900', fontSize: 15 }}>
+                      <Text style={{ color: closed ? colors.textDim : num.live, fontWeight: '900', fontSize: 15 }}>
                         {m?.price != null ? formatPrice(m.price, m?.market ?? item.market) : '—'}
                       </Text>
                       {m?.changePct != null ? (
@@ -401,7 +401,7 @@ export default function ProjectsScreen() {
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                       <Text style={{ color: colors.textDim, fontSize: 12 }}>기준가</Text>
-                      <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>
+                      <Text style={{ color: closed ? colors.textDim : num.base, fontWeight: '900', fontSize: 15 }}>
                         {formatPrice(item.base_price, m?.market ?? item.market)}
                       </Text>
                     </View>
@@ -444,7 +444,7 @@ export default function ProjectsScreen() {
                       {m.value != null && m.value > 0 && (
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                           <Text style={{ color: colors.textDim, fontSize: 12 }}>평가 총액</Text>
-                          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 20 }}>
+                          <Text style={{ color: num.evalTotal, fontWeight: '900', fontSize: 20 }}>
                             {formatMoney(m.value, m.market)}
                           </Text>
                         </View>
@@ -474,7 +474,7 @@ export default function ProjectsScreen() {
                     >
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Text style={{ color: colors.textDim, fontSize: 12 }}>💰 예산</Text>
-                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>
+                        <Text style={{ color: num.budget, fontWeight: '800', fontSize: 14 }}>
                           {item.total_budget != null ? formatMoney(item.total_budget, m?.market ?? item.market) : '-'}
                         </Text>
                       </View>

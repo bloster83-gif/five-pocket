@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
-import { colors, formatMoney, formatPrice, money, pocketColor, radius, signColor, spacing } from '@/theme';
+import { colors, formatMoney, formatPrice, money, num, pocketColor, radius, signColor, spacing } from '@/theme';
 import { computePnL, estimatedShares } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
 import { getDomesticPrice, getOverseasPrice, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
@@ -335,7 +335,7 @@ export default function PocketsScreen() {
           Object.entries(budgetByMarket).map(([mkt, v]) => (
             <View key={mkt} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ color: colors.textDim }}>{mkt === 'KRX' ? '한국 (원화)' : '미국 (달러)'}</Text>
-              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 22 }}>{formatMoney(v, mkt)}</Text>
+              <Text style={{ color: num.budget, fontWeight: '900', fontSize: 22 }}>{formatMoney(v, mkt)}</Text>
             </View>
           ))
         )}
@@ -407,7 +407,7 @@ export default function PocketsScreen() {
               {/* 실시간 현재가 (한 줄) */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Text style={{ color: colors.textDim, fontSize: 11 }}>현재가</Text>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                <Text style={{ color: num.live, fontWeight: '800', fontSize: 13 }}>
                   {price != null ? formatPrice(price, proj.market) : '—'}
                 </Text>
                 {changePct != null && (
@@ -472,11 +472,11 @@ export default function PocketsScreen() {
                       <View style={{ flexDirection: 'row' }}>
                         <View style={{ flex: 1 }}>
                           <Text style={{ color: colors.textDim, fontSize: 11 }}>보유 수량</Text>
-                          <Text style={{ color: colors.buy, fontSize: 15, fontWeight: '900' }}>{money(pnl.totalQtyOpen, 0)}주</Text>
+                          <Text style={{ color: num.position, fontSize: 15, fontWeight: '900' }}>{money(pnl.totalQtyOpen, 0)}주</Text>
                         </View>
                         <View style={{ flex: 1, alignItems: 'flex-end' }}>
                           <Text style={{ color: colors.textDim, fontSize: 11 }}>평균 매수가</Text>
-                          <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>
+                          <Text style={{ color: num.position, fontSize: 15, fontWeight: '900' }}>
                             {formatPrice(pnl.avgOpenPrice, proj.market)}
                           </Text>
                         </View>
@@ -484,7 +484,7 @@ export default function PocketsScreen() {
                       <View style={{ flexDirection: 'row' }}>
                         <View style={{ flex: 1 }}>
                           <Text style={{ color: colors.textDim, fontSize: 11 }}>평가 총액</Text>
-                          <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>{formatMoney(evalTotal, proj.market)}</Text>
+                          <Text style={{ color: num.evalTotal, fontSize: 15, fontWeight: '900' }}>{formatMoney(evalTotal, proj.market)}</Text>
                         </View>
                         <View style={{ flex: 1, alignItems: 'flex-end' }}>
                           <Text style={{ color: colors.textDim, fontSize: 11 }}>평가손익</Text>
