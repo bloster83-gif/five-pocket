@@ -6,6 +6,7 @@
     "scheme": "fivepocket",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
     "newArchEnabled": true,
     "runtimeVersion": {
       "policy": "sdkVersion"
@@ -21,7 +22,11 @@
       "bundleIdentifier": "com.fivepocket.app"
     },
     "android": {
-      "package": "com.fivepocket.app"
+      "package": "com.fivepocket.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#0B1220"
+      }
     },
     "web": {
       "bundler": "metro",

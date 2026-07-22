@@ -441,25 +441,27 @@ function WatchRow({
               <Text style={{ color: ratioColor, fontWeight: '900', fontSize: 16 }}>{ratio != null ? `${ratio}%` : '—'}</Text>
             </View>
           </View>
-          {/* 2줄: 현재가 · 기준가 */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: 2 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Text style={{ color: colors.textDim, fontSize: 11 }}>현재가</Text>
-              <Text style={{ color: num.live, fontWeight: '800', fontSize: 13 }}>{price != null ? formatPrice(price, mkt) : '—'}</Text>
-              {/* 금일 변동률 (전일 종가 대비) */}
-              {changePct != null && (
-                <Text style={{ color: signColor(changePct), fontSize: 11, fontWeight: '800' }}>
-                  {changePct > 0 ? '▲' : changePct < 0 ? '▼' : ''}
-                  {changePct > 0 ? '+' : ''}
-                  {changePct}%
-                </Text>
-              )}
+          {/* 2줄: 현재가 · 기준가 (금액이 길면 줄바꿈) + 오른쪽 고정 메모 표시 */}
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginTop: 2 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md, flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>현재가</Text>
+                <Text style={{ color: num.live, fontWeight: '800', fontSize: 13 }}>{price != null ? formatPrice(price, mkt) : '—'}</Text>
+                {/* 금일 변동률 (전일 종가 대비) */}
+                {changePct != null && (
+                  <Text style={{ color: signColor(changePct), fontSize: 11, fontWeight: '800' }}>
+                    {changePct > 0 ? '▲' : changePct < 0 ? '▼' : ''}
+                    {changePct > 0 ? '+' : ''}
+                    {changePct}%
+                  </Text>
+                )}
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>기준가</Text>
+                <Text style={{ color: num.base, fontWeight: '800', fontSize: 13 }}>{formatPrice(item.base_price, mkt)}</Text>
+              </View>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Text style={{ color: colors.textDim, fontSize: 11 }}>기준가</Text>
-              <Text style={{ color: num.base, fontWeight: '800', fontSize: 13 }}>{formatPrice(item.base_price, mkt)}</Text>
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
               <Text style={{ fontSize: 12 }}>📝</Text>
               {/* 메모가 1개 이상이면 개수를 색깔 동그라미로 강조 */}
               {memos.length > 0 ? (
