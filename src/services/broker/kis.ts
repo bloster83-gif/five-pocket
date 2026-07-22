@@ -15,6 +15,28 @@ import type { BrokerAccount, TradeSide } from '@/types/db';
 const REAL_BASE = 'https://openapi.koreainvestment.com:9443';
 const VTS_BASE = 'https://openapivts.koreainvestment.com:29443';
 
+/**
+ * KIS "초당 거래건수 초과"(EGW00201) 같은 일시적 호출제한 오류면 잠깐 쉬었다 자동 재시도.
+ * (보유주식 조회처럼 짧은 순간 여러 요청이 몰릴 때 발생)
+ */
+function isRateLimitError(msg: string): boolean {
+  return /EGW00201|초당\s?거래\s?건수|거래건수를?\s?초과/.test(msg);
+}
+async function retryOnRateLimit<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (isRateLimitError(msg) && i < tries - 1) {
+        await new Promise((r) => setTimeout(r, 300 * (i + 1) * (i + 1))); // 300 → 1200 → 2700ms
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 // 국내주식 현금주문 TR ID (실전 T…, 모의 V…)
 const TR_ID = {
   real: { buy: 'TTTC0802U', sell: 'TTTC0801U' },
@@ -473,6 +495,7 @@ export interface KisBalance {
 
 /** 국내주식 잔고(보유종목 + 예수금)를 조회한다. 웹/미지원 환경이면 kisOrderBlocked 로 막힘. */
 export async function getDomesticBalance(account: BrokerAccount): Promise<KisBalance> {
+  return retryOnRateLimit(async () => {
   const token = await getValidToken(account);
   const trId = BALANCE_TR[account.is_virtual ? 'virtual' : 'real'];
 
@@ -531,6 +554,7 @@ export async function getDomesticBalance(account: BrokerAccount): Promise<KisBal
       summary.prvs_rcdl_excc_amt ?? summary.nxdy_excc_amt ?? summary.dnca_tot_amt ?? 0
     ),
   };
+  });
 }
 
 // 해외주식 잔고조회 TR ID (미국)
@@ -545,6 +569,7 @@ export interface KisOverseasBalance {
 
 /** 미국주식 잔고(보유종목 + 달러 평가·예수금). 실패해도 국내 조회에 영향 없게 별도 함수. */
 export async function getOverseasBalance(account: BrokerAccount): Promise<KisOverseasBalance> {
+  return retryOnRateLimit(async () => {
   const token = await getValidToken(account);
   const trId = OVERSEAS_BALANCE_TR[account.is_virtual ? 'virtual' : 'real'];
 
@@ -594,4 +619,5 @@ export async function getOverseasBalance(account: BrokerAccount): Promise<KisOve
   const totalEval = holdings.reduce((a, h) => a + h.evalAmount, 0);
   const totalPnl = holdings.reduce((a, h) => a + h.pnl, 0);
   return { holdings, cash, totalEval, totalPnl };
+  });
 }
