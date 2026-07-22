@@ -7,7 +7,7 @@ import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { computePnL, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
-import { colors, formatKRW, formatMoney, formatPrice, money, radius, signColor, spacing } from '@/theme';
+import { colors, formatKRW, formatMoney, formatPrice, money, num, radius, signColor, spacing } from '@/theme';
 import type { CashFlow, CashFlowType, Market, Project, Trade } from '@/types/db';
 
 const FLOW_META: Record<CashFlowType, { label: string; color: string; sign: string }> = {
@@ -328,6 +328,12 @@ export default function JournalScreen() {
     });
   }, [realizedTotals, unrealizedTotals]);
 
+  // 검색이 특정 기간(오늘/1주/1개월/…)이면 손익 요약의 헤드라인을 '그 기간의 실현손익'으로,
+  // '전체'(from·to 둘 다 비어있음)면 '실현(전체)+평가(현재 보유) 합계'로 보여준다.
+  // (평가손익은 현재 보유분 실시간 평가라 과거 기간으로 되돌릴 수 없어 항상 최신 기준)
+  const periodScoped = !!(from || to);
+  const periodLabel = preset ?? (periodScoped ? `${from || '처음'}~${to || '오늘'}` : '전체');
+
   // 기간 내 현금흐름 종류별 합산
   const flowSums = useMemo(() => {
     const m: Record<CashFlowType, number> = { deposit: 0, withdrawal: 0, dividend: 0 };
@@ -607,62 +613,69 @@ export default function JournalScreen() {
         <Card style={{ borderColor: colors.buy }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text style={{ color: colors.text, fontWeight: '800' }}>
-              💰 손익 요약 {q.trim() ? `· ${q.trim()}` : ''}
+              💰 손익 요약 · {periodLabel}{q.trim() ? ` · ${q.trim()}` : ''}
             </Text>
             <Text style={{ color: colors.textDim, fontSize: 11 }}>
               실현 {from || '처음'}~{to || '오늘'} · 매도 {realizedTotals.count}건
             </Text>
           </View>
-          {pnlSummary.map((s) => (
-            <View
-              key={s.market}
-              style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 6 }}
-            >
-              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
-                {s.market === 'KRX' ? '🇰🇷 한국 (원화)' : '🇺🇸 미국 (달러)'}
-              </Text>
-              {/* 1) 평가총액 (현재 보유분 시세 평가금액) */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: colors.textDim, fontSize: 13 }}>평가총액 (현재 보유)</Text>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>
-                  {formatMoney(s.evalTotal, s.market)}
-                </Text>
-              </View>
-              {/* 2) 평가손익 (현재 보유) */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: colors.textDim, fontSize: 13 }}>평가손익 (현재 보유)</Text>
-                <Text style={{ color: signColor(s.unrealized), fontWeight: '800', fontSize: 15 }}>
-                  {s.unrealized > 0 ? '+' : ''}
-                  {formatMoney(s.unrealized, s.market)}
-                </Text>
-              </View>
-              {/* 3) 실현손익 (기간) */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: colors.textDim, fontSize: 13 }}>실현손익 (기간)</Text>
-                <Text style={{ color: signColor(s.realized), fontWeight: '800', fontSize: 15 }}>
-                  {s.realized > 0 ? '+' : ''}
-                  {formatMoney(s.realized, s.market)}
-                </Text>
-              </View>
-              {/* 합계 (실현 + 평가손익) */}
+          {pnlSummary.map((s) => {
+            // 특정 기간이면 헤드라인 = 그 기간 실현손익, 전체면 = 실현(전체)+평가(현재) 합계
+            const headline = periodScoped ? s.realized : s.total;
+            return (
               <View
-                style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  borderTopWidth: 1,
-                  borderTopColor: colors.border,
-                  paddingTop: 6,
-                }}
+                key={s.market}
+                style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 6 }}
               >
-                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14 }}>손익 합계</Text>
-                <Text style={{ color: signColor(s.total), fontWeight: '900', fontSize: 18 }}>
-                  {s.total > 0 ? '+' : ''}
-                  {formatMoney(s.total, s.market)}
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+                  {s.market === 'KRX' ? '🇰🇷 한국 (원화)' : '🇺🇸 미국 (달러)'}
                 </Text>
+                {/* 현재 보유 평가 (실시간·기간과 무관) */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: colors.textDim, fontSize: 13 }}>평가총액 (현재 보유·실시간)</Text>
+                  <Text style={{ color: num.evalTotal, fontWeight: '800', fontSize: 15 }}>
+                    {formatMoney(s.evalTotal, s.market)}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: colors.textDim, fontSize: 13 }}>평가손익 (현재 보유·실시간)</Text>
+                  <Text style={{ color: signColor(s.unrealized), fontWeight: '800', fontSize: 15 }}>
+                    {s.unrealized > 0 ? '+' : ''}
+                    {formatMoney(s.unrealized, s.market)}
+                  </Text>
+                </View>
+                {/* 전체일 때만 실현(전체)을 별도 줄로 (기간이면 아래 헤드라인이 곧 실현이라 생략) */}
+                {!periodScoped && (
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: colors.textDim, fontSize: 13 }}>실현손익 (전체)</Text>
+                    <Text style={{ color: signColor(s.realized), fontWeight: '800', fontSize: 15 }}>
+                      {s.realized > 0 ? '+' : ''}
+                      {formatMoney(s.realized, s.market)}
+                    </Text>
+                  </View>
+                )}
+                {/* 헤드라인: 기간이면 'OO 실현손익', 전체면 '손익 합계(실현+평가)' */}
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    borderTopWidth: 1,
+                    borderTopColor: colors.border,
+                    paddingTop: 6,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14 }}>
+                    {periodScoped ? `${periodLabel} 실현손익` : '손익 합계'}
+                  </Text>
+                  <Text style={{ color: signColor(headline), fontWeight: '900', fontSize: 18 }}>
+                    {headline > 0 ? '+' : ''}
+                    {formatMoney(headline, s.market)}
+                  </Text>
+                </View>
               </View>
-            </View>
-          ))}
+            );
+          })}
           {unrealizedTotals.count > 0 && unrealizedTotals.priced < unrealizedTotals.count && (
             <Text style={{ color: colors.textDim, fontSize: 11 }}>
               * 보유 {unrealizedTotals.count}종목 중 {unrealizedTotals.priced}종목 시세 반영 (웹은 시세 제한 · 폰에서 정확)
