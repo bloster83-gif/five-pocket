@@ -418,7 +418,7 @@ export default function MyScreen() {
                 color={signColor(krPnl)}
               />
             </View>
-            <Row label="예수금 (주문가능·원화)" value={formatMoney(krCash, 'KRX')} />
+            <Row label="예수금 (D+2 정산·원화)" value={formatMoney(krCash, 'KRX')} />
             <Row label="국내 보유 종목" value={`${balance.holdings.length}종목`} />
 
             {/* 🇺🇸 미국 (달러) */}

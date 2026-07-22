@@ -525,7 +525,11 @@ export async function getDomesticBalance(account: BrokerAccount): Promise<KisBal
     holdings,
     totalEval: Number(summary.scts_evlu_amt ?? 0), // 유가증권 평가금액
     totalPnl: Number(summary.evlu_pfls_smtl_amt ?? 0), // 평가손익 합계
-    cash: Number(summary.dnca_tot_amt ?? summary.prvs_rcdl_excc_amt ?? 0), // 예수금
+    // 예수금: 매도대금 D+2 정산을 반영한 '가수도정산금액(prvs_rcdl_excc_amt)'을 우선 사용.
+    // (dnca_tot_amt = D+0 예수금총금액은 매도분이 아직 안 잡혀 10만원 등으로 낮게 뜸)
+    cash: Number(
+      summary.prvs_rcdl_excc_amt ?? summary.nxdy_excc_amt ?? summary.dnca_tot_amt ?? 0
+    ),
   };
 }
 

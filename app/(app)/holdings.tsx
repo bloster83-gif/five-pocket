@@ -168,7 +168,7 @@ export default function HoldingsScreen() {
             </Text>
           </View>
         </View>
-        <Row label="예수금 (주문가능·원화)" value={formatMoney(krCash, 'KRX')} />
+        <Row label="예수금 (D+2 정산·원화)" value={formatMoney(krCash, 'KRX')} />
         <Row label="국내 보유 종목" value={`${krHoldings.length}종목`} />
       </Card>
 
