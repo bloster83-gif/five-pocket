@@ -300,9 +300,13 @@ export default function NewProjectScreen() {
             <Text style={{ color: overBudget ? colors.danger : colors.textDim, fontSize: 12, fontWeight: overBudget ? '800' : '400' }}>
               D+2 예수금(주문가능): {formatMoney(cash, 'KRX')}
             </Text>
-            {overBudget && (
+            {overBudget ? (
               <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '800' }}>
-                ⚠️ 예산이 D+2 예수금을 초과했어요. 예수금 이하로 낮춰야 저장할 수 있어요.
+                ⚠️ 프로젝트 총 예산이 D+2 예수금을 초과했어요. 예수금 이하로 낮춰야 생성할 수 있어요.
+              </Text>
+            ) : (
+              <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                ※ 프로젝트 총 예산이 D+2 예수금보다 높으면 프로젝트를 생성할 수 없어요.
               </Text>
             )}
           </View>

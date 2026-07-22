@@ -32,7 +32,7 @@ export default function RadarScreen() {
   const router = useRouter();
   const [items, setItems] = useState<WatchlistItem[]>([]);
   const [memos, setMemos] = useState<WatchlistMemo[]>([]);
-  const [prices, setPrices] = useState<Record<string, number>>({});
+  const [prices, setPrices] = useState<Record<string, { price: number; changePct: number | null }>>({});
   const [updatedAt, setUpdatedAt] = useState<number | null>(null); // 마지막 시세 갱신 시각
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false); // 테이블 없음(마이그레이션 미실행) 감지
@@ -79,11 +79,17 @@ export default function RadarScreen() {
       syms.map((s) =>
         priceProvider
           .getQuote(s)
-          .then((qq) => [s, qq.price] as const)
+          .then((qq) => {
+            const changePct =
+              qq.previousClose && qq.previousClose > 0
+                ? Math.round(((qq.price - qq.previousClose) / qq.previousClose) * 10000) / 100
+                : null;
+            return [s, { price: qq.price, changePct }] as const;
+          })
           .catch(() => null)
       )
     );
-    const m: Record<string, number> = {};
+    const m: Record<string, { price: number; changePct: number | null }> = {};
     rows.forEach((r) => {
       if (r) m[r[0]] = r[1];
     });
@@ -107,7 +113,7 @@ export default function RadarScreen() {
   // 기준가 이하 종목 수를 탭 배지에 반영 (알림은 보내지 않음 — 화면 음영·배지로만 표시)
   useEffect(() => {
     const below = items.filter((it) => {
-      const p = prices[it.symbol];
+      const p = prices[it.symbol]?.price;
       return p != null && it.base_price > 0 && p < it.base_price;
     }).length;
     setRadarBelowCount(below);
@@ -116,7 +122,7 @@ export default function RadarScreen() {
   // 기준가 대비 % (현재가 ÷ 기준가 × 100). 시세 없으면 null.
   const ratioOf = useCallback(
     (it: WatchlistItem) => {
-      const p = prices[it.symbol];
+      const p = prices[it.symbol]?.price;
       if (p == null || !it.base_price || it.base_price <= 0) return null;
       return Math.round((p / it.base_price) * 1000) / 10;
     },
@@ -264,7 +270,8 @@ export default function RadarScreen() {
           <WatchRow
             key={it.id}
             item={it}
-            price={prices[it.symbol] ?? null}
+            price={prices[it.symbol]?.price ?? null}
+            changePct={prices[it.symbol]?.changePct ?? null}
             ratio={ratioOf(it)}
             memos={memosByItem[it.id] ?? []}
             open={expanded === it.id}
@@ -333,6 +340,7 @@ export default function RadarScreen() {
 function WatchRow({
   item,
   price,
+  changePct,
   ratio,
   memos,
   open,
@@ -345,6 +353,7 @@ function WatchRow({
 }: {
   item: WatchlistItem;
   price: number | null;
+  changePct: number | null;
   ratio: number | null;
   memos: WatchlistMemo[];
   open: boolean;
@@ -427,6 +436,14 @@ function WatchRow({
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Text style={{ color: colors.textDim, fontSize: 11 }}>현재가</Text>
               <Text style={{ color: num.live, fontWeight: '800', fontSize: 13 }}>{price != null ? formatPrice(price, mkt) : '—'}</Text>
+              {/* 금일 변동률 (전일 종가 대비) */}
+              {changePct != null && (
+                <Text style={{ color: signColor(changePct), fontSize: 11, fontWeight: '800' }}>
+                  {changePct > 0 ? '▲' : changePct < 0 ? '▼' : ''}
+                  {changePct > 0 ? '+' : ''}
+                  {changePct}%
+                </Text>
+              )}
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Text style={{ color: colors.textDim, fontSize: 11 }}>기준가</Text>
