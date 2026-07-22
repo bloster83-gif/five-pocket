@@ -141,6 +141,7 @@ export default function PocketsScreen() {
     return pockets.filter((k) => {
       const proj = projMap[k.project_id];
       if (!proj) return false;
+      if (proj.closed_at) return false; // 종료된 프로젝트의 포켓은 포켓탭에서 숨김(상세에서만 확인)
       if (market && proj.market !== market) return false;
       if (q.trim()) {
         const s = q.trim().toLowerCase();
