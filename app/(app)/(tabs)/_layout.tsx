@@ -4,6 +4,7 @@ import { Image, Pressable, Text, View } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { setProjectCount, useProjectCount, useRadarBelowCount } from '@/lib/badges';
+import { refreshRadarBadge } from '@/lib/radarBadge';
 import { colors, daysUntil, spacing } from '@/theme';
 
 // 레이더를 가장 왼쪽 탭으로 두더라도, 앱 시작 화면은 항상 '프로젝트'(index)로 고정
@@ -87,6 +88,12 @@ export default function TabsLayout() {
       .then(({ count }) => {
         if (typeof count === 'number') setProjectCount(count);
       });
+  }, [session?.user?.id]);
+
+  // 진입 시 '기준가 이하' 종목 수도 한 번 계산해 레이더 배지 초기값 세팅
+  // (레이더 탭을 아직 안 열었어도 최초 실행부터 배지가 뜨도록)
+  useEffect(() => {
+    refreshRadarBadge(session?.user?.id);
   }, [session?.user?.id]);
 
   return (
