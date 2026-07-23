@@ -15,7 +15,8 @@
       "policy": "sdkVersion"
     },
     "updates": {
-      "fallbackToCacheTimeout": 0
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/3ce9482b-f426-46aa-aa39-a36a8134a65d"
     },
     "splash": {
       "backgroundColor": "#0B1220"
@@ -45,6 +46,12 @@
       ],
       "expo-asset",
       "expo-web-browser"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "3ce9482b-f426-46aa-aa39-a36a8134a65d"
+      }
+    }
   }
 }
