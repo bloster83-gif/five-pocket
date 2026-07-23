@@ -58,6 +58,20 @@ function readAuto(info: CustomerInfo): AutoEntitlement {
   };
 }
 
+// 페이월 표시 순서 (짧은 기간 → 긴 기간): 1개월 → 6개월 → 12개월 …
+function periodRank(pkgType: string): number {
+  const order: Record<string, number> = {
+    WEEKLY: 1,
+    MONTHLY: 2,
+    TWO_MONTH: 3,
+    THREE_MONTH: 4,
+    SIX_MONTH: 5,
+    ANNUAL: 6,
+    LIFETIME: 7,
+  };
+  return order[pkgType] ?? 99;
+}
+
 function periodLabel(pkgType: string): string {
   switch (pkgType) {
     case 'MONTHLY':
@@ -87,7 +101,10 @@ export async function getAutoPackages(): Promise<PurchasePackageInfo[]> {
     const current = offerings.current;
     if (!current) return [];
     pkgCache = {};
-    return current.availablePackages.map((p) => {
+    const sorted = [...current.availablePackages].sort(
+      (a, b) => periodRank(a.packageType) - periodRank(b.packageType)
+    );
+    return sorted.map((p) => {
       pkgCache[p.identifier] = p;
       return {
         id: p.identifier,
