@@ -22,7 +22,7 @@
       "backgroundColor": "#0B1220"
     },
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.fivepocket.app"
     },
     "android": {
