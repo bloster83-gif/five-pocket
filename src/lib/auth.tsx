@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import { initPurchases, setPurchasesUser } from './purchases';
 import type { MemberTier, Profile } from '@/types/db';
 
 interface AuthState {
@@ -68,15 +69,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    // RevenueCat 초기화 (네이티브에서만 동작, 웹/Expo Go 에서는 no-op)
+    initPurchases();
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setLoading(false);
       loadProfile(data.session?.user?.id);
+      // 결제 시스템에 현재 로그인 사용자 연결 (웹훅이 이 id 로 등급을 갱신)
+      setPurchasesUser(data.session?.user?.id ?? null);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       setProfileLoaded(false);
       loadProfile(s?.user?.id);
+      setPurchasesUser(s?.user?.id ?? null);
     });
     return () => sub.subscription.unsubscribe();
   }, []);

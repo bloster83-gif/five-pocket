@@ -1,6 +1,20 @@
-import { ScrollView, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { Card } from '@/components/ui';
 import { colors, radius, spacing } from '@/theme';
+import { useAuth } from '@/lib/auth';
+import { notify } from '@/lib/alert';
+import {
+  getAutoPackages,
+  purchaseAuto,
+  restoreAuto,
+  purchasesSupported,
+  type PurchasePackageInfo,
+} from '@/lib/purchases';
+
+const PRIVACY_URL = 'https://bloster83-gif.github.io/five-pocket/privacy-policy.html';
+// 별도 EULA 가 없으면 Apple 표준 사용약관을 사용해도 됩니다.
+const TERMS_URL = 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
 
 // 다이어리 vs 오토 등급 차이
 const DIARY = [
@@ -15,17 +29,101 @@ const AUTO = [
   '기간제(1개월·6개월·1년), 만료 시 다이어리로 자동 전환',
 ];
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export default function UpgradeScreen() {
+  const { tier, profile, refreshProfile } = useAuth();
+  const supported = purchasesSupported();
+  const [packages, setPackages] = useState<PurchasePackageInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null); // 구매 중인 패키지 id
+
+  const isAuto = tier === 'auto';
+  const expiry = profile?.tier === 'auto' ? profile.tier_expires_at?.slice(0, 10) : null;
+
+  const load = useCallback(async () => {
+    if (!supported) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const pkgs = await getAutoPackages();
+    setPackages(pkgs);
+    setLoading(false);
+  }, [supported]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // 결제 후 웹훅이 등급을 반영하는 데 몇 초 걸릴 수 있어 잠깐 폴링
+  const pollUntilAuto = useCallback(async () => {
+    for (let i = 0; i < 6; i++) {
+      await refreshProfile();
+      await sleep(2500);
+    }
+  }, [refreshProfile]);
+
+  const onBuy = async (pkg: PurchasePackageInfo) => {
+    if (busy) return;
+    setBusy(pkg.id);
+    try {
+      const ent = await purchaseAuto(pkg.id);
+      if (ent.active) {
+        notify('결제 완료', 'AUTO 등급이 활성화되었어요! 반영까지 잠시 걸릴 수 있어요.');
+        pollUntilAuto();
+      } else {
+        notify('결제 확인 중', '결제는 접수됐어요. 등급 반영까지 잠시만 기다려 주세요.');
+        pollUntilAuto();
+      }
+    } catch (e: any) {
+      if (e?.userCancelled) {
+        // 사용자가 결제를 취소함 — 조용히 무시
+      } else {
+        notify('결제 실패', e?.message ?? '결제 중 문제가 발생했어요. 다시 시도해 주세요.');
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onRestore = async () => {
+    if (busy) return;
+    setBusy('restore');
+    try {
+      const ent = await restoreAuto();
+      if (ent.active) {
+        notify('복원 완료', '구매 내역을 확인했어요. 등급을 반영합니다.');
+        pollUntilAuto();
+      } else {
+        notify('복원할 구매 없음', '이 계정에서 복원할 AUTO 구매 내역이 없어요.');
+      }
+    } catch (e: any) {
+      notify('복원 실패', e?.message ?? '구매 복원 중 문제가 발생했어요.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 60 }}>
       <Text style={{ color: colors.text, fontWeight: '900', fontSize: 20 }}>🚀 오토(AUTO) 회원 업그레이드</Text>
+
+      {isAuto && (
+        <Card style={{ borderColor: colors.buy, borderWidth: 1.5 }}>
+          <Text style={{ color: colors.buy, fontWeight: '900', fontSize: 15 }}>🤖 이미 AUTO 회원이에요</Text>
+          {expiry && (
+            <Text style={{ color: colors.textDim, fontSize: 13 }}>만료일: {expiry} (만료 시 다이어리로 자동 전환)</Text>
+          )}
+        </Card>
+      )}
 
       {/* 등급 차이 */}
       <Card>
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>회원 등급 차이</Text>
 
         <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 6 }}>
-          <Text style={{ color: colors.textDim, fontWeight: '900', fontSize: 13 }}>📔 Diary (다이어리) · 기본</Text>
+          <Text style={{ color: colors.textDim, fontWeight: '900', fontSize: 13 }}>📔 Diary (다이어리) · 무료</Text>
           {DIARY.map((t) => (
             <Text key={t} style={{ color: colors.text, fontSize: 13, lineHeight: 20 }}>
               · {t}
@@ -43,77 +141,89 @@ export default function UpgradeScreen() {
         </View>
       </Card>
 
-      {/* 이용료 (기간별) */}
-      <Card>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>이용료 (기간 선택)</Text>
-        {[
-          { period: '1개월', price: '30,000원', note: null as string | null },
-          { period: '6개월', price: '170,000원', note: '5% 할인' },
-          { period: '12개월', price: '324,000원', note: '10% 할인' },
-        ].map((p) => (
-          <View
-            key={p.period}
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              backgroundColor: colors.cardAlt,
-              borderRadius: radius.md,
-              paddingHorizontal: spacing.md,
-              paddingVertical: spacing.sm,
-            }}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{p.period}</Text>
-              {p.note && (
-                <View style={{ backgroundColor: colors.buyBg, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 }}>
-                  <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 11 }}>{p.note}</Text>
-                </View>
-              )}
-            </View>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>{p.price}</Text>
-          </View>
-        ))}
-        <Text style={{ color: colors.textDim, fontSize: 11 }}>기간이 길수록 할인이 적용돼요. 만료 시 다이어리 등급으로 자동 전환됩니다.</Text>
-        <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
-          유료 서버를 24시간 운영하므로 오토 회원은 이용료가 추가됩니다.
-        </Text>
-      </Card>
-
-      {/* 업그레이드 방법 */}
+      {/* 구매 (인앱결제) */}
       <Card style={{ borderColor: colors.primary, borderWidth: 1.5 }}>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>업그레이드 방법</Text>
-        <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 20 }}>
-          원하는 기간의 이용료를 아래 계좌로 입금해 주세요. 입금 확인 후 관리자 승인으로 AUTO 등급으로 전환됩니다.
-        </Text>
+        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>이용권 구매</Text>
 
-        <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={{ color: colors.textDim, fontSize: 13 }}>은행</Text>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>토스뱅크</Text>
+        {!supported ? (
+          <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 20 }}>
+            인앱결제는 설치된 앱(App Store / Google Play 정식 버전)에서만 이용할 수 있어요.
+          </Text>
+        ) : loading ? (
+          <View style={{ paddingVertical: spacing.lg, alignItems: 'center' }}>
+            <ActivityIndicator color={colors.primary} />
           </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={{ color: colors.textDim, fontSize: 13 }}>계좌번호</Text>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>1002-6353-8789</Text>
+        ) : packages.length === 0 ? (
+          <View style={{ gap: 8 }}>
+            <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 20 }}>
+              지금은 이용권을 불러올 수 없어요. 잠시 후 다시 시도해 주세요.
+            </Text>
+            <Pressable onPress={load} style={{ alignSelf: 'flex-start' }}>
+              <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>다시 불러오기</Text>
+            </Pressable>
           </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={{ color: colors.textDim, fontSize: 13 }}>예금주</Text>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>이지훈</Text>
+        ) : (
+          <View style={{ gap: spacing.sm }}>
+            {packages.map((p) => {
+              const buying = busy === p.id;
+              return (
+                <Pressable
+                  key={p.id}
+                  disabled={!!busy}
+                  onPress={() => onBuy(p)}
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    backgroundColor: colors.cardAlt,
+                    borderRadius: radius.md,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: spacing.md,
+                    opacity: busy && !buying ? 0.5 : 1,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>
+                    {p.period || p.title}
+                  </Text>
+                  {buying ? (
+                    <ActivityIndicator color={colors.primary} />
+                  ) : (
+                    <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{p.priceString}</Text>
+                  )}
+                </Pressable>
+              );
+            })}
+
+            <Pressable onPress={onRestore} disabled={!!busy} style={{ alignSelf: 'center', paddingVertical: 6 }}>
+              <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>구매 복원</Text>
+            </Pressable>
           </View>
-        </View>
+        )}
 
         <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
-          ※ 입금자명을 가입 시 실명과 동일하게 해주셔야 확인이 빨라요.
+          유료 서버를 24시간 운영하므로 오토 회원은 이용료가 부과됩니다.
         </Text>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ color: colors.textDim, fontSize: 13 }}>관리자 연락처</Text>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>010-3769-7976</Text>
-        </View>
       </Card>
 
-      <Text style={{ color: colors.textDim, fontSize: 12, textAlign: 'center' }}>
-        입금 후에도 등급이 바뀌지 않으면 관리자에게 문의해 주세요.
-      </Text>
+      {/* 구독 고지 (스토어 심사 필수 문구) */}
+      <View style={{ gap: 6, paddingHorizontal: 4 }}>
+        <Text style={{ color: colors.textDim, fontSize: 11, lineHeight: 17 }}>
+          · 결제는 구매 확정 시 App Store / Google Play 계정으로 청구됩니다.{'\n'}
+          · 자동 갱신 구독의 경우 현재 기간 종료 24시간 전까지 해지하지 않으면 자동 갱신되며, 동일 금액이 청구됩니다.{'\n'}
+          · 구독 관리 및 해지는 기기의 스토어 계정 설정에서 할 수 있습니다.{'\n'}
+          · 유효 기간이 만료되면 자동으로 다이어리(무료) 등급으로 전환됩니다.
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 16, marginTop: 4 }}>
+          <Pressable onPress={() => Linking.openURL(TERMS_URL)}>
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>이용약관</Text>
+          </Pressable>
+          <Pressable onPress={() => Linking.openURL(PRIVACY_URL)}>
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>개인정보 처리방침</Text>
+          </Pressable>
+        </View>
+      </View>
     </ScrollView>
   );
 }
