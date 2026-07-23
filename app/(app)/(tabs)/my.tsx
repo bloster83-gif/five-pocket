@@ -78,7 +78,7 @@ export default function MyScreen() {
   const USD_KRW = 1500; // 앱 공통 고정환율
   const pctOf = (pnl: number, eval_: number) => {
     const cost = eval_ - pnl;
-    return cost > 0 ? Math.round((pnl / cost) * 10000) / 100 : null;
+    return cost > 0 ? Math.round((pnl / cost) * 1000) / 10 : null; // 손익률(소수점 첫째)
   };
   const krEval = balance?.totalEval ?? 0;
   const krPnl = balance?.totalPnl ?? 0;

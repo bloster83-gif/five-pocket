@@ -635,6 +635,12 @@ export default function JournalScreen() {
                   <Text style={{ color: signColor(s.unrealized), fontWeight: '800', fontSize: 15 }}>
                     {s.unrealized > 0 ? '+' : ''}
                     {formatMoney(s.unrealized, s.market)}
+                    {s.evalTotal - s.unrealized > 0
+                      ? (() => {
+                          const r = Math.round((s.unrealized / (s.evalTotal - s.unrealized)) * 1000) / 10;
+                          return ` (${r > 0 ? '+' : ''}${r}%)`;
+                        })()
+                      : ''}
                   </Text>
                 </View>
                 {/* 전체일 때만 실현(전체)을 별도 줄로 (기간이면 아래 헤드라인이 곧 실현이라 생략) */}

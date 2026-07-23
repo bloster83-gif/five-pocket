@@ -471,7 +471,16 @@ export default function ProjectsScreen() {
                       {/* 손익 배지들 — 좌측 색막대 + 큰 금액 + 화살표 */}
                       <View style={{ gap: spacing.sm }}>
                         {m.value != null && m.value > 0 && (
-                          <PnlBadge label="평가 손익 (미실현)" amount={m.pnl ?? 0} market={m.market} />
+                          <PnlBadge
+                            label="평가 손익 (미실현)"
+                            amount={m.pnl ?? 0}
+                            market={m.market}
+                            rate={
+                              m.buyValue && m.buyValue > 0 && m.pnl != null
+                                ? Math.round((m.pnl / m.buyValue) * 1000) / 10
+                                : null
+                            }
+                          />
                         )}
                         {m.realized !== 0 && (
                           <PnlBadge label="실현 손익 (확정) ✓" amount={m.realized} market={m.market} />
@@ -657,7 +666,7 @@ function LightLegend({ color, label, border }: { color: string; label: string; b
 }
 
 // 손익 배지 — 좌측 색막대 + 라벨 + 큰 금액(화살표). 이익=빨강 / 손실=파랑
-function PnlBadge({ label, amount, market }: { label: string; amount: number; market: string }) {
+function PnlBadge({ label, amount, market, rate }: { label: string; amount: number; market: string; rate?: number | null }) {
   const up = amount >= 0;
   const c = up ? colors.buy : colors.sell;
   const bg = up ? colors.buyBg : colors.sellBg;
@@ -679,6 +688,7 @@ function PnlBadge({ label, amount, market }: { label: string; amount: number; ma
         <Text style={{ color: c, fontWeight: '900', fontSize: 18 }}>
           {up ? '▲ +' : '▼ '}
           {formatMoney(amount, market)}
+          {rate != null ? ` (${rate > 0 ? '+' : ''}${rate}%)` : ''}
         </Text>
       </View>
     </View>

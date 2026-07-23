@@ -584,6 +584,7 @@ export default function PocketsScreen() {
                   const buyTotal = pnl.avgOpenPrice * pnl.totalQtyOpen; // 매입 총액
                   const evalTotal = price != null ? price * pnl.totalQtyOpen : null; // 평가 총액 = 현재가 × 수량
                   const evalPnl = price != null ? (price - pnl.avgOpenPrice) * pnl.totalQtyOpen : null;
+                  const evalRate = price != null && pnl.avgOpenPrice > 0 ? Math.round(((price - pnl.avgOpenPrice) / pnl.avgOpenPrice) * 1000) / 10 : null;
                   return (
                     <View
                       style={{
@@ -624,7 +625,9 @@ export default function PocketsScreen() {
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                         <Text style={{ color: colors.textDim, fontSize: 12 }}>평가손익</Text>
                         <Text style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 16, fontWeight: '900' }}>
-                          {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, proj.market)}` : '-'}
+                          {evalPnl != null
+                            ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, proj.market)}${evalRate != null ? ` (${evalRate > 0 ? '+' : ''}${evalRate}%)` : ''}`
+                            : '-'}
                         </Text>
                       </View>
                     </View>

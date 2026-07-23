@@ -127,7 +127,7 @@ export default function ProjectDetailScreen() {
     handleSignal
   );
   const pnl = computePnL(trades, price);
-  const pct = pnlPct(pnl);
+  const pct = Math.round(pnlPct(pnl) * 10) / 10; // 평가 수익률 (소수점 첫째)
 
   // 실시간 시세의 통화로 시장을 자동 보정 (예: 삼성전자가 달러로 잘못 저장된 경우 원화로)
   const liveMarket = currency === 'KRW' ? 'KRX' : currency === 'USD' ? 'US' : null;
@@ -648,8 +648,11 @@ export default function ProjectDetailScreen() {
           value={price != null ? formatMoney(pnl.totalQtyOpen * price, mkt) : '-'}
           valueColor={num.evalTotal}
         />
-        <Row label="평가 손익 (미매도분)" value={formatMoney(pnl.unrealized, mkt)} valueColor={signColor(pnl.unrealized)} />
-        <Row label="평가 수익률" value={`${pct > 0 ? '+' : ''}${pct}%`} valueColor={signColor(pct)} />
+        <Row
+          label="평가 손익 (미매도분)"
+          value={`${formatMoney(pnl.unrealized, mkt)}${pnl.investedOpen > 0 ? ` (${pct > 0 ? '+' : ''}${pct}%)` : ''}`}
+          valueColor={signColor(pnl.unrealized)}
+        />
         <Row label="실현 손익 (매도분)" value={formatMoney(pnl.realized, mkt)} valueColor={signColor(pnl.realized)} />
       </Card>
 
@@ -1280,6 +1283,7 @@ function PocketCard({
               const buyTotal = avg * qty; // 매입 총액 = 평균 매수가 × 보유 수량
               const evalTotal = price != null ? price * qty : null; // 평가 총액 = 현재가 × 보유 수량
               const evalPnl = price != null ? (price - avg) * qty : null; // 평가손익 = 평가총액 - 매입총액
+              const evalRate = price != null && avg > 0 ? Math.round(((price - avg) / avg) * 1000) / 10 : null; // 손익률(%)
               return (
                 <View
                   style={{
@@ -1319,7 +1323,9 @@ function PocketCard({
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                     <Text style={{ color: colors.textDim, fontSize: 12 }}>평가손익</Text>
                     <Text style={{ color: evalPnl != null ? signColor(evalPnl) : colors.textDim, fontSize: 16, fontWeight: '900' }}>
-                      {evalPnl != null ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, market)}` : '-'}
+                      {evalPnl != null
+                        ? `${evalPnl > 0 ? '+' : ''}${formatMoney(evalPnl, market)}${evalRate != null ? ` (${evalRate > 0 ? '+' : ''}${evalRate}%)` : ''}`
+                        : '-'}
                     </Text>
                   </View>
                 </View>
