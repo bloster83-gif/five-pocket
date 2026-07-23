@@ -208,7 +208,7 @@ export default function MyScreen() {
           </Text>
           {tier !== 'auto' && (
             <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
-              오토 회원은 1개월 30,000원부터(6·12개월 할인). 눌러서 이용료·계좌·차이를 확인하세요.
+              오토 회원은 유료 구독이에요(1·6·12개월). 눌러서 이용권 가격·기능 차이를 확인하세요.
             </Text>
           )}
         </Card>
