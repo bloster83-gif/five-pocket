@@ -199,6 +199,10 @@ export default function RadarScreen() {
   const addItem = async (r: SymbolResult, basePrice: number) => {
     if (!session?.user?.id) return;
     const market: Market = r.market === 'KRX' ? 'KRX' : 'US';
+    // 이미 담긴 종목(같은 심볼+시장)이면 중복 추가 방지
+    if (items.some((it) => it.symbol === r.symbol && it.market === market)) {
+      return notify('이미 추가된 종목', `"${r.name}"은(는) 이미 관심종목에 있어요.`);
+    }
     const { error } = await supabase.from('watchlist_items').insert({
       user_id: session.user.id,
       symbol: r.symbol,
