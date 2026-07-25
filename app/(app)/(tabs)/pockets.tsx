@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
+import { EditTargetsModal } from '@/components/EditTargetsModal';
 import { colors, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { alignToKrxTick, computePnL, estimatedShares, sellTargetFromFill } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
@@ -26,6 +27,7 @@ export default function PocketsScreen() {
   // null = 전체, 0~4 = 포켓 1~5, 'plus' = 6번 이상(idx>=5) 합산
   const [pocketFilter, setPocketFilter] = useState<number | 'plus' | null>(null);
   const [showSearch, setShowSearch] = useState(false);
+  const [editPocket, setEditPocket] = useState<Pocket | null>(null); // 목표가 수정 대상 포켓
   const [q, setQ] = useState(''); // 종목명/티커 검색
   const [market, setMarket] = useState<'KRX' | 'US' | null>(null); // null = 전체 시장
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -578,6 +580,13 @@ export default function PocketsScreen() {
                 </View>
               )}
 
+              {/* 목표 매수·매도가 직접 수정 (시장 상황 보며 조정) */}
+              {k.status !== 'sold' && (
+                <Pressable onPress={() => setEditPocket(k)} style={{ alignSelf: 'flex-end' }} hitSlop={6}>
+                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🎯 목표가 수정</Text>
+                </Pressable>
+              )}
+
               {/* 보유 중이면 강조 박스 (보유수량·평균매수가 / 매입총액·평가총액 / 평가손익) */}
               {pnl.totalQtyOpen > 0 &&
                 (() => {
@@ -705,6 +714,28 @@ export default function PocketsScreen() {
           else notify('자동주문 실패', r.msg ?? '처리하지 못했어요.');
         }}
       />
+
+      {/* 목표 매수·매도가 수정 모달 (🎯 목표가 수정 버튼으로 열림) */}
+      {editPocket && (() => {
+        const proj = projMap[editPocket.project_id];
+        if (!proj) return null;
+        const pnl = computePnL(tradesByPocket[editPocket.id] ?? [], null);
+        return (
+          <EditTargetsModal
+            visible
+            onClose={() => setEditPocket(null)}
+            pocket={editPocket}
+            market={proj.market}
+            price={prices[proj.symbol]?.price ?? null}
+            avgBuy={pnl.totalQtyOpen > 0 ? pnl.avgOpenPrice : 0}
+            onSave={async (b, s) => {
+              await supabase.from('pockets').update({ buy_target_price: b, sell_target_price: s }).eq('id', editPocket.id);
+              await load();
+              setEditPocket(null);
+            }}
+          />
+        );
+      })()}
     </View>
   );
 }
