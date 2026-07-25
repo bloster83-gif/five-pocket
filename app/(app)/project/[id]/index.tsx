@@ -741,6 +741,13 @@ export default function ProjectDetailScreen() {
               }
               onRestart={() => restartPocket(k)}
               projectClosed={!!project.closed_at}
+              onUpdateTargets={async (buyP, sellP) => {
+                await supabase
+                  .from('pockets')
+                  .update({ buy_target_price: buyP, sell_target_price: sellP })
+                  .eq('id', k.id);
+                await load();
+              }}
               onTrade={(side, sqty, sprice, budget) =>
                 router.push(
                   `/project/${project.id}/trade?pocket=${k.id}&idx=${k.idx}&side=${side}&sqty=${sqty}&sprice=${sprice}&budget=${budget ?? ''}&mkt=${mkt}`
@@ -1098,6 +1105,156 @@ function ManualEntryButton({ onPress }: { onPress: () => void }) {
 }
 
 // ---------------------------------------------------------------
+// 목표 매수·매도가 수정 모달 — 시장 상황을 보며 직접 조정.
+//   매수 목표가 입력 → '현재가 대비율'을 보여주고
+//   매도 목표가 입력 → '매수가(보유 평단 또는 매수목표가) 대비 수익률'을 보여준다.
+// ---------------------------------------------------------------
+function EditTargetsModal({
+  visible,
+  onClose,
+  pocket,
+  market,
+  price,
+  avgBuy,
+  onSave,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  pocket: Pocket;
+  market: string;
+  price: number | null;
+  avgBuy: number; // 보유중이면 평균매수가, 대기중이면 0
+  onSave: (buyPrice: number, sellPrice: number | null) => Promise<void>;
+}) {
+  const dec = market !== 'KRX'; // 미국주식은 소수점 허용
+  const [buyStr, setBuyStr] = useState('');
+  const [sellStr, setSellStr] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setBuyStr(pocket.buy_target_price != null ? String(pocket.buy_target_price) : '');
+      setSellStr(pocket.sell_target_price != null ? String(pocket.sell_target_price) : '');
+    }
+  }, [visible, pocket.buy_target_price, pocket.sell_target_price]);
+
+  const buyVal = Number(rawNumeric(buyStr, dec)) || 0;
+  const sellVal = Number(rawNumeric(sellStr, dec)) || 0;
+  // 매수 목표가: 현재가 대비 (목표가가 현재가보다 얼마나 낮은지/높은지)
+  const buyVsNow = price != null && price > 0 && buyVal > 0 ? Math.round((buyVal / price - 1) * 1000) / 10 : null;
+  // 매도 목표가: 매수가 대비 수익률 (보유중=평단, 대기중=입력한 매수 목표가 기준)
+  const refBuy = avgBuy > 0 ? avgBuy : buyVal;
+  const sellProfit = refBuy > 0 && sellVal > 0 ? Math.round((sellVal / refBuy - 1) * 1000) / 10 : null;
+  const cur = market === 'KRX' ? '₩' : '$';
+
+  const submit = async () => {
+    if (buyVal <= 0) return notify('입력 확인', '매수 목표가를 올바르게 입력해 주세요.');
+    setSaving(true);
+    try {
+      await onSave(buyVal, sellVal > 0 ? sellVal : null);
+    } catch (e: any) {
+      notify('저장 실패', e?.message ?? '목표가를 저장하지 못했어요.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputStyle = {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '800' as const,
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}
+      >
+        <Pressable
+          onPress={() => {}}
+          style={{
+            backgroundColor: colors.card,
+            borderRadius: radius.lg,
+            borderWidth: 1,
+            borderColor: colors.border,
+            padding: spacing.lg,
+            gap: spacing.md,
+          }}
+        >
+          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 17 }}>🎯 포켓 {pocket.idx + 1} 목표가 수정</Text>
+          {price != null && (
+            <Text style={{ color: colors.textDim, fontSize: 12 }}>
+              현재가 {formatPrice(price, market)}
+              {avgBuy > 0 ? ` · 평균매수가 ${formatPrice(avgBuy, market)}` : ''}
+            </Text>
+          )}
+
+          {/* 매수 목표가 + 현재가 대비율 */}
+          <View style={{ gap: 4 }}>
+            <Text style={{ color: colors.buy, fontSize: 13, fontWeight: '800' }}>매수 목표가</Text>
+            <TextInput
+              value={buyStr}
+              onChangeText={(t) => setBuyStr(rawNumeric(t, dec))}
+              keyboardType="numeric"
+              placeholder={`매수 목표가 (${cur})`}
+              placeholderTextColor={colors.textDim}
+              style={inputStyle}
+            />
+            {buyVsNow != null && (
+              <Text style={{ color: signColor(buyVsNow), fontSize: 12, fontWeight: '700' }}>
+                현재가 대비 {buyVsNow > 0 ? '+' : ''}
+                {buyVsNow}%{buyVsNow < 0 ? ' (현재가보다 낮게 매수)' : buyVsNow > 0 ? ' (현재가보다 높게 매수)' : ''}
+              </Text>
+            )}
+          </View>
+
+          {/* 매도 목표가 + 매수가 대비 수익률 */}
+          <View style={{ gap: 4 }}>
+            <Text style={{ color: colors.sell, fontSize: 13, fontWeight: '800' }}>매도 목표가</Text>
+            <TextInput
+              value={sellStr}
+              onChangeText={(t) => setSellStr(rawNumeric(t, dec))}
+              keyboardType="numeric"
+              placeholder={`매도 목표가 (${cur})`}
+              placeholderTextColor={colors.textDim}
+              style={inputStyle}
+            />
+            {sellProfit != null && (
+              <Text style={{ color: signColor(sellProfit), fontSize: 12, fontWeight: '700' }}>
+                {avgBuy > 0 ? '평균매수가' : '매수 목표가'} 대비 수익률 {sellProfit > 0 ? '+' : ''}
+                {sellProfit}%
+              </Text>
+            )}
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+            <Pressable
+              onPress={onClose}
+              style={{ flex: 1, paddingVertical: 12, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, alignItems: 'center' }}
+            >
+              <Text style={{ color: colors.textDim, fontWeight: '800' }}>취소</Text>
+            </Pressable>
+            <Pressable
+              onPress={submit}
+              disabled={saving}
+              style={{ flex: 1, paddingVertical: 12, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: 'center', opacity: saving ? 0.6 : 1 }}
+            >
+              <Text style={{ color: '#04121A', fontWeight: '900' }}>{saving ? '저장 중…' : '저장'}</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------
 // 포켓 카드 — 상태에 따라 표시가 달라진다.
 //  waiting: 매수 목표가 강조(빨강) + 매수 체결 버튼
 //  bought : 음영으로 "가득 참" 표현 + 매도 목표가 크게(파랑) + 매도 체결 버튼
@@ -1121,6 +1278,7 @@ function PocketCard({
   sellFailMsg,
   onRestart,
   projectClosed,
+  onUpdateTargets,
   onTrade,
 }: {
   pocket: Pocket;
@@ -1140,11 +1298,13 @@ function PocketCard({
   sellFailMsg: string | null; // 자동 매도 실패 사유
   onRestart: () => void;
   projectClosed: boolean; // 프로젝트 종료 시 재시작 버튼 숨김
+  onUpdateTargets: (buyPrice: number, sellPrice: number | null) => Promise<void>; // 목표 매수·매도가 직접 수정
   onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number, budget?: number) => void;
 }) {
   // 종료된 프로젝트는 본문이 터치 비활성(pointerEvents=none)이라 토글을 못 누름
   // → 종료 시에는 체결 내역을 기본 펼침으로 두어 바로 볼 수 있게 한다.
   const [showLog, setShowLog] = useState(projectClosed);
+  const [editOpen, setEditOpen] = useState(false); // 목표 매수·매도가 수정 모달
   // 이 포켓에서 실현된 손익 합계 (모든 순환)
   const pocketRealized = history.reduce((s, t) => s + (t.side === 'sell' ? realizedByTrade.get(t.id) ?? 0 : 0), 0);
   // 포켓별 기준가 대비 할인율 (포켓1=0%=기준가, 포켓2=-5%, …)
@@ -1220,6 +1380,25 @@ function PocketCard({
           <Text style={{ color: statusPill.color, fontWeight: '800', fontSize: 12 }}>{statusPill.text}</Text>
         </View>
       </View>
+
+      {/* 목표 매수·매도가 직접 수정 (시장 상황 보며 조정) — 대기중/보유중일 때 */}
+      {!projectClosed && k.status !== 'sold' && (
+        <Pressable onPress={() => setEditOpen(true)} style={{ alignSelf: 'flex-end', marginTop: 2 }} hitSlop={6}>
+          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🎯 목표가 수정</Text>
+        </Pressable>
+      )}
+      <EditTargetsModal
+        visible={editOpen}
+        onClose={() => setEditOpen(false)}
+        pocket={k}
+        market={market}
+        price={price}
+        avgBuy={heldLike && openQty > 0 ? openAvg : 0}
+        onSave={async (b, s) => {
+          await onUpdateTargets(b, s);
+          setEditOpen(false);
+        }}
+      />
 
       {k.status === 'waiting' && (
         <>
