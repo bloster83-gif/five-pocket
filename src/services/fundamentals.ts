@@ -115,6 +115,21 @@ function parseKoNum(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * PEG = PER ÷ EPS 성장률(%) — 제공처에 PEG 가 없으면 연간 EPS 이력으로 직접 계산.
+ * 성장률은 EPS 연평균성장률(CAGR). EPS 가 음수이거나 성장률이 0 이하면 의미가 없어 null.
+ */
+function computePeg(per: number | null, epsHist: YearValue[]): number | null {
+  if (per == null || per <= 0 || epsHist.length < 2) return null;
+  const first = epsHist[0].value;
+  const last = epsHist[epsHist.length - 1].value;
+  const years = epsHist.length - 1;
+  if (first <= 0 || last <= 0) return null;
+  const growthPct = (Math.pow(last / first, 1 / years) - 1) * 100;
+  if (growthPct <= 0) return null;
+  return Math.round((per / growthPct) * 100) / 100;
+}
+
 async function fetchNaverJson(url: string): Promise<any | null> {
   try {
     const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': NAVER_UA } });
@@ -185,7 +200,7 @@ async function getKrxFinancialsFromNaver(code: string): Promise<StockFinancials>
       marketCap,
       per,
       pbr,
-      peg: null, // 네이버는 PEG 미제공
+      peg: computePeg(per, epsHist), // 네이버 미제공 → 연간 EPS 성장률로 직접 계산
       eps,
       roe: roe != null ? Math.round(roe * 10) / 10 : null, // 이미 %
       debtToEquity: debt != null ? Math.round(debt * 10) / 10 : null, // 이미 %
@@ -265,6 +280,11 @@ export async function getStockFinancials(symbol: string, market?: string): Promi
     .map((x) => ({ x, pe: x?.priceToEarningsRatio ?? x?.priceEarningsRatio }))
     .filter((o) => o.pe != null && yearOf(o.x))
     .map((o) => ({ year: yearOf(o.x), value: Math.round(Number(o.pe) * 100) / 100 }))) as YearValue[];
+
+  // FMP 가 PEG 를 안 주면 연간 EPS(손익계산서)로 직접 계산
+  if (fundamentals && fundamentals.peg == null) {
+    fundamentals.peg = computePeg(fundamentals.per, toYV(income, 'eps'));
+  }
 
   return {
     fundamentals,
