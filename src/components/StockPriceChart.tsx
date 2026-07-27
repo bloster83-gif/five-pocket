@@ -129,7 +129,8 @@ export function StockPriceChart({
             <SvgText x={width - PAD_X} y={y(maxV) - 4} fill={colors.textDim} fontSize={9} textAnchor="end">
               {formatPrice(maxV, market)}
             </SvgText>
-            <SvgText x={width - PAD_X} y={y(minV) + 11} fill={colors.textDim} fontSize={9} textAnchor="end">
+            {/* 최저 라벨은 점선 위로 올려 하단 날짜 라벨과 겹치지 않게 */}
+            <SvgText x={width - PAD_X} y={y(minV) - 4} fill={colors.textDim} fontSize={9} textAnchor="end">
               {formatPrice(minV, market)}
             </SvgText>
 
