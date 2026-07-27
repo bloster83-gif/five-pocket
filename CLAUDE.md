@@ -10,7 +10,8 @@ Expo(React Native) + Supabase 기반 **5분할 매수·매도 일지** 앱. 멀�
 
 ## 구조
 - `app/(app)/(tabs)/` — 탭: radar(관심종목 레이더·가장 왼쪽)·index(프로젝트)·pockets(포켓)·journal(매매일지)·goals(인생목표)·my(내정보). stats는 MY 안에 임베드(탭바 숨김). 모든 탭 헤더 중앙 로고+"Pocket Diary", 헤더 좌측 등급 배지, 우측 👑(관리자만).
-- **관심종목 레이더**: `app/(app)/(tabs)/radar.tsx` — 기준가 직접 입력, "기준가 대비 %"(=현재가÷기준가)로 감시. 필터(한국/미국/기준가 이하 100%↓/이상 100%↑), 종목별 메모(날짜 자동), 왼쪽 스와이프 삭제, 우측하단 + 추가. DB: watchlist_items·watchlist_memos(마이그레이션 20260722a, RLS). 테이블 없으면 안내 카드로 방어.
+- **관심종목 레이더**: `app/(app)/(tabs)/radar.tsx` — 기준가 직접 입력, "기준가 대비 %"(=현재가÷기준가)로 감시. 필터(한국/미국/기준가 이하 100%↓/이상 100%↑), 종목별 메모(날짜 자동), 왼쪽 스와이프 삭제, 우측하단 + 추가. DB: watchlist_items·watchlist_memos(마이그레이션 20260722a, RLS). 테이블 없으면 안내 카드로 방어. 종목 탭 → 펼침에 "📊 자세히 보기(가치분석)" 버튼.
+- **가치분석 화면**: `app/(app)/stock/[symbol].tsx` — 가격 차트 + 지표 카드(시총·PER·PBR·PEG·EPS·ROE·부채비율) + 5년 매출/영업이익/순이익 막대그래프 + 5년 PER 라인. 데이터: `src/services/fundamentals.ts`(Financial Modeling Prep, `EXPO_PUBLIC_FMP_KEY`, 한국은 `.KS/.KQ` 심볼). 차트: `src/components/MiniCharts.tsx`(react-native-svg 막대·라인). 키 없으면 안내 카드로 방어(앱 정상).
 - `app/(app)/project/[id]/` — 상세(포켓 5개 고정)·trade(체결입력)·chart(캔들+매매마커).
 - `app/(app)/admin.tsx` — 관리자 회원 관리(등급 Diary↔AUTO 변경). `app/(app)/broker.tsx` — 한투(KIS) 계좌 설정.
 - **회원 등급**: profiles.tier = 'diary'(기본, 무료) | 'auto'(자동매매). useAuth()의 tier/isAdmin 사용. AUTO는 기간제(tier_expires_at, 1개월/6개월/1년) — 만료 시 diary 자동 강등(마이그레이션 g의 pg_cron + 러너 + 앱 3중 검사). useAuth().tier는 만료 반영된 유효 등급을 반환. AUTO 부여 경로 2가지: **① 인앱결제(RevenueCat)** ② 관리자 수동(admin.tsx) — 둘 다 유지.

@@ -336,6 +336,11 @@ export default function RadarScreen() {
                 `/project/new?symbol=${encodeURIComponent(it.symbol)}&name=${encodeURIComponent(it.name)}&market=${it.market}&base=${it.base_price}`
               )
             }
+            onDetail={() =>
+              router.push(
+                `/stock/${encodeURIComponent(it.symbol)}?market=${it.market}&name=${encodeURIComponent(it.name)}`
+              )
+            }
           />
         ))}
 
@@ -399,6 +404,7 @@ function WatchRow({
   onUpdateBase,
   onDelete,
   onCreateProject,
+  onDetail,
 }: {
   item: WatchlistItem;
   price: number | null;
@@ -412,6 +418,7 @@ function WatchRow({
   onUpdateBase: (base: number) => void;
   onDelete: () => void;
   onCreateProject: () => void;
+  onDetail: () => void;
 }) {
   const [note, setNote] = useState('');
   const mkt = item.market;
@@ -539,9 +546,21 @@ function WatchRow({
           </View>
         </Pressable>
 
-        {/* 탭하면 열림 — 기준가 수정 + 메모 */}
+        {/* 탭하면 열림 — 자세히 보기(가치분석) + 기준가 수정 + 메모 */}
         {open && (
           <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.sm }}>
+            {/* 가치분석 자세히 보기 */}
+            <Pressable
+              onPress={onDetail}
+              style={{
+                backgroundColor: colors.primary,
+                borderRadius: radius.md,
+                paddingVertical: 10,
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ color: '#04121A', fontWeight: '900', fontSize: 13 }}>📊 자세히 보기 (가치분석)</Text>
+            </Pressable>
             {/* 기준가 변경 */}
             <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
               <Text style={{ color: colors.textDim, fontSize: 12, width: 52 }}>기준가</Text>
