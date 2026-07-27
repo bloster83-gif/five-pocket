@@ -5,6 +5,7 @@ import { colors } from '@/theme';
 // 탭 그룹 밖의 상세 화면(프로젝트 상세 등)에서도 하단 탭이 보이도록 하는 커스텀 탭바.
 // 누르면 해당 탭으로 이동한다. (탭 화면과 동일한 구성)
 const TABS = [
+  { key: 'radar', label: '레이더', emoji: '📡', route: '/radar' },
   { key: 'index', label: '프로젝트', emoji: '📁', route: '/' },
   { key: 'pockets', label: '포켓', emoji: '🧺', route: '/pockets' },
   { key: 'journal', label: '매매일지', emoji: '📓', route: '/journal' },
