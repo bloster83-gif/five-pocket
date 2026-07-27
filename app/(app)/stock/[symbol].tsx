@@ -253,20 +253,44 @@ export default function StockValuationScreen() {
               )}
             </Card>
 
-            {/* 5년 재무 그래프 */}
-            <Card>
-              <BarChart5y title="매출액 (최근 5년)" data={fin?.revenue ?? []} color={num.evalTotal} formatValue={(n) => abbrevShort(n, cur)} />
-            </Card>
-            <Card>
-              <BarChart5y title="영업이익 (최근 5년)" data={fin?.operatingIncome ?? []} formatValue={(n) => abbrevShort(n, cur)} />
-            </Card>
-            <Card>
-              <BarChart5y title="순이익 (최근 5년)" data={fin?.netIncome ?? []} formatValue={(n) => abbrevShort(n, cur)} />
-            </Card>
+            {/* 5년 재무 그래프 — 영업이익·순이익엔 매출액 대비 이익률(%)을 2줄로 표시 */}
+            {(() => {
+              const revByYear: Record<string, number> = {};
+              (fin?.revenue ?? []).forEach((d) => {
+                revByYear[d.year] = d.value;
+              });
+              const marginSub = (d: { year: string; value: number }) => {
+                const rev = revByYear[d.year];
+                if (!rev || rev <= 0) return null;
+                return `${Math.round((d.value / rev) * 1000) / 10}%`;
+              };
+              return (
+                <>
+                  <Card>
+                    <BarChart5y title="매출액 (최근 5년)" data={fin?.revenue ?? []} color={num.evalTotal} formatValue={(n) => abbrevShort(n, cur)} />
+                  </Card>
+                  <Card>
+                    <BarChart5y title="영업이익 (최근 5년)" data={fin?.operatingIncome ?? []} formatValue={(n) => abbrevShort(n, cur)} formatSub={marginSub} />
+                    <Text style={{ color: colors.textDim, fontSize: 10, marginTop: 2 }}>% = 매출액 대비 영업이익률</Text>
+                  </Card>
+                  <Card>
+                    <BarChart5y title="순이익 (최근 5년)" data={fin?.netIncome ?? []} formatValue={(n) => abbrevShort(n, cur)} formatSub={marginSub} />
+                    <Text style={{ color: colors.textDim, fontSize: 10, marginTop: 2 }}>% = 매출액 대비 순이익률</Text>
+                  </Card>
+                </>
+              );
+            })()}
 
-            {/* 5년 PER 추이 */}
+            {/* 5년 PER 추이 — 연도별 정확한 수치 표시 */}
             <Card>
-              <LineChart title="PER 추이 (최근 5년)" data={fin?.perHistory ?? []} color={num.base} formatValue={(n) => `${n.toFixed(1)}`} height={150} />
+              <LineChart
+                title="PER 추이 (최근 5년)"
+                data={fin?.perHistory ?? []}
+                color={num.base}
+                formatValue={(n) => `${n.toFixed(1)}`}
+                showAllValues
+                height={150}
+              />
             </Card>
 
             <Text style={{ color: colors.textDim, fontSize: 11, textAlign: 'center' }}>
