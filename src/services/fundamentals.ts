@@ -60,6 +60,7 @@ export interface StockFundamentals {
   per: number | null;
   pbr: number | null;
   peg: number | null;
+  pegComputed?: boolean; // true = 제공처 값이 아니라 연간 EPS 성장률로 직접 계산한 값
   eps: number | null;
   roe: number | null; // %
   debtToEquity: number | null; // 부채비율(%) = 부채/자본 × 100
@@ -194,13 +195,16 @@ async function getKrxFinancialsFromNaver(code: string): Promise<StockFinancials>
     marketCap != null || per != null || pbr != null || eps != null || revenue.length > 0 || perHistory.length > 0;
   if (!has) return empty;
 
+  const pegCalc = computePeg(per, epsHist);
+
   return {
     fundamentals: {
       price: null,
       marketCap,
       per,
       pbr,
-      peg: computePeg(per, epsHist), // 네이버 미제공 → 연간 EPS 성장률로 직접 계산
+      peg: pegCalc, // 네이버 미제공 → 연간 EPS 성장률로 직접 계산
+      pegComputed: pegCalc != null,
       eps,
       roe: roe != null ? Math.round(roe * 10) / 10 : null, // 이미 %
       debtToEquity: debt != null ? Math.round(debt * 10) / 10 : null, // 이미 %
@@ -284,6 +288,7 @@ export async function getStockFinancials(symbol: string, market?: string): Promi
   // FMP 가 PEG 를 안 주면 연간 EPS(손익계산서)로 직접 계산
   if (fundamentals && fundamentals.peg == null) {
     fundamentals.peg = computePeg(fundamentals.per, toYV(income, 'eps'));
+    fundamentals.pegComputed = fundamentals.peg != null;
   }
 
   return {
