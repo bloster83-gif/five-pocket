@@ -172,7 +172,8 @@ export default function PocketsScreen() {
       } else if (pocketFilter != null && k.idx !== pocketFilter) return false;
       const kt = tradesByPocket[k.id] ?? [];
       const hasSell = kt.some((t) => t.side === 'sell');
-      const holding = k.status === 'bought';
+      // 보유중 판정: status 필드가 아니라 실제 미매도 수량 기준(체결 감지 지연 방어)
+      const holding = Math.floor(computePnL(kt, null).totalQtyOpen) > 0;
       if (onlyHolding && onlyRealized) return holding || hasSell;
       if (onlyHolding) return holding;
       if (onlyRealized) return hasSell;
@@ -502,12 +503,16 @@ export default function PocketsScreen() {
         const sellTargetDisp =
           k.sell_target_price != null ? (isKrx ? alignToKrxTick(k.sell_target_price, 'sell') : k.sell_target_price) : null;
         const open = expanded === k.id;
+        // 실제 보유수량이 있으면 '보유중'으로 판정 — 자동주문 체결 후 status 필드가
+        // buy_ordered 에 멈춰 있어도 보유수량 기준으로 올바르게 표시(체결 감지 지연 방어)
+        const held = Math.floor(pnl.totalQtyOpen) > 0;
+        const effStatus = held ? 'bought' : k.status;
         const statusMeta =
-          k.status === 'bought'
+          effStatus === 'bought'
             ? { text: '보유중', color: colors.buy, bg: colors.buyBg }
-            : k.status === 'buy_ordered' || k.status === 'sell_ordered'
-              ? { text: k.status === 'buy_ordered' ? '매수 주문완료' : '매도 주문완료', color: colors.warn, bg: 'rgba(251,191,36,0.14)' }
-              : k.status === 'sold'
+            : effStatus === 'buy_ordered' || effStatus === 'sell_ordered'
+              ? { text: effStatus === 'buy_ordered' ? '매수 주문완료' : '매도 주문완료', color: colors.warn, bg: 'rgba(251,191,36,0.14)' }
+              : effStatus === 'sold'
                 ? { text: '매도 완료', color: colors.sell, bg: colors.sellBg }
                 : { text: '대기', color: colors.textDim, bg: colors.cardAlt };
         const cardEl = (
@@ -520,11 +525,15 @@ export default function PocketsScreen() {
               }}
             >
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.text, fontWeight: '800' }}>
-                    {proj.name}{' '}
-                    <Text style={{ color: pocketColor(k.idx), fontWeight: '900' }}>· 포켓 {k.idx + 1}</Text>
-                  </Text>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', flexShrink: 1 }} numberOfLines={1}>
+                      {proj.name}
+                    </Text>
+                    <Text style={{ color: pocketColor(k.idx), fontWeight: '900' }} numberOfLines={1}>
+                      {' · 포켓 ' + (k.idx + 1)}
+                    </Text>
+                  </View>
                   <Text style={{ color: colors.textDim, fontSize: 12 }}>{proj.symbol}</Text>
                 </View>
                 <View style={{ backgroundColor: statusMeta.bg, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
@@ -548,7 +557,7 @@ export default function PocketsScreen() {
               </View>
 
               {/* 목표 정보 — 현재가 아래. 대기: 매수목표+목표수량 / 보유: 매도목표만(매수가는 아래 박스 평균매수가로 표시) */}
-              {k.status === 'waiting' && (
+              {effStatus === 'waiting' && (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <Text style={{ color: colors.textDim, fontSize: 11 }}>매수목표</Text>
@@ -566,7 +575,7 @@ export default function PocketsScreen() {
                   )}
                 </View>
               )}
-              {k.status === 'bought' && sellTargetDisp != null && (
+              {effStatus === 'bought' && sellTargetDisp != null && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <Text style={{ color: colors.textDim, fontSize: 11 }}>매도목표</Text>
                   <Text style={{ color: colors.sell, fontWeight: '800', fontSize: 13 }}>
@@ -676,11 +685,11 @@ export default function PocketsScreen() {
           </Pressable>
         );
         // 보유중=왼쪽 스와이프 익절/손절, 대기중=오른쪽 스와이프 매수주문(+AUTO는 왼쪽 스와이프 자동주문)
-        return k.status === 'bought' ? (
+        return effStatus === 'bought' ? (
           <StopLossSwipe key={k.id} profit={inProfit} onStopLoss={() => confirmStopLossPocket(k, proj, inProfit)}>
             {cardEl}
           </StopLossSwipe>
-        ) : k.status === 'waiting' ? (
+        ) : effStatus === 'waiting' ? (
           (() => {
             // AUTO+계좌: 오른쪽 스와이프 → 가격 직접입력 자동주문 모달. 그 외: 목표가 매수주문.
             const isAuto = tier === 'auto' && !!account && !kisOrderBlocked(proj.market);

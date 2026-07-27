@@ -683,9 +683,16 @@ function PnlBadge({ label, amount, market, rate }: { label: string; amount: numb
       }}
     >
       <View style={{ width: 5, alignSelf: 'stretch', backgroundColor: c }} />
-      <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12 }}>
-        <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '700' }}>{label}</Text>
-        <Text style={{ color: c, fontWeight: '900', fontSize: 18 }}>
+      <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, paddingVertical: 8, paddingHorizontal: 12 }}>
+        <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '700', flexShrink: 0 }} numberOfLines={1}>
+          {label}
+        </Text>
+        <Text
+          style={{ color: c, fontWeight: '900', fontSize: 18, flexShrink: 1, textAlign: 'right' }}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.6}
+        >
           {up ? '▲ +' : '▼ '}
           {formatMoney(amount, market)}
           {rate != null ? ` (${rate > 0 ? '+' : ''}${rate}%)` : ''}
