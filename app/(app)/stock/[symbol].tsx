@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Dimensions, Pressable, ScrollView, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Dimensions, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Card } from '@/components/ui';
 import { BarChart5y, LineChart } from '@/components/MiniCharts';
 import { StockPriceChart } from '@/components/StockPriceChart';
 import { colors, formatPrice, num, radius, signColor, spacing } from '@/theme';
 import { priceProvider } from '@/services/prices';
+import { getDomesticPrice, getOverseasPrice } from '@/services/broker/kis';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
+import type { BrokerAccount } from '@/types/db';
 import { fetchCloseSeries, type SeriesPoint, type SeriesRange } from '@/services/prices/yahooProvider';
 import {
   fundamentalsConfigured,
@@ -81,6 +85,7 @@ function Metric({ label, value, color }: { label: string; value: string; color?:
 
 export default function StockValuationScreen() {
   const router = useRouter();
+  const { session } = useAuth();
   const { symbol, market, name } = useLocalSearchParams<{ symbol: string; market?: string; name?: string }>();
   const mkt = market === 'KRX' ? 'KRX' : 'US';
   const [fin, setFin] = useState<StockFinancials | null>(null);
@@ -94,15 +99,61 @@ export default function StockValuationScreen() {
   // 한국은 네이버(키 불필요), 미국은 FMP 키 필요
   const finReady = mkt === 'KRX' || fundamentalsConfigured();
 
-  // 실시간(준실시간) 현재가 — 기존 시세 제공자(야후, 한국·미국 지원) 구독
+  // 실시간 현재가 — 레이더 목록과 동일한 소스로 통일:
+  // KIS 우선(국내 통합 UN→NXT→KRX, 미국은 주간거래 포함 해외시세) → 실패/미연결 시 Yahoo 폴백.
+  const accountRef = useRef<BrokerAccount | null | undefined>(undefined); // undefined=미조회, null=없음
   useEffect(() => {
     if (!symbol) return;
-    const off = priceProvider.subscribe(symbol, (q) => {
-      setLivePrice(q.price);
-      if (q.previousClose != null) setPrevClose(q.previousClose);
-    });
-    return off;
-  }, [symbol]);
+    let alive = true;
+    const native = Platform.OS !== 'web';
+    const tick = async () => {
+      try {
+        // KIS 계좌 1회 로드 (네이티브에서만)
+        if (native && accountRef.current === undefined && session?.user?.id) {
+          const { data } = await supabase
+            .from('broker_accounts')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .maybeSingle();
+          accountRef.current = (data as BrokerAccount) ?? null;
+        }
+        const account = accountRef.current;
+        let price: number | null = null;
+        let prev: number | undefined;
+        if (native && account) {
+          try {
+            if (mkt === 'US') {
+              const oq = await getOverseasPrice(account, symbol);
+              price = oq.price;
+              prev = oq.previousClose;
+            } else {
+              const dq = await getDomesticPrice(account, symbol); // 통합(UN)→NXT(NX)→KRX(J)
+              price = dq.price;
+              prev = dq.previousClose;
+            }
+          } catch {
+            /* KIS 실패 → Yahoo 폴백 */
+          }
+        }
+        if (price == null) {
+          const yq = await priceProvider.getQuote(symbol);
+          price = yq.price;
+          prev = yq.previousClose;
+        }
+        if (!alive) return;
+        setLivePrice(price);
+        if (prev != null) setPrevClose(prev);
+      } catch {
+        /* 일시적 오류 — 다음 폴링에서 재시도 */
+      }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), 10_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [symbol, mkt, session?.user?.id]);
 
   // 재무 데이터 (1회)
   useEffect(() => {
