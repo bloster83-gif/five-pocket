@@ -99,6 +99,44 @@ export async function fetchCandles(symbol: string, mode: CandleMode = 'day'): Pr
   return { candles, currency: result?.meta?.currency };
 }
 
+// ---- 가치분석 화면용 종가 시계열 (기간 선택: 1개월~10년) ----
+export type SeriesRange = '1M' | '3M' | '6M' | '1Y' | '3Y' | '5Y' | '10Y';
+
+const RANGE_CFG: Record<SeriesRange, { interval: string; range: string }> = {
+  '1M': { interval: '1d', range: '1mo' },
+  '3M': { interval: '1d', range: '3mo' },
+  '6M': { interval: '1d', range: '6mo' },
+  '1Y': { interval: '1d', range: '1y' },
+  '3Y': { interval: '1wk', range: '3y' },
+  '5Y': { interval: '1wk', range: '5y' },
+  '10Y': { interval: '1mo', range: '10y' },
+};
+
+export interface SeriesPoint {
+  t: number; // epoch ms
+  c: number; // close
+}
+
+/** 기간별 종가 시계열 — 한국(.KS/.KQ)·미국 모두 지원 (키 불필요) */
+export async function fetchCloseSeries(
+  symbol: string,
+  rangeKey: SeriesRange
+): Promise<{ points: SeriesPoint[]; currency?: string }> {
+  const sym = normalizeSymbol(symbol);
+  const { interval, range } = RANGE_CFG[rangeKey];
+  const json = await fetchJson(`/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${range}`);
+  const result = json?.chart?.result?.[0];
+  const ts: number[] = result?.timestamp ?? [];
+  const close: (number | null)[] = result?.indicators?.quote?.[0]?.close ?? [];
+  const points: SeriesPoint[] = [];
+  for (let i = 0; i < ts.length; i++) {
+    const c = close[i];
+    if (c == null) continue;
+    points.push({ t: ts[i] * 1000, c });
+  }
+  return { points, currency: result?.meta?.currency };
+}
+
 export class YahooPriceProvider implements PriceProvider {
   readonly name = 'yahoo';
 

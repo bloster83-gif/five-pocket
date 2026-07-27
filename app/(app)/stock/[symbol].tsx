@@ -1,16 +1,30 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { ActivityIndicator, Dimensions, Pressable, ScrollView, Text, View } from 'react-native';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Card } from '@/components/ui';
 import { BarChart5y, LineChart } from '@/components/MiniCharts';
-import { colors, num, radius, signColor, spacing } from '@/theme';
+import { StockPriceChart } from '@/components/StockPriceChart';
+import { colors, formatPrice, num, radius, signColor, spacing } from '@/theme';
+import { priceProvider } from '@/services/prices';
+import { fetchCloseSeries, type SeriesPoint, type SeriesRange } from '@/services/prices/yahooProvider';
 import {
   fundamentalsConfigured,
   getPriceHistory,
   getStockFinancials,
   type StockFinancials,
-  type YearValue,
 } from '@/services/fundamentals';
+
+const CHART_W = Dimensions.get('window').width - 32 - 28; // 화면폭 - 패딩(MiniCharts와 동일)
+
+const RANGES: { key: SeriesRange; label: string }[] = [
+  { key: '1M', label: '1개월' },
+  { key: '3M', label: '3개월' },
+  { key: '6M', label: '6개월' },
+  { key: '1Y', label: '1년' },
+  { key: '3Y', label: '3년' },
+  { key: '5Y', label: '5년' },
+  { key: '10Y', label: '10년' },
+];
 
 // 큰 금액 축약 (시총·재무제표) — 한국은 조/억, 미국은 B/M
 function abbrev(n: number, currency: string): string {
@@ -66,29 +80,65 @@ function Metric({ label, value, color }: { label: string; value: string; color?:
 }
 
 export default function StockValuationScreen() {
+  const router = useRouter();
   const { symbol, market, name } = useLocalSearchParams<{ symbol: string; market?: string; name?: string }>();
   const mkt = market === 'KRX' ? 'KRX' : 'US';
   const [fin, setFin] = useState<StockFinancials | null>(null);
-  const [priceHist, setPriceHist] = useState<YearValue[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [finLoading, setFinLoading] = useState(true);
+  const [series, setSeries] = useState<SeriesPoint[]>([]);
+  const [seriesLoading, setSeriesLoading] = useState(true);
+  const [range, setRange] = useState<SeriesRange>('6M');
+  const [livePrice, setLivePrice] = useState<number | null>(null);
+  const [prevClose, setPrevClose] = useState<number | null>(null);
 
-  const configured = fundamentalsConfigured();
+  // 한국은 네이버(키 불필요), 미국은 FMP 키 필요
+  const finReady = mkt === 'KRX' || fundamentalsConfigured();
 
-  const load = useCallback(async () => {
-    if (!symbol || !configured) {
-      setLoading(false);
-      return;
+  // 실시간(준실시간) 현재가 — 기존 시세 제공자(야후, 한국·미국 지원) 구독
+  useEffect(() => {
+    if (!symbol) return;
+    const off = priceProvider.subscribe(symbol, (q) => {
+      setLivePrice(q.price);
+      if (q.previousClose != null) setPrevClose(q.previousClose);
+    });
+    return off;
+  }, [symbol]);
+
+  // 재무 데이터 (1회)
+  useEffect(() => {
+    (async () => {
+      if (!symbol || !finReady) {
+        setFinLoading(false);
+        return;
+      }
+      setFinLoading(true);
+      setFin(await getStockFinancials(symbol, mkt));
+      setFinLoading(false);
+    })();
+  }, [symbol, mkt, finReady]);
+
+  // 가격 시계열 (기간 변경 시) — 야후 우선, 실패 시 FMP 폴백
+  const loadSeries = useCallback(async () => {
+    if (!symbol) return;
+    setSeriesLoading(true);
+    try {
+      const { points } = await fetchCloseSeries(symbol, range);
+      if (points.length >= 2) {
+        setSeries(points);
+        return;
+      }
+      const fb = await getPriceHistory(symbol, mkt);
+      setSeries(fb.map((d) => ({ t: Date.parse(d.year), c: d.value })).filter((p) => Number.isFinite(p.t)));
+    } catch {
+      setSeries([]);
+    } finally {
+      setSeriesLoading(false);
     }
-    setLoading(true);
-    const [f, ph] = await Promise.all([getStockFinancials(symbol, mkt), getPriceHistory(symbol, mkt)]);
-    setFin(f);
-    setPriceHist(ph);
-    setLoading(false);
-  }, [symbol, mkt, configured]);
+  }, [symbol, mkt, range]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    loadSeries();
+  }, [loadSeries]);
 
   const f = fin?.fundamentals ?? null;
   const cur = mkt === 'KRX' ? 'KRW' : 'USD';
@@ -96,40 +146,92 @@ export default function StockValuationScreen() {
   const pct = (n: number | null | undefined) => (n != null ? `${n}%` : '—');
   const epsStr = f?.eps != null ? (mkt === 'KRX' ? `₩${Math.round(f.eps).toLocaleString()}` : `$${f.eps.toFixed(2)}`) : '—';
 
+  // 등락률 (현재가 vs 전일종가)
+  const changePct =
+    livePrice != null && prevClose != null && prevClose > 0
+      ? Math.round((livePrice / prevClose - 1) * 1000) / 10
+      : null;
+
   return (
     <>
-      <Stack.Screen options={{ title: (name as string) || (symbol as string) || '가치분석' }} />
+      <Stack.Screen
+        options={{
+          title: (name as string) || (symbol as string) || '가치분석',
+          headerLeft: () => (
+            <Pressable
+              onPress={() => (router.canGoBack() ? router.back() : router.replace('/radar'))}
+              hitSlop={12}
+              style={{ paddingHorizontal: 6, paddingVertical: 2 }}
+            >
+              <Text style={{ color: colors.text, fontSize: 24, fontWeight: '800', marginTop: -2 }}>‹</Text>
+            </Pressable>
+          ),
+        }}
+      />
       <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 60 }}>
-        <View>
-          <Text style={{ color: colors.text, fontSize: 20, fontWeight: '900' }}>{(name as string) || symbol}</Text>
-          <Text style={{ color: colors.textDim, fontSize: 13 }}>
+        {/* 종목명 + 실시간 현재가 (맨 위) */}
+        <View style={{ gap: 2 }}>
+          <Text style={{ color: colors.text, fontSize: 18, fontWeight: '900' }}>{(name as string) || symbol}</Text>
+          <Text style={{ color: colors.textDim, fontSize: 12 }}>
             {symbol} · {mkt === 'KRX' ? '🇰🇷 한국' : '🇺🇸 미국'}
           </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
+            <Text style={{ color: num.live, fontSize: 30, fontWeight: '900' }}>
+              {livePrice != null ? formatPrice(livePrice, mkt) : '—'}
+            </Text>
+            {changePct != null && (
+              <Text style={{ color: signColor(changePct), fontSize: 15, fontWeight: '800' }}>
+                {changePct > 0 ? '▲ +' : changePct < 0 ? '▼ ' : ''}
+                {changePct}%
+              </Text>
+            )}
+          </View>
         </View>
 
-        {!configured ? (
+        {/* 가격 차트 — 기간 선택 + 핀치 확대·축소 + 꾹 눌러 가격 추적 */}
+        <Card>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+            {RANGES.map((r) => (
+              <Pressable
+                key={r.key}
+                onPress={() => setRange(r.key)}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: 999,
+                  backgroundColor: range === r.key ? colors.buy : colors.cardAlt,
+                }}
+              >
+                <Text style={{ color: range === r.key ? '#fff' : colors.textDim, fontSize: 12, fontWeight: '700' }}>
+                  {r.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          {seriesLoading ? (
+            <View style={{ height: 210, justifyContent: 'center' }}>
+              <ActivityIndicator color={colors.primary} />
+            </View>
+          ) : (
+            <StockPriceChart points={series} market={mkt} width={CHART_W} height={210} />
+          )}
+        </Card>
+
+        {!finReady ? (
           <Card style={{ borderColor: colors.warn, borderWidth: 1 }}>
             <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 14 }}>재무 데이터 키가 필요해요</Text>
             <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 20 }}>
-              가치분석은 무료 재무 API(Financial Modeling Prep) 키가 있어야 표시돼요.{'\n'}
+              미국주식 가치분석은 무료 재무 API(Financial Modeling Prep) 키가 있어야 표시돼요.{'\n'}
               financialmodelingprep.com 에서 무료 키를 발급받아 <Text style={{ color: colors.text }}>EXPO_PUBLIC_FMP_KEY</Text> 로
               설정하면 시총·PER·PBR·EPS·ROE·부채비율 + 5년 매출/영업이익/순이익·PER 그래프가 나옵니다.
             </Text>
           </Card>
-        ) : loading ? (
-          <View style={{ paddingVertical: 60, alignItems: 'center' }}>
+        ) : finLoading ? (
+          <View style={{ paddingVertical: 40, alignItems: 'center' }}>
             <ActivityIndicator color={colors.primary} />
           </View>
         ) : (
           <>
-            {/* 가격 차트 (최근 6개월) */}
-            <Card>
-              <LineChart title="가격 추이 (최근 6개월)" data={priceHist} color="auto" showYearLabels height={160} />
-              {priceHist.length < 2 && (
-                <Text style={{ color: colors.textDim, fontSize: 12 }}>가격 데이터를 불러오지 못했어요.</Text>
-              )}
-            </Card>
-
             {/* 가치분석 지표 카드 */}
             <Card>
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: 6 }}>가치분석 지표</Text>
@@ -162,7 +264,8 @@ export default function StockValuationScreen() {
             </Card>
 
             <Text style={{ color: colors.textDim, fontSize: 11, textAlign: 'center' }}>
-              데이터 제공: Financial Modeling Prep · 투자 판단의 책임은 이용자 본인에게 있습니다.
+              데이터: {mkt === 'KRX' ? '네이버 증권' : 'Financial Modeling Prep'} · Yahoo Finance(차트) · 투자 판단의 책임은 이용자
+              본인에게 있습니다.
             </Text>
           </>
         )}

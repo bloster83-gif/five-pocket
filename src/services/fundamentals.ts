@@ -79,11 +79,140 @@ export interface StockFinancials {
   perHistory: YearValue[]; // 최근 5년 PER
 }
 
+// =====================================================================
+// 한국주식 — FMP 무료 플랜이 한국을 지원하지 않아 네이버 증권(모바일) API 사용.
+// 키 불필요. 종목검색(symbols.ts)과 같은 소스라 앱에서 안정적으로 동작.
+// =====================================================================
+const NAVER_STOCK = 'https://m.stock.naver.com/api/stock';
+const NAVER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+
+/** '005930' / '005930.KS' / '396500.KQ' → 6자리 코드 (아니면 null) */
+function naverCode(symbol: string): string | null {
+  const m = symbol.trim().toUpperCase().match(/^(\d{6})(\.(KS|KQ))?$/);
+  return m ? m[1] : null;
+}
+
+/** '359조 4,190억' · '5,777원' · '13.29배' · '37.07%' · '2,368,070' → 숫자 */
+function parseKoNum(v: any): number | null {
+  if (v == null) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const t = String(v).replace(/[,\s원배%주]/g, '');
+  if (!t || t === '-' || t === 'N/A') return null;
+  if (/[조억만]/.test(t)) {
+    let total = 0;
+    const neg = t.startsWith('-');
+    const jo = t.match(/([\d.]+)조/);
+    const eok = t.match(/([\d.]+)억/);
+    const man = t.match(/([\d.]+)만/);
+    if (jo) total += parseFloat(jo[1]) * 1e12;
+    if (eok) total += parseFloat(eok[1]) * 1e8;
+    if (man) total += parseFloat(man[1]) * 1e4;
+    if (total === 0) return null;
+    return neg ? -total : total;
+  }
+  const n = parseFloat(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function fetchNaverJson(url: string): Promise<any | null> {
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': NAVER_UA } });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** 네이버 증권으로 한국주식 지표 + 연간 재무(매출/영업이익/순이익/ROE/부채비율/PER) 조회 */
+async function getKrxFinancialsFromNaver(code: string): Promise<StockFinancials> {
+  const empty: StockFinancials = { fundamentals: null, revenue: [], operatingIncome: [], netIncome: [], perHistory: [] };
+  const [integ, annual] = await Promise.all([
+    fetchNaverJson(`${NAVER_STOCK}/${code}/integration`),
+    fetchNaverJson(`${NAVER_STOCK}/${code}/finance/annual`),
+  ]);
+
+  // ---- 현재 지표 (totalInfos: [{code:'per', value:'13.29배'}, ...]) ----
+  const infos: any[] = Array.isArray(integ?.totalInfos) ? integ.totalInfos : [];
+  const info = (c: string) => parseKoNum(infos.find((x: any) => x?.code === c)?.value);
+
+  // ---- 연간 재무제표 (financeInfo.trTitleList + rowList) ----
+  const fi = annual?.financeInfo ?? annual ?? {};
+  const titleList: any[] = Array.isArray(fi?.trTitleList) ? fi.trTitleList : [];
+  const rowList: any[] = Array.isArray(fi?.rowList) ? fi.rowList : [];
+  // 연도 컬럼(확정 실적만 — '(E)' 예상치는 제외)
+  const yearCols = titleList
+    .map((t: any) => ({ key: t?.key as string, title: String(t?.title ?? '') }))
+    .filter((t) => t.key && /^\d{4}/.test(t.title) && !/E\)?\s*$/i.test(t.title));
+  const findRow = (name: string) =>
+    rowList.find((r: any) => String(r?.title ?? '').replace(/\s/g, '').startsWith(name));
+  const series = (name: string, mul = 1): YearValue[] => {
+    const r = findRow(name);
+    if (!r) return [];
+    const out: YearValue[] = [];
+    for (const yc of yearCols) {
+      const v = parseKoNum(r?.columns?.[yc.key]?.value);
+      if (v != null) out.push({ year: yc.title.slice(0, 4), value: v * mul });
+    }
+    return out.slice(-5);
+  };
+
+  // 매출액·영업이익·당기순이익은 '억원' 단위 → 원으로 환산
+  const revenue = series('매출액', 1e8);
+  const operatingIncome = series('영업이익', 1e8);
+  const netIncome = series('당기순이익', 1e8);
+  const perHistory = series('PER');
+  const roeHist = series('ROE');
+  const debtHist = series('부채비율');
+  const epsHist = series('EPS');
+  const lastOf = (a: YearValue[]) => (a.length ? a[a.length - 1].value : null);
+
+  const marketCap = info('marketValue');
+  const per = info('per') ?? lastOf(perHistory);
+  const pbr = info('pbr');
+  const eps = info('eps') ?? lastOf(epsHist);
+  const roe = lastOf(roeHist);
+  const debt = lastOf(debtHist);
+
+  const has =
+    marketCap != null || per != null || pbr != null || eps != null || revenue.length > 0 || perHistory.length > 0;
+  if (!has) return empty;
+
+  return {
+    fundamentals: {
+      price: null,
+      marketCap,
+      per,
+      pbr,
+      peg: null, // 네이버는 PEG 미제공
+      eps,
+      roe: roe != null ? Math.round(roe * 10) / 10 : null, // 이미 %
+      debtToEquity: debt != null ? Math.round(debt * 10) / 10 : null, // 이미 %
+      currency: 'KRW',
+    },
+    revenue,
+    operatingIncome,
+    netIncome,
+    perHistory,
+  };
+}
+
 /** 지표 카드 + 5년 재무제표 + 5년 PER 을 한 번에 조회 */
 export async function getStockFinancials(symbol: string, market?: string): Promise<StockFinancials> {
   const sym = fmpSymbol(symbol, market);
   const currency = market === 'KRX' ? 'KRW' : 'USD';
   const empty: StockFinancials = { fundamentals: null, revenue: [], operatingIncome: [], netIncome: [], perHistory: [] };
+
+  // 한국주식은 네이버 증권 우선 (FMP 무료 플랜이 한국 미지원)
+  if (market === 'KRX') {
+    const code = naverCode(symbol);
+    if (code) {
+      const naver = await getKrxFinancialsFromNaver(code);
+      if (naver.fundamentals || naver.revenue.length > 0) return naver;
+    }
+    // 네이버 실패 시 FMP 시도(키 있으면) — 대부분 무료 플랜에선 데이터 없음
+  }
   if (!apiKey()) return empty;
 
   const [quoteArr, ratiosTtmArr, incomeArr, ratiosArr] = await Promise.all([

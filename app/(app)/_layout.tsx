@@ -26,6 +26,7 @@ export default function AppLayout() {
       <Stack.Screen name="project/[id]/edit" options={{ title: '프로젝트 수정', presentation: 'modal' }} />
       <Stack.Screen name="project/[id]/trade" options={{ title: '체결 기록', presentation: 'modal' }} />
       <Stack.Screen name="project/[id]/chart" options={{ title: '차트' }} />
+      <Stack.Screen name="stock/[symbol]" options={{ title: '가치분석' }} />
     </Stack>
   );
 }
