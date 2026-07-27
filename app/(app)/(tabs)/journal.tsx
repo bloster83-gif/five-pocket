@@ -5,7 +5,7 @@ import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
-import { computePnL, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
+import { alignToKrxTick, computePnL, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
 import { priceProvider } from '@/services/prices';
 import { colors, formatKRW, formatMoney, formatPrice, money, num, radius, signColor, spacing } from '@/theme';
 import type { CashFlow, CashFlowType, Market, Project, Trade } from '@/types/db';
@@ -134,9 +134,11 @@ export default function JournalScreen() {
     if (openQty > 0) {
       const proj = remaining.find((x) => x.project_id)?.project_id;
       const pct = proj ? Number(projMap[proj]?.sell_target_pct ?? 0) : 0;
+      const isKrx = proj ? projMap[proj]?.market === 'KRX' : false;
+      const rawSell = pct > 0 ? sellTargetFromFill(pnl.avgOpenPrice, pct) : null;
       patch = {
         status: 'bought',
-        sell_target_price: pct > 0 ? sellTargetFromFill(pnl.avgOpenPrice, pct) : null,
+        sell_target_price: rawSell != null && isKrx ? alignToKrxTick(rawSell, 'sell') : rawSell,
       };
     } else if (remaining.some((x) => x.side === 'buy')) {
       patch = { status: 'sold' };

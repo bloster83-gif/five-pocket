@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, Text, TextInput, View } from 'react-native';
 import { colors, formatPrice, radius, rawNumeric, signColor, spacing } from '@/theme';
+import { alignToKrxTick } from '@/domain/pockets';
 import { notify } from '@/lib/alert';
 import type { Pocket } from '@/types/db';
 
 // ---------------------------------------------------------------
 // 목표 매수·매도가 수정 모달 — 시장 상황을 보며 직접 조정.
-//   매수 목표가 입력 → '현재가 대비율'을 보여주고
-//   매도 목표가 입력 → '매수가(보유 평단 또는 매수목표가) 대비 수익률'을 보여준다.
+//   · 대기중 포켓: 매수 목표가 + 매도 목표가 모두 수정 가능
+//   · 보유중 포켓: 이미 매수했으므로 매수 목표가는 '읽기 전용',
+//                  매도 목표가만 수정 가능
+//   매수 목표가 → '현재가 대비율', 매도 목표가 → '매수가 대비 수익률' 표시.
+//   KRX 는 호가단위(alignToKrxTick)로 정렬해 표시·저장(소수점 방지).
 // (프로젝트 상세·포켓탭 공용)
 // ---------------------------------------------------------------
 export function EditTargetsModal({
@@ -27,28 +31,42 @@ export function EditTargetsModal({
   avgBuy: number; // 보유중이면 평균매수가, 대기중이면 0
   onSave: (buyPrice: number, sellPrice: number | null) => Promise<void>;
 }) {
-  const dec = market !== 'KRX'; // 미국주식은 소수점 허용
+  const isKrx = market === 'KRX';
+  const dec = !isKrx; // 미국주식은 소수점 허용
+  const held = avgBuy > 0; // 보유중이면 매수 목표가 수정 불가
   const [buyStr, setBuyStr] = useState('');
   const [sellStr, setSellStr] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (visible && pocket) {
-      setBuyStr(pocket.buy_target_price != null ? String(pocket.buy_target_price) : '');
-      setSellStr(pocket.sell_target_price != null ? String(pocket.sell_target_price) : '');
+      // 저장된 값을 KRX 호가단위로 정렬해 정수로 표시(40757.1 → 40800, 소수점/버그 방지)
+      const b = pocket.buy_target_price;
+      const s = pocket.sell_target_price;
+      const bA = b != null ? (isKrx ? alignToKrxTick(b, 'buy') : b) : null;
+      const sA = s != null ? (isKrx ? alignToKrxTick(s, 'sell') : s) : null;
+      setBuyStr(bA != null ? String(bA) : '');
+      setSellStr(sA != null ? String(sA) : '');
     }
-  }, [visible, pocket?.buy_target_price, pocket?.sell_target_price]);
+  }, [visible, pocket?.buy_target_price, pocket?.sell_target_price, isKrx]);
 
   if (!pocket) return null;
 
-  const buyVal = Number(rawNumeric(buyStr, dec)) || 0;
-  const sellVal = Number(rawNumeric(sellStr, dec)) || 0;
+  const buyInput = Number(rawNumeric(buyStr, dec)) || 0;
+  const sellInput = Number(rawNumeric(sellStr, dec)) || 0;
+
+  // 실제 저장/주문에 쓰일 값 = KRX 호가단위 정렬
+  const existingBuy =
+    pocket.buy_target_price != null ? (isKrx ? alignToKrxTick(pocket.buy_target_price, 'buy') : pocket.buy_target_price) : 0;
+  const buyVal = held ? existingBuy : isKrx ? alignToKrxTick(buyInput, 'buy') : buyInput;
+  const sellVal = sellInput > 0 ? (isKrx ? alignToKrxTick(sellInput, 'sell') : sellInput) : 0;
+
   // 매수 목표가: 현재가 대비 (목표가가 현재가보다 얼마나 낮은지/높은지)
   const buyVsNow = price != null && price > 0 && buyVal > 0 ? Math.round((buyVal / price - 1) * 1000) / 10 : null;
-  // 매도 목표가: 매수가 대비 수익률 (보유중=평단, 대기중=입력한 매수 목표가 기준)
-  const refBuy = avgBuy > 0 ? avgBuy : buyVal;
+  // 매도 목표가: 매수가 대비 수익률 (보유중=평단, 대기중=매수 목표가 기준)
+  const refBuy = held ? avgBuy : buyVal;
   const sellProfit = refBuy > 0 && sellVal > 0 ? Math.round((sellVal / refBuy - 1) * 1000) / 10 : null;
-  const cur = market === 'KRX' ? '₩' : '$';
+  const cur = isKrx ? '₩' : '$';
 
   const submit = async () => {
     if (buyVal <= 0) return notify('입력 확인', '매수 목표가를 올바르게 입력해 주세요.');
@@ -94,26 +112,51 @@ export function EditTargetsModal({
           {price != null && (
             <Text style={{ color: colors.textDim, fontSize: 12 }}>
               현재가 {formatPrice(price, market)}
-              {avgBuy > 0 ? ` · 평균매수가 ${formatPrice(avgBuy, market)}` : ''}
+              {held ? ` · 평균매수가 ${formatPrice(avgBuy, market)}` : ''}
             </Text>
           )}
 
-          {/* 매수 목표가 + 현재가 대비율 */}
+          {/* 매수 목표가 — 대기중이면 수정 가능, 보유중이면 읽기 전용 */}
           <View style={{ gap: 4 }}>
             <Text style={{ color: colors.buy, fontSize: 13, fontWeight: '800' }}>매수 목표가</Text>
-            <TextInput
-              value={buyStr}
-              onChangeText={(t) => setBuyStr(rawNumeric(t, dec))}
-              keyboardType="numeric"
-              placeholder={`매수 목표가 (${cur})`}
-              placeholderTextColor={colors.textDim}
-              style={inputStyle}
-            />
-            {buyVsNow != null && (
-              <Text style={{ color: signColor(buyVsNow), fontSize: 12, fontWeight: '700' }}>
-                현재가 대비 {buyVsNow > 0 ? '+' : ''}
-                {buyVsNow}%{buyVsNow < 0 ? ' (현재가보다 낮게 매수)' : buyVsNow > 0 ? ' (현재가보다 높게 매수)' : ''}
-              </Text>
+            {held ? (
+              <>
+                <View
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.md,
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    backgroundColor: colors.bg,
+                    opacity: 0.7,
+                  }}
+                >
+                  <Text style={{ color: colors.textDim, fontSize: 16, fontWeight: '800' }}>
+                    {formatPrice(existingBuy, market)}
+                  </Text>
+                </View>
+                <Text style={{ color: colors.textDim, fontSize: 12 }}>
+                  이미 매수한 포켓이라 매수 목표가는 수정할 수 없어요 (매도 목표가만 조정)
+                </Text>
+              </>
+            ) : (
+              <>
+                <TextInput
+                  value={buyStr}
+                  onChangeText={(t) => setBuyStr(rawNumeric(t, dec))}
+                  keyboardType="numeric"
+                  placeholder={`매수 목표가 (${cur})`}
+                  placeholderTextColor={colors.textDim}
+                  style={inputStyle}
+                />
+                {buyVsNow != null && (
+                  <Text style={{ color: signColor(buyVsNow), fontSize: 12, fontWeight: '700' }}>
+                    현재가 대비 {buyVsNow > 0 ? '+' : ''}
+                    {buyVsNow}%{buyVsNow < 0 ? ' (현재가보다 낮게 매수)' : buyVsNow > 0 ? ' (현재가보다 높게 매수)' : ''}
+                  </Text>
+                )}
+              </>
             )}
           </View>
 
@@ -130,8 +173,13 @@ export function EditTargetsModal({
             />
             {sellProfit != null && (
               <Text style={{ color: signColor(sellProfit), fontSize: 12, fontWeight: '700' }}>
-                {avgBuy > 0 ? '평균매수가' : '매수 목표가'} 대비 수익률 {sellProfit > 0 ? '+' : ''}
+                {held ? '평균매수가' : '매수 목표가'} 대비 수익률 {sellProfit > 0 ? '+' : ''}
                 {sellProfit}%
+              </Text>
+            )}
+            {isKrx && sellVal > 0 && sellInput !== sellVal && (
+              <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                호가단위 정렬 → {formatPrice(sellVal, market)}(으)로 저장돼요
               </Text>
             )}
           </View>

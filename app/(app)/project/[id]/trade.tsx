@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
 import { Button, Card, Field, NumberField } from '@/components/ui';
 import { colors, formatPrice, money, radius, spacing } from '@/theme';
-import { estimatedShares, sellTargetFromFill } from '@/domain/pockets';
+import { alignToKrxTick, estimatedShares, sellTargetFromFill } from '@/domain/pockets';
 import type { TradeSide } from '@/types/db';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -76,7 +76,8 @@ export default function TradeScreen() {
 
     if (isBuy) {
       const { data: proj } = await supabase.from('projects').select('sell_target_pct').eq('id', id).single();
-      const sellTarget = proj ? sellTargetFromFill(priceN, Number(proj.sell_target_pct)) : null;
+      const rawSellTarget = proj ? sellTargetFromFill(priceN, Number(proj.sell_target_pct)) : null;
+      const sellTarget = rawSellTarget != null && market === 'KRX' ? alignToKrxTick(rawSellTarget, 'sell') : rawSellTarget;
       await supabase.from('pockets').update({ status: 'bought', sell_target_price: sellTarget }).eq('id', pocket);
     } else {
       await supabase.from('pockets').update({ status: 'sold' }).eq('id', pocket);

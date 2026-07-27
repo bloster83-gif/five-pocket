@@ -14,7 +14,7 @@ import { useCallback, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notifyNow } from '@/lib/notifications';
-import { estimatedShares, sellTargetFromFill, type PriceSignal } from '@/domain/pockets';
+import { alignToKrxTick, estimatedShares, sellTargetFromFill, type PriceSignal } from '@/domain/pockets';
 import { computePnL } from '@/domain/pockets';
 import { getOrderFill, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import type { BrokerAccount, Project, Trade } from '@/types/db';
@@ -172,7 +172,10 @@ export function useAutoTrader(
               .from('pockets')
               .update({
                 status: filled ? 'bought' : 'buy_ordered',
-                sell_target_price: sellTargetFromFill(fillPrice, Number(proj.sell_target_pct)),
+                sell_target_price:
+                  proj.market === 'KRX'
+                    ? alignToKrxTick(sellTargetFromFill(fillPrice, Number(proj.sell_target_pct)), 'sell')
+                    : sellTargetFromFill(fillPrice, Number(proj.sell_target_pct)),
               })
               .eq('id', sig.pocket.id);
           } else {

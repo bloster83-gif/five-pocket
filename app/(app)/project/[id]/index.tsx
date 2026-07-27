@@ -98,7 +98,13 @@ export default function ProjectDetailScreen() {
           if (o.side === 'buy') {
             await supabase
               .from('pockets')
-              .update({ status: 'bought', sell_target_price: sellTargetFromFill(fill.avgPrice, Number(p.sell_target_pct)) })
+              .update({
+                status: 'bought',
+                sell_target_price:
+                  p.market === 'KRX'
+                    ? alignToKrxTick(sellTargetFromFill(fill.avgPrice, Number(p.sell_target_pct)), 'sell')
+                    : sellTargetFromFill(fill.avgPrice, Number(p.sell_target_pct)),
+              })
               .eq('id', o.pocket_id);
           } else {
             await supabase.from('pockets').update({ status: 'sold' }).eq('id', o.pocket_id);
