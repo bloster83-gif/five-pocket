@@ -64,6 +64,7 @@ export interface StockFundamentals {
   eps: number | null;
   roe: number | null; // %
   debtToEquity: number | null; // 부채비율(%) = 부채/자본 × 100
+  evEbitda: number | null; // EV/EBITDA (배)
   currency: string; // 'KRW' | 'USD'
 }
 
@@ -182,6 +183,7 @@ async function getKrxFinancialsFromNaver(code: string): Promise<StockFinancials>
   const roeHist = series('ROE');
   const debtHist = series('부채비율');
   const epsHist = series('EPS');
+  const evHist = series('EV/EBITDA');
   const lastOf = (a: YearValue[]) => (a.length ? a[a.length - 1].value : null);
 
   const marketCap = info('marketValue');
@@ -208,6 +210,7 @@ async function getKrxFinancialsFromNaver(code: string): Promise<StockFinancials>
       eps,
       roe: roe != null ? Math.round(roe * 10) / 10 : null, // 이미 %
       debtToEquity: debt != null ? Math.round(debt * 10) / 10 : null, // 이미 %
+      evEbitda: lastOf(evHist),
       currency: 'KRW',
     },
     revenue,
@@ -266,6 +269,12 @@ export async function getStockFinancials(symbol: string, market?: string): Promi
           eps: pick(q?.eps, r?.netIncomePerShareTTM),
           roe: roeRaw != null ? Math.round(roeRaw * 1000) / 10 : null, // 소수(0.15)→%
           debtToEquity: deRaw != null ? Math.round(deRaw * 1000) / 10 : null, // 배→%
+          evEbitda: pick(
+            r?.enterpriseValueMultipleTTM,
+            r?.evToEBITDATTM,
+            r?.enterpriseValueOverEBITDATTM,
+            r?.enterpriseValueToEBITDATTM
+          ),
           currency,
         }
       : null;

@@ -243,6 +243,7 @@ export default function StockValuationScreen() {
                 <Metric label="EPS" value={epsStr} color={num.position} />
                 <Metric label="ROE" value={pct(f?.roe)} color={f?.roe != null ? signColor(f.roe) : undefined} />
                 <Metric label="부채비율" value={pct(f?.debtToEquity)} color={num.position} />
+                <Metric label="EV/EBITDA" value={per(f?.evEbitda)} color={num.base} />
               </View>
               {!f && <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 6 }}>지표 데이터를 불러오지 못했어요.</Text>}
               {f?.pegComputed && f?.peg != null && (
