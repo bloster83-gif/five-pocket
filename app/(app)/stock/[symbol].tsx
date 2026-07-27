@@ -244,11 +244,16 @@ export default function StockValuationScreen() {
                 <Metric label="ROE" value={pct(f?.roe)} color={f?.roe != null ? signColor(f.roe) : undefined} />
                 <Metric label="부채비율" value={pct(f?.debtToEquity)} color={num.position} />
                 <Metric label="EV/EBITDA" value={per(f?.evEbitda)} color={num.base} />
+                <Metric
+                  label="EPS성장률(연평균)"
+                  value={f?.epsGrowth != null ? `${f.epsGrowth > 0 ? '+' : ''}${f.epsGrowth}%` : '—'}
+                  color={f?.epsGrowth != null ? signColor(f.epsGrowth) : undefined}
+                />
               </View>
               {!f && <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 6 }}>지표 데이터를 불러오지 못했어요.</Text>}
               {f?.pegComputed && f?.peg != null && (
                 <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 6 }}>
-                  * PEG는 불러온 연간 EPS 자료의 연평균성장률로 직접 계산한 값이에요 (PER ÷ EPS 성장률).
+                  * PEG = PER ÷ EPS성장률(연평균) — 불러온 연간 EPS 자료로 직접 계산한 값이에요.
                 </Text>
               )}
             </Card>

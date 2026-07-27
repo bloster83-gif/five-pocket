@@ -61,6 +61,7 @@ export interface StockFundamentals {
   pbr: number | null;
   peg: number | null;
   pegComputed?: boolean; // true = 제공처 값이 아니라 연간 EPS 성장률로 직접 계산한 값
+  epsGrowth?: number | null; // 연간 EPS 연평균성장률(%, CAGR) — PEG 계산에 사용된 값
   eps: number | null;
   roe: number | null; // %
   debtToEquity: number | null; // 부채비율(%) = 부채/자본 × 100
@@ -118,17 +119,25 @@ function parseKoNum(v: any): number | null {
 }
 
 /**
- * PEG = PER ÷ EPS 성장률(%) — 제공처에 PEG 가 없으면 연간 EPS 이력으로 직접 계산.
- * 성장률은 EPS 연평균성장률(CAGR). EPS 가 음수이거나 성장률이 0 이하면 의미가 없어 null.
+ * 연간 EPS 이력으로 연평균성장률(%, CAGR) 계산 — PEG 계산·화면 표시 공용.
+ * EPS 가 음수(적자)면 성장률 계산이 의미가 없어 null.
  */
-function computePeg(per: number | null, epsHist: YearValue[]): number | null {
-  if (per == null || per <= 0 || epsHist.length < 2) return null;
+function epsCagr(epsHist: YearValue[]): number | null {
+  if (epsHist.length < 2) return null;
   const first = epsHist[0].value;
   const last = epsHist[epsHist.length - 1].value;
   const years = epsHist.length - 1;
   if (first <= 0 || last <= 0) return null;
-  const growthPct = (Math.pow(last / first, 1 / years) - 1) * 100;
-  if (growthPct <= 0) return null;
+  return Math.round((Math.pow(last / first, 1 / years) - 1) * 1000) / 10;
+}
+
+/**
+ * PEG = PER ÷ EPS 성장률(%) — 제공처에 PEG 가 없으면 연간 EPS 이력으로 직접 계산.
+ * 성장률이 0 이하면 의미가 없어 null. (화면의 EPS성장률 수치와 같은 값으로 나눔)
+ */
+function computePeg(per: number | null, epsHist: YearValue[]): number | null {
+  const growthPct = epsCagr(epsHist);
+  if (per == null || per <= 0 || growthPct == null || growthPct <= 0) return null;
   return Math.round((per / growthPct) * 100) / 100;
 }
 
@@ -207,6 +216,7 @@ async function getKrxFinancialsFromNaver(code: string): Promise<StockFinancials>
       pbr,
       peg: pegCalc, // 네이버 미제공 → 연간 EPS 성장률로 직접 계산
       pegComputed: pegCalc != null,
+      epsGrowth: epsCagr(epsHist),
       eps,
       roe: roe != null ? Math.round(roe * 10) / 10 : null, // 이미 %
       debtToEquity: debt != null ? Math.round(debt * 10) / 10 : null, // 이미 %
@@ -294,10 +304,14 @@ export async function getStockFinancials(symbol: string, market?: string): Promi
     .filter((o) => o.pe != null && yearOf(o.x))
     .map((o) => ({ year: yearOf(o.x), value: Math.round(Number(o.pe) * 100) / 100 }))) as YearValue[];
 
-  // FMP 가 PEG 를 안 주면 연간 EPS(손익계산서)로 직접 계산
-  if (fundamentals && fundamentals.peg == null) {
-    fundamentals.peg = computePeg(fundamentals.per, toYV(income, 'eps'));
-    fundamentals.pegComputed = fundamentals.peg != null;
+  // 연간 EPS 성장률(표시용) + FMP 가 PEG 를 안 주면 직접 계산
+  if (fundamentals) {
+    const epsSeries = toYV(income, 'eps');
+    fundamentals.epsGrowth = epsCagr(epsSeries);
+    if (fundamentals.peg == null) {
+      fundamentals.peg = computePeg(fundamentals.per, epsSeries);
+      fundamentals.pegComputed = fundamentals.peg != null;
+    }
   }
 
   return {
