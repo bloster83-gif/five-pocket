@@ -361,12 +361,14 @@ export default function GoalsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [thisYearRow, flows, trades, projMarket, nowYear]);
 
-  // 월별 그래프는 실제 달성액만 표시 (계획 막대 없음)
   const monthChartData = useMemo(
     () =>
       monthlyRows.map((r) => ({
         label: `${r.month}월`,
-        bars: r.actual != null ? [{ value: r.actual, color: colors.text }] : [],
+        bars: [
+          { value: r.plan, color: colors.buy },
+          ...(r.actual != null ? [{ value: r.actual, color: colors.text }] : []),
+        ],
       })),
     [monthlyRows]
   );
@@ -600,13 +602,7 @@ export default function GoalsScreen() {
                 />
               </View>
             </View>
-            <Legend
-              items={
-                assetView === 'year'
-                  ? [{ color: colors.buy, label: '계획(목표)' }, { color: colors.text, label: '실제 달성(자동)' }]
-                  : [{ color: colors.text, label: '실제 달성(자동)' }]
-              }
-            />
+            <Legend items={[{ color: colors.buy, label: '계획(목표)' }, { color: colors.text, label: '실제 달성(자동)' }]} />
 
             {assetView === 'year' ? (
               <>
@@ -631,6 +627,7 @@ export default function GoalsScreen() {
                     <Text style={{ color: colors.text, fontWeight: '800' }}>
                       {nowYear}년 {monthlyRows[selBar].month}월
                     </Text>
+                    <Text style={{ color: colors.buy, fontSize: 13 }}>계획 {fk(monthlyRows[selBar].plan)}</Text>
                     <Text style={{ color: colors.text, fontSize: 13 }}>
                       실제 {monthlyRows[selBar].actual != null ? fk(monthlyRows[selBar].actual) : '아직'}
                     </Text>
@@ -638,7 +635,8 @@ export default function GoalsScreen() {
                 )}
                 <BarChart data={monthChartData} onBarPress={setSelBar} selectedIndex={selBar} />
                 <Text style={{ color: colors.textDim, fontSize: 11 }}>
-                  * 실제 = 매매일지의 입출금·배당·실현손익 월별 누적 (이번 달까지)
+                  * 월별 계획 = 올해 목표를 12개월로 나눠 배분(년초 이월 → 연말 목표) · 실제 = 매매일지의
+                  입출금·배당·실현손익 월별 누적
                 </Text>
               </>
             )}
