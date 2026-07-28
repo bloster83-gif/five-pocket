@@ -478,6 +478,9 @@ export default function MyScreen() {
         </Pressable>
       )}
 
+      {/* 앱 업데이트 확인 (OTA) — 재시작 반복 없이 버튼 한 번으로 받기 */}
+      <UpdateCard />
+
       {/* 로그아웃 */}
       <Pressable
         onPress={() => confirmAction('로그아웃', '로그아웃할까요?', () => signOut(), '로그아웃')}
@@ -486,6 +489,72 @@ export default function MyScreen() {
         <Text style={{ color: colors.textDim, fontWeight: '700' }}>로그아웃</Text>
       </Pressable>
     </ScrollView>
+  );
+}
+
+// OTA 업데이트 확인 카드 — 지금 실행 중인 버전 표시 + 즉시 확인·적용 버튼.
+// Expo Go/웹/개발 모드에서는 Updates 비활성이라 카드 자체를 숨긴다.
+function UpdateCard() {
+  const [checking, setChecking] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const Updates = require('expo-updates') as typeof import('expo-updates');
+  if (!Updates.isEnabled) return null;
+
+  const appliedAt = Updates.createdAt
+    ? `${Updates.createdAt.getFullYear()}.${String(Updates.createdAt.getMonth() + 1).padStart(2, '0')}.${String(Updates.createdAt.getDate()).padStart(2, '0')} ${String(Updates.createdAt.getHours()).padStart(2, '0')}:${String(Updates.createdAt.getMinutes()).padStart(2, '0')}`
+    : null;
+
+  const check = async () => {
+    setChecking(true);
+    setStatus('서버에서 새 업데이트 확인 중…');
+    try {
+      const r = await Updates.checkForUpdateAsync();
+      if (!r.isAvailable) {
+        setStatus('✅ 이미 최신 버전이에요.');
+        return;
+      }
+      setStatus('⬇️ 새 업데이트 내려받는 중…');
+      await Updates.fetchUpdateAsync();
+      setStatus('적용을 위해 앱을 다시 시작해요…');
+      await Updates.reloadAsync(); // 즉시 재시작 + 적용
+    } catch (e: any) {
+      setStatus(`⚠️ 확인 실패: ${e?.message ?? '네트워크를 확인해 주세요'}`);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <Card>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <View style={{ flex: 1, marginRight: 8 }}>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🔄 앱 업데이트</Text>
+          <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 2 }}>
+            {Updates.isEmbeddedLaunch
+              ? '스토어 설치 버전으로 실행 중 (OTA 미적용)'
+              : `적용된 업데이트: ${appliedAt ?? '-'} · ${(Updates.updateId ?? '').slice(0, 8)}`}
+          </Text>
+        </View>
+        <Pressable
+          onPress={check}
+          disabled={checking}
+          style={{
+            backgroundColor: checking ? colors.border : colors.primary,
+            borderRadius: radius.md,
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+          }}
+        >
+          {checking ? (
+            <ActivityIndicator color="#04121A" size="small" />
+          ) : (
+            <Text style={{ color: '#04121A', fontWeight: '900', fontSize: 13 }}>업데이트 확인</Text>
+          )}
+        </Pressable>
+      </View>
+      {status && <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 6 }}>{status}</Text>}
+    </Card>
   );
 }
 
