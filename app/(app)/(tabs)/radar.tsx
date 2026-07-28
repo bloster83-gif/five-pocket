@@ -9,6 +9,7 @@ import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatPrice, money, num, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { searchSymbols } from '@/services/symbols';
 import { priceProvider } from '@/services/prices';
+import { getUnifiedQuote, loadBrokerAccount } from '@/services/prices/unified';
 import { getDomesticPrice, getOverseasPrice } from '@/services/broker/kis';
 import { setRadarBelowCount } from '@/lib/badges';
 import type { BrokerAccount, Market, SymbolResult, WatchlistGroup, WatchlistItem, WatchlistMemo } from '@/types/db';
@@ -932,7 +933,9 @@ function AddModal({
     setQuery(r.name);
     setResults([]);
     try {
-      const q = await priceProvider.getQuote(r.symbol);
+      // KIS 우선(NXT·주간거래 반영) → Yahoo 폴백
+      const account = await loadBrokerAccount();
+      const q = await getUnifiedQuote(account, r.symbol, r.market);
       setBaseRaw(String(r.market === 'KRX' ? Math.round(q.price) : q.price));
     } catch {
       /* 웹 CORS 등: 직접 입력 */

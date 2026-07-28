@@ -8,7 +8,7 @@ import { Button, Card, Field, NumberField } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, radius, spacing } from '@/theme';
 import { buildPocketSeeds, clampPocketCount, estimatedShares, MAX_POCKET_COUNT, MIN_POCKET_COUNT, normalizeWeights, POCKET_COUNT } from '@/domain/pockets';
 import { searchSymbols } from '@/services/symbols';
-import { priceProvider } from '@/services/prices';
+import { getUnifiedQuote, loadBrokerAccount } from '@/services/prices/unified';
 import { getDomesticBalance, kisOrderBlocked } from '@/services/broker/kis';
 import type { BrokerAccount, SymbolResult } from '@/types/db';
 
@@ -114,9 +114,10 @@ export default function NewProjectScreen() {
     setSelected(r);
     setQuery(r.name);
     setResults([]);
-    // 현재가를 기준가로 자동 입력 (실패하면 사용자가 직접 입력)
+    // 현재가를 기준가로 자동 입력 (KIS 우선 — NXT·주간거래 반영, 실패하면 직접 입력)
     try {
-      const q = await priceProvider.getQuote(r.symbol);
+      const account = await loadBrokerAccount();
+      const q = await getUnifiedQuote(account, r.symbol, r.market);
       setBasePrice(String(q.price));
     } catch {
       /* 웹 CORS 등: 수동 입력 */

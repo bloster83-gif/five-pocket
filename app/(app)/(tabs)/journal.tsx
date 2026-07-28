@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { alignToKrxTick, computePnL, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
-import { priceProvider } from '@/services/prices';
+import { getUnifiedQuote, loadBrokerAccount } from '@/services/prices/unified';
 import { colors, formatKRW, formatMoney, formatPrice, money, num, radius, signColor, spacing } from '@/theme';
 import type { CashFlow, CashFlowType, Market, Project, Trade } from '@/types/db';
 
@@ -280,21 +280,23 @@ export default function JournalScreen() {
       return;
     }
     let cancelled = false;
-    Promise.all(
-      syms.map((s) =>
-        priceProvider
-          .getQuote(s)
-          .then((qq) => [s, qq.price] as const)
-          .catch(() => null)
-      )
-    ).then((rows) => {
+    (async () => {
+      // KIS 우선(국내 NXT 통합·미국 주간거래) → Yahoo 폴백 — 앱 공통 기준
+      const account = await loadBrokerAccount();
+      const rows = await Promise.all(
+        syms.map((s) =>
+          getUnifiedQuote(account, s)
+            .then((qq) => [s, qq.price] as const)
+            .catch(() => null)
+        )
+      );
       if (cancelled) return;
       const m: Record<string, number> = {};
       rows.forEach((r) => {
         if (r) m[r[0]] = r[1];
       });
       setPrices(m);
-    });
+    })();
     return () => {
       cancelled = true;
     };
