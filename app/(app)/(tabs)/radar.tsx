@@ -214,7 +214,7 @@ export default function RadarScreen() {
     return m;
   }, [memos]);
 
-  const addItem = async (r: SymbolResult, basePrice: number) => {
+  const addItem = async (r: SymbolResult, basePrice: number, groupId: string | null = null) => {
     if (!session?.user?.id) return;
     const market: Market = r.market === 'KRX' ? 'KRX' : 'US';
     // 이미 담긴 종목(같은 심볼+시장)이면 중복 추가 방지
@@ -227,6 +227,8 @@ export default function RadarScreen() {
       name: r.name,
       market,
       base_price: basePrice,
+      // 그룹 선택 시에만 포함 (그룹 마이그레이션 전에도 추가는 정상 동작)
+      ...(groupId ? { group_id: groupId } : {}),
     });
     if (error) return notify('추가 실패', error.message);
     await load();
@@ -479,9 +481,12 @@ export default function RadarScreen() {
       <AddModal
         visible={addOpen}
         onClose={() => setAddOpen(false)}
-        onAdd={async (r, base) => {
+        groups={groupsReady ? groups : []}
+        // 특정 그룹을 필터 중이면 그 그룹이 기본 선택되게
+        defaultGroupId={groupFilter && groupFilter !== 'none' ? groupFilter : null}
+        onAdd={async (r, base, gid) => {
           setAddOpen(false);
-          await addItem(r, base);
+          await addItem(r, base, gid);
         }}
       />
 
@@ -864,21 +869,31 @@ function WatchRow({
   );
 }
 
-// 종목 추가 모달 — 심볼 검색 → 선택 → 기준가 입력
+// 종목 추가 모달 — 심볼 검색 → 선택 → 기준가 입력 (+그룹 지정)
 function AddModal({
   visible,
   onClose,
+  groups,
+  defaultGroupId,
   onAdd,
 }: {
   visible: boolean;
   onClose: () => void;
-  onAdd: (r: SymbolResult, base: number) => void;
+  groups: WatchlistGroup[];
+  defaultGroupId: string | null;
+  onAdd: (r: SymbolResult, base: number, groupId: string | null) => void;
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SymbolResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [selected, setSelected] = useState<SymbolResult | null>(null);
   const [baseRaw, setBaseRaw] = useState('');
+  const [groupId, setGroupId] = useState<string | null>(null);
+
+  // 모달 열릴 때 — 그룹 필터 중이면 그 그룹을 기본 선택
+  useEffect(() => {
+    if (visible) setGroupId(defaultGroupId);
+  }, [visible, defaultGroupId]);
 
   useEffect(() => {
     if (!visible) return;
@@ -906,6 +921,7 @@ function AddModal({
     setResults([]);
     setSelected(null);
     setBaseRaw('');
+    setGroupId(defaultGroupId);
   };
   const close = () => {
     reset();
@@ -1006,6 +1022,47 @@ function AddModal({
                   }}
                 />
               </View>
+
+              {/* 그룹 지정 (선택) — 그룹이 있을 때만 */}
+              {groups.length > 0 && (
+                <View>
+                  <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 4 }}>그룹 (선택)</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, alignItems: 'center' }}>
+                    <Pressable
+                      onPress={() => setGroupId(null)}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 7,
+                        borderRadius: 999,
+                        backgroundColor: groupId == null ? colors.textDim : colors.cardAlt,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      }}
+                    >
+                      <Text style={{ color: groupId == null ? colors.bg : colors.textDim, fontSize: 12, fontWeight: '800' }}>미분류</Text>
+                    </Pressable>
+                    {groups.map((g) => {
+                      const on = groupId === g.id;
+                      return (
+                        <Pressable
+                          key={g.id}
+                          onPress={() => setGroupId(on ? null : g.id)}
+                          style={{
+                            paddingHorizontal: 12,
+                            paddingVertical: 7,
+                            borderRadius: 999,
+                            backgroundColor: on ? colors.accent : colors.cardAlt,
+                            borderWidth: 1,
+                            borderColor: on ? colors.accent : colors.border,
+                          }}
+                        >
+                          <Text style={{ color: on ? '#fff' : colors.textDim, fontSize: 12, fontWeight: '800' }}>{g.name}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              )}
             </View>
           )}
 
@@ -1019,7 +1076,7 @@ function AddModal({
             <Pressable
               onPress={() => {
                 if (!selected || base <= 0) return;
-                onAdd(selected, base);
+                onAdd(selected, base, groupId);
                 reset();
               }}
               disabled={!selected || base <= 0}
