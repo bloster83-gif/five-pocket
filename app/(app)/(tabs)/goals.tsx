@@ -321,6 +321,58 @@ export default function GoalsScreen() {
     [displayRows]
   );
 
+  // ---- 월별 자산 현황 (올해) ----
+  // 계획: 올해 목표를 12개월로 직선 배분 (년초 이월 → 연말 목표)
+  // 실제: 매매일지의 입출금·배당·실현손익을 월별로 누적 (지난달까지 확정 + 이번달 진행분)
+  const [assetView, setAssetView] = useState<'year' | 'month'>('year');
+  const monthlyRows = useMemo(() => {
+    if (!thisYearRow) return [] as { month: number; plan: number; actual: number | null }[];
+    const carry = thisYearRow.carryover;
+    const planned = thisYearRow.planned;
+    const dep = Array(13).fill(0);
+    const div = Array(13).fill(0);
+    const real = Array(13).fill(0);
+    flows.forEach((cf) => {
+      if (cf.occurred_at.slice(0, 4) !== String(nowYear)) return;
+      const m = Number(cf.occurred_at.slice(5, 7));
+      const amt = toKRW(Number(cf.amount), cf.market);
+      if (cf.type === 'dividend') div[m] += amt;
+      else dep[m] += (cf.type === 'withdrawal' ? -1 : 1) * amt;
+    });
+    realizedEvents(trades).forEach((ev) => {
+      if (ev.at.slice(0, 4) !== String(nowYear)) return;
+      const m = Number(ev.at.slice(5, 7));
+      const mkt = ev.trade.project_id ? projMarket[ev.trade.project_id] : ev.trade.market;
+      real[m] += toKRW(ev.amount, mkt);
+    });
+    const nowMonth = new Date().getMonth() + 1;
+    let cum = carry;
+    const out: { month: number; plan: number; actual: number | null }[] = [];
+    for (let m = 1; m <= 12; m++) {
+      const plan = Math.round(carry + ((planned - carry) * m) / 12);
+      let actual: number | null = null;
+      if (m <= nowMonth) {
+        cum = Math.round(cum + dep[m] + div[m] + real[m]);
+        actual = cum;
+      }
+      out.push({ month: m, plan, actual });
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thisYearRow, flows, trades, projMarket, nowYear]);
+
+  const monthChartData = useMemo(
+    () =>
+      monthlyRows.map((r) => ({
+        label: `${r.month}월`,
+        bars: [
+          { value: r.plan, color: colors.buy },
+          ...(r.actual != null ? [{ value: r.actual, color: colors.text }] : []),
+        ],
+      })),
+    [monthlyRows]
+  );
+
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center' }}>
@@ -525,23 +577,69 @@ export default function GoalsScreen() {
             </Text>
           </Card>
 
-          {/* 그래프 */}
+          {/* 그래프 — 년별/월별 토글 */}
           <Card>
-            <Text style={{ color: colors.text, fontWeight: '800' }}>연도별 총자산</Text>
-            <Legend items={[{ color: colors.buy, label: '계획(목표)' }, { color: colors.text, label: '실제 달성(자동)' }]} />
-            {selBar != null && displayRows[selBar] && (
-              <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.sm, padding: spacing.sm, gap: 2 }}>
-                <Text style={{ color: colors.text, fontWeight: '800' }}>
-                  {displayRows[selBar].age}세 ({displayRows[selBar].year})
-                </Text>
-                <Text style={{ color: colors.buy, fontSize: 13 }}>계획 {fk(displayRows[selBar].planned)}</Text>
-                <Text style={{ color: colors.text, fontSize: 13 }}>
-                  실제 {displayRows[selBar].actual != null ? fk(displayRows[selBar].actual) : '미래'}
-                  {displayRows[selBar].returnPct != null ? `  ·  ${displayRows[selBar].returnPct}%` : ''}
-                </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.text, fontWeight: '800' }}>
+                {assetView === 'year' ? '연도별 총자산' : `월별 총자산 (${nowYear}년)`}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                <Chip
+                  label="년별"
+                  active={assetView === 'year'}
+                  onPress={() => {
+                    setAssetView('year');
+                    setSelBar(null);
+                  }}
+                />
+                <Chip
+                  label="월별"
+                  active={assetView === 'month'}
+                  onPress={() => {
+                    setAssetView('month');
+                    setSelBar(null);
+                  }}
+                />
               </View>
+            </View>
+            <Legend items={[{ color: colors.buy, label: '계획(목표)' }, { color: colors.text, label: '실제 달성(자동)' }]} />
+
+            {assetView === 'year' ? (
+              <>
+                {selBar != null && displayRows[selBar] && (
+                  <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.sm, padding: spacing.sm, gap: 2 }}>
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>
+                      {displayRows[selBar].age}세 ({displayRows[selBar].year})
+                    </Text>
+                    <Text style={{ color: colors.buy, fontSize: 13 }}>계획 {fk(displayRows[selBar].planned)}</Text>
+                    <Text style={{ color: colors.text, fontSize: 13 }}>
+                      실제 {displayRows[selBar].actual != null ? fk(displayRows[selBar].actual) : '미래'}
+                      {displayRows[selBar].returnPct != null ? `  ·  ${displayRows[selBar].returnPct}%` : ''}
+                    </Text>
+                  </View>
+                )}
+                <BarChart data={chartData} onBarPress={setSelBar} selectedIndex={selBar} />
+              </>
+            ) : (
+              <>
+                {selBar != null && monthlyRows[selBar] && (
+                  <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.sm, padding: spacing.sm, gap: 2 }}>
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>
+                      {nowYear}년 {monthlyRows[selBar].month}월
+                    </Text>
+                    <Text style={{ color: colors.buy, fontSize: 13 }}>계획 {fk(monthlyRows[selBar].plan)}</Text>
+                    <Text style={{ color: colors.text, fontSize: 13 }}>
+                      실제 {monthlyRows[selBar].actual != null ? fk(monthlyRows[selBar].actual) : '아직'}
+                    </Text>
+                  </View>
+                )}
+                <BarChart data={monthChartData} onBarPress={setSelBar} selectedIndex={selBar} />
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                  * 월별 계획 = 올해 목표를 12개월로 나눠 배분(년초 이월 → 연말 목표) · 실제 = 매매일지의
+                  입출금·배당·실현손익 월별 누적
+                </Text>
+              </>
             )}
-            <BarChart data={chartData} onBarPress={setSelBar} selectedIndex={selBar} />
           </Card>
 
           {/* 표 */}
