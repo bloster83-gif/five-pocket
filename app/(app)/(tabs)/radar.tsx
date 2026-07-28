@@ -4,14 +4,14 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import { confirmAction, notify } from '@/lib/alert';
+import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatPrice, money, num, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { searchSymbols } from '@/services/symbols';
 import { priceProvider } from '@/services/prices';
 import { getDomesticPrice, getOverseasPrice } from '@/services/broker/kis';
 import { setRadarBelowCount } from '@/lib/badges';
-import type { BrokerAccount, Market, SymbolResult, WatchlistItem, WatchlistMemo } from '@/types/db';
+import type { BrokerAccount, Market, SymbolResult, WatchlistGroup, WatchlistItem, WatchlistMemo } from '@/types/db';
 
 type Filter = 'all' | 'KRX' | 'US' | 'under' | 'over';
 
@@ -43,6 +43,11 @@ export default function RadarScreen() {
   const [q, setQ] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null); // 메모가 열린 종목
   const [addOpen, setAddOpen] = useState(false);
+  // 그룹: null=전체, 'none'=미분류, 그 외=그룹 id
+  const [groups, setGroups] = useState<WatchlistGroup[]>([]);
+  const [groupsReady, setGroupsReady] = useState(true); // 그룹 테이블 존재 여부(마이그레이션 20260728a)
+  const [groupFilter, setGroupFilter] = useState<string | null>(null);
+  const [groupModal, setGroupModal] = useState<{ mode: 'create' } | { mode: 'rename'; group: WatchlistGroup } | null>(null);
 
   const load = useCallback(async () => {
     if (!session?.user?.id) return;
@@ -60,6 +65,16 @@ export default function RadarScreen() {
     setItems((it as WatchlistItem[]) ?? []);
     const { data: mm } = await supabase.from('watchlist_memos').select('*').order('created_at', { ascending: false });
     setMemos((mm as WatchlistMemo[]) ?? []);
+    // 그룹 목록 (테이블 없으면 그룹 UI만 조용히 숨김 — 레이더는 정상 동작)
+    const { data: gg, error: gerr } = await supabase
+      .from('watchlist_groups')
+      .select('*')
+      .order('created_at', { ascending: true });
+    if (gerr) setGroupsReady(false);
+    else {
+      setGroupsReady(true);
+      setGroups((gg as WatchlistGroup[]) ?? []);
+    }
     setLoading(false);
   }, [session?.user?.id]);
 
@@ -168,6 +183,9 @@ export default function RadarScreen() {
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     const list = items.filter((it) => {
+      // 그룹 필터 (전체/미분류/특정 그룹)
+      if (groupFilter === 'none' && it.group_id != null) return false;
+      if (groupFilter && groupFilter !== 'none' && it.group_id !== groupFilter) return false;
       if (s && !`${it.name} ${it.symbol}`.toLowerCase().includes(s)) return false;
       if (filter === 'KRX') return it.market === 'KRX';
       if (filter === 'US') return it.market === 'US';
@@ -188,7 +206,7 @@ export default function RadarScreen() {
       );
     }
     return list;
-  }, [items, q, filter, ratioOf, sortByChange, prices]);
+  }, [items, q, filter, ratioOf, sortByChange, prices, groupFilter]);
 
   const memosByItem = useMemo(() => {
     const m: Record<string, WatchlistMemo[]> = {};
@@ -243,6 +261,52 @@ export default function RadarScreen() {
     await supabase.from('watchlist_memos').delete().eq('id', m.id);
   };
 
+  // ---- 그룹 관리 ----
+  const createGroup = async (name: string) => {
+    if (!session?.user?.id || !name.trim()) return;
+    const { error } = await supabase.from('watchlist_groups').insert({ user_id: session.user.id, name: name.trim() });
+    if (error) return notify('그룹 만들기 실패', error.message);
+    await load();
+  };
+
+  const renameGroup = async (g: WatchlistGroup, name: string) => {
+    if (!name.trim()) return;
+    setGroups((prev) => prev.map((x) => (x.id === g.id ? { ...x, name: name.trim() } : x)));
+    const { error } = await supabase.from('watchlist_groups').update({ name: name.trim() }).eq('id', g.id);
+    if (error) {
+      notify('이름 변경 실패', error.message);
+      load();
+    }
+  };
+
+  const deleteGroup = (g: WatchlistGroup) => {
+    confirmAction('그룹 삭제', `"${g.name}" 그룹을 삭제할까요? 소속 종목은 삭제되지 않고 '미분류'로 이동해요.`, async () => {
+      setGroups((prev) => prev.filter((x) => x.id !== g.id));
+      setItems((prev) => prev.map((x) => (x.group_id === g.id ? { ...x, group_id: null } : x)));
+      if (groupFilter === g.id) setGroupFilter(null);
+      await supabase.from('watchlist_groups').delete().eq('id', g.id);
+    }, '삭제');
+  };
+
+  // 그룹 칩 길게 누르면 이름 변경/삭제 메뉴
+  const groupMenu = (g: WatchlistGroup) => {
+    chooseAction(`📂 ${g.name}`, '그룹을 어떻게 할까요?', [
+      { text: '이름 변경', onPress: () => setGroupModal({ mode: 'rename', group: g }) },
+      { text: '삭제', style: 'destructive', onPress: () => deleteGroup(g) },
+      { text: '취소', style: 'cancel' },
+    ]);
+  };
+
+  // 종목의 소속 그룹 변경 (null = 미분류)
+  const setItemGroup = async (it: WatchlistItem, groupId: string | null) => {
+    setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, group_id: groupId } : x)));
+    const { error } = await supabase.from('watchlist_items').update({ group_id: groupId }).eq('id', it.id);
+    if (error) {
+      notify('그룹 지정 실패', /group_id|column/i.test(error.message) ? '그룹 마이그레이션(20260728a)을 먼저 실행해 주세요.' : error.message);
+      load();
+    }
+  };
+
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center' }}>
@@ -280,6 +344,38 @@ export default function RadarScreen() {
             <Chip label="변동률순 📈" active={sortByChange} onPress={() => setSortByChange((v) => !v)} activeColor={colors.warn} />
           </ScrollView>
         </FilterBar>
+        {/* 그룹 칩 — 만들기(＋그룹), 필터, 길게 눌러 이름변경/삭제 */}
+        {!missing && groupsReady && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
+            <Chip label="📂 전체" active={groupFilter === null} onPress={() => setGroupFilter(null)} />
+            {groups.map((g) => (
+              <Pressable key={g.id} onLongPress={() => groupMenu(g)} delayLongPress={350}>
+                <Chip
+                  label={g.name}
+                  active={groupFilter === g.id}
+                  onPress={() => setGroupFilter((f) => (f === g.id ? null : g.id))}
+                  activeColor={colors.accent}
+                />
+              </Pressable>
+            ))}
+            {groups.length > 0 && (
+              <Chip label="미분류" active={groupFilter === 'none'} onPress={() => setGroupFilter((f) => (f === 'none' ? null : 'none'))} />
+            )}
+            <Pressable
+              onPress={() => setGroupModal({ mode: 'create' })}
+              style={{
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: colors.primary,
+                backgroundColor: 'rgba(34,211,166,0.10)',
+              }}
+            >
+              <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>＋ 그룹</Text>
+            </Pressable>
+          </ScrollView>
+        )}
         {showSearch && (
           <Field label="" value={q} onChangeText={setQ} placeholder="종목명/티커 검색" autoCapitalize="none" />
         )}
@@ -323,6 +419,8 @@ export default function RadarScreen() {
             changePct={prices[it.symbol]?.changePct ?? null}
             ratio={ratioOf(it)}
             memos={memosByItem[it.id] ?? []}
+            groups={groupsReady ? groups : []}
+            onSetGroup={(gid) => setItemGroup(it, gid)}
             open={expanded === it.id}
             onToggle={() => setExpanded((e) => (e === it.id ? null : it.id))}
             onAddMemo={(note) => addMemo(it.id, note)}
@@ -386,7 +484,83 @@ export default function RadarScreen() {
           await addItem(r, base);
         }}
       />
+
+      {/* 그룹 만들기/이름 변경 모달 */}
+      <GroupNameModal
+        state={groupModal}
+        onClose={() => setGroupModal(null)}
+        onSubmit={async (name) => {
+          const m = groupModal;
+          setGroupModal(null);
+          if (!m) return;
+          if (m.mode === 'create') await createGroup(name);
+          else await renameGroup(m.group, name);
+        }}
+      />
     </View>
+  );
+}
+
+// 그룹 만들기/이름 변경 모달 — 이름 하나만 입력
+function GroupNameModal({
+  state,
+  onClose,
+  onSubmit,
+}: {
+  state: { mode: 'create' } | { mode: 'rename'; group: WatchlistGroup } | null;
+  onClose: () => void;
+  onSubmit: (name: string) => void;
+}) {
+  const [name, setName] = useState('');
+  useEffect(() => {
+    if (state) setName(state.mode === 'rename' ? state.group.name : '');
+  }, [state]);
+  if (!state) return null;
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
+          <Pressable
+            onPress={() => {}}
+            style={{ backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, borderWidth: 1, borderColor: colors.border }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 17 }}>
+              {state.mode === 'create' ? '📂 새 그룹 만들기' : `📂 그룹 이름 변경`}
+            </Text>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="그룹 이름 (예: 반도체, 배당주, 미국 빅테크)"
+              placeholderTextColor={colors.textDim}
+              autoFocus
+              style={{
+                backgroundColor: colors.cardAlt,
+                borderRadius: radius.md,
+                paddingHorizontal: spacing.md,
+                paddingVertical: 12,
+                color: colors.text,
+                fontSize: 16,
+                fontWeight: '700',
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
+            />
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}>
+                <Text style={{ color: colors.textDim, fontWeight: '800' }}>취소</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => name.trim() && onSubmit(name)}
+                disabled={!name.trim()}
+                style={{ flex: 2, backgroundColor: name.trim() ? colors.primary : colors.border, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}
+              >
+                <Text style={{ color: '#04121A', fontWeight: '900' }}>{state.mode === 'create' ? '만들기' : '변경'}</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
@@ -397,6 +571,8 @@ function WatchRow({
   changePct,
   ratio,
   memos,
+  groups,
+  onSetGroup,
   open,
   onToggle,
   onAddMemo,
@@ -411,6 +587,8 @@ function WatchRow({
   changePct: number | null;
   ratio: number | null;
   memos: WatchlistMemo[];
+  groups: WatchlistGroup[];
+  onSetGroup: (groupId: string | null) => void;
   open: boolean;
   onToggle: () => void;
   onAddMemo: (note: string) => void;
@@ -561,6 +739,46 @@ function WatchRow({
             >
               <Text style={{ color: '#04121A', fontWeight: '900', fontSize: 13 }}>📊 자세히 보기 (가치분석)</Text>
             </Pressable>
+            {/* 그룹 지정 — 그룹이 있을 때만 표시 */}
+            {groups.length > 0 && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                <Text style={{ color: colors.textDim, fontSize: 12, width: 52 }}>그룹</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, alignItems: 'center' }}>
+                  <Pressable
+                    onPress={() => onSetGroup(null)}
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                      borderRadius: 999,
+                      backgroundColor: item.group_id == null ? colors.textDim : colors.cardAlt,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ color: item.group_id == null ? colors.bg : colors.textDim, fontSize: 11, fontWeight: '800' }}>미분류</Text>
+                  </Pressable>
+                  {groups.map((g) => {
+                    const on = item.group_id === g.id;
+                    return (
+                      <Pressable
+                        key={g.id}
+                        onPress={() => onSetGroup(on ? null : g.id)}
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                          borderRadius: 999,
+                          backgroundColor: on ? colors.accent : colors.cardAlt,
+                          borderWidth: 1,
+                          borderColor: on ? colors.accent : colors.border,
+                        }}
+                      >
+                        <Text style={{ color: on ? '#fff' : colors.textDim, fontSize: 11, fontWeight: '800' }}>{g.name}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
             {/* 기준가 변경 */}
             <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
               <Text style={{ color: colors.textDim, fontSize: 12, width: 52 }}>기준가</Text>

@@ -180,6 +180,15 @@ export interface WatchlistItem {
   name: string;
   market: Market;
   base_price: number;
+  group_id?: string | null; // 소속 그룹 (마이그레이션 20260728a, 없으면 미분류)
+  created_at: string;
+}
+
+// 관심종목 그룹 (레이더 탭에서 종목 분류용)
+export interface WatchlistGroup {
+  id: string;
+  user_id: string;
+  name: string;
   created_at: string;
 }
 

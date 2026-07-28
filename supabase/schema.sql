@@ -402,3 +402,20 @@ alter table public.watchlist_memos enable row level security;
 drop policy if exists "watchlist_memos self" on public.watchlist_memos;
 create policy "watchlist_memos self" on public.watchlist_memos
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- 관심종목 그룹 (그룹 삭제 시 소속 종목은 미분류로)
+create table if not exists public.watchlist_groups (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  name        text not null,
+  created_at  timestamptz not null default now()
+);
+create index if not exists watchlist_groups_user_idx on public.watchlist_groups (user_id);
+alter table public.watchlist_groups enable row level security;
+drop policy if exists "watchlist_groups self" on public.watchlist_groups;
+create policy "watchlist_groups self" on public.watchlist_groups
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+alter table public.watchlist_items
+  add column if not exists group_id uuid references public.watchlist_groups (id) on delete set null;
+create index if not exists watchlist_items_group_idx on public.watchlist_items (group_id);
