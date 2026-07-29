@@ -211,7 +211,8 @@ export default function NewProjectScreen() {
     <ScrollView
       contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg, paddingBottom: 120 }}
       keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="interactive"
+      // interactive 는 입력 중 리렌더로 스크롤이 살짝 움직일 때 키보드를 멋대로 닫아버림
+      // (예산 배분 숫자 입력 불편) → 제거. 빈 곳 탭하면 키보드 닫히는 건 그대로.
       automaticallyAdjustKeyboardInsets
     >
       {/* 종목 검색 */}
