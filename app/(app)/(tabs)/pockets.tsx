@@ -244,10 +244,17 @@ export default function PocketsScreen() {
   };
 
   // 대기중 포켓 매수 주문 — 매수 목표가(또는 직접 입력가) 기준. 손절과 대칭.
+  // 현재가가 목표가보다 낮으면 현재가로 주문해 더 싸게 체결.
   const buyPocket = async (k: Pocket, proj: Project, customPrice?: number): Promise<{ ok: boolean; msg?: string }> => {
     if (!session?.user?.id) return { ok: false };
     const isKrx = proj.market === 'KRX';
-    const rawBuy = customPrice && customPrice > 0 ? customPrice : k.buy_target_price;
+    const nowPrice = prices[proj.symbol]?.price;
+    const rawBuy =
+      customPrice && customPrice > 0
+        ? customPrice
+        : nowPrice != null && nowPrice > 0
+          ? Math.min(k.buy_target_price, nowPrice)
+          : k.buy_target_price;
     const buyPrice = isKrx ? alignToKrxTick(rawBuy, 'buy') : rawBuy;
     if (!buyPrice || buyPrice <= 0) return { ok: false, msg: '매수 가격이 없어요' };
     const qty = estimatedShares(k.budget, buyPrice);
@@ -323,10 +330,13 @@ export default function PocketsScreen() {
   };
 
   const confirmBuyPocket = (k: Pocket, proj: Project) => {
-    const disp = proj.market === 'KRX' ? alignToKrxTick(k.buy_target_price, 'buy') : k.buy_target_price;
+    // 현재가가 목표가보다 낮으면 현재가 기준으로 안내·주문
+    const nowPrice = prices[proj.symbol]?.price;
+    const eff = nowPrice != null && nowPrice > 0 ? Math.min(k.buy_target_price, nowPrice) : k.buy_target_price;
+    const disp = proj.market === 'KRX' ? alignToKrxTick(eff, 'buy') : eff;
     confirmAction(
       `포켓 ${k.idx + 1} 매수`,
-      `${proj.name} 포켓 ${k.idx + 1}을(를) 매수 목표가 ${formatPrice(disp, proj.market)} 기준으로 매수 주문할까요?${tier === 'auto' && account ? ' 실제 매수 주문이 전송됩니다.' : ''}`,
+      `${proj.name} 포켓 ${k.idx + 1}을(를) ${formatPrice(disp, proj.market)}(현재가·목표가 중 낮은 가격) 기준으로 매수 주문할까요?${tier === 'auto' && account ? ' 실제 매수 주문이 전송됩니다.' : ''}`,
       async () => {
         const r = await buyPocket(k, proj);
         await load();

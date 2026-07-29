@@ -78,8 +78,10 @@ export function useAutoTrader(
         const exp = profileRef.current?.tier_expires_at;
         if (exp && new Date(exp).getTime() <= Date.now()) return;
 
+        // 매수 주문가: 현재가가 목표매수가보다 낮으면 현재가로 지정가 (더 싸게 체결)
+        const buyPrice = Math.min(sig.targetPrice, sig.currentPrice);
         // 배분 예산으로 1주도 못 사는 포켓(매수 수량 0)은 자동 매수를 아예 건너뛴다 (실패 알람 반복 방지)
-        if (sig.kind === 'buy' && estimatedShares(sig.pocket.budget, sig.targetPrice) <= 0) return;
+        if (sig.kind === 'buy' && estimatedShares(sig.pocket.budget, buyPrice) <= 0) return;
 
         const key = `${sig.pocket.id}:${sig.kind}`;
         if (inFlightRef.current.has(key)) return;
@@ -104,8 +106,8 @@ export function useAutoTrader(
             throw new Error('한국투자증권 계좌가 연결되지 않았어요. 계좌 연결 화면에서 설정하세요.');
           }
 
-          // 주문가 = 포켓 목표가(지정가), 수량 계산
-          const limitPrice = sig.targetPrice;
+          // 주문가(지정가): 매수 = min(목표가, 현재가) — 더 싸게 / 매도 = max(목표가, 현재가) — 더 비싸게
+          const limitPrice = sig.kind === 'buy' ? buyPrice : Math.max(sig.targetPrice, sig.currentPrice);
           let qty: number;
           if (sig.kind === 'buy') {
             qty = estimatedShares(sig.pocket.budget, limitPrice);

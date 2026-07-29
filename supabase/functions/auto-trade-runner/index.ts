@@ -620,14 +620,16 @@ Deno.serve(async (req: Request) => {
       let limitPrice = 0;
       if (k.status === 'waiting' && price <= Number(k.buy_target_price)) {
         side = 'buy';
-        limitPrice = Number(k.buy_target_price);
+        // 현재가가 목표매수가보다 낮으면 현재가로 지정가 주문 (더 싸게 체결)
+        limitPrice = Math.min(Number(k.buy_target_price), price);
       } else if (
         k.status === 'bought' &&
         k.sell_target_price != null &&
         price >= Number(k.sell_target_price)
       ) {
         side = 'sell';
-        limitPrice = Number(k.sell_target_price);
+        // 현재가가 목표매도가보다 높으면 현재가로 지정가 주문 (더 비싸게 체결)
+        limitPrice = Math.max(Number(k.sell_target_price), price);
       }
       if (!side) continue;
       if (recentKeys.has(`${k.id}:${side}`)) continue; // 10분 내 이미 시도함
