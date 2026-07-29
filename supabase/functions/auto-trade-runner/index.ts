@@ -317,6 +317,13 @@ function todayYmd(): string {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
 }
 
+/** 오늘 ± offset일 YYYYMMDD — 해외 체결내역은 미국 현지 날짜 기준 + 서버는 UTC 라 범위를 넓혀 조회 */
+function ymdOffset(days: number): string {
+  const d = new Date(Date.now() + days * 86400 * 1000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+}
+
 async function getOrderFill(
   acc: BrokerAccount,
   token: string,
@@ -333,8 +340,9 @@ async function getOrderFill(
         CANO: acc.account_no,
         ACNT_PRDT_CD: acc.account_product_code,
         PDNO: toKisSymbol(symbol).toUpperCase(),
-        ORD_STRT_DT: ymd,
-        ORD_END_DT: ymd,
+        // 미국 주문은 KIS 가 '미국 현지 날짜'로 기록 + 서버는 UTC — 하루 어긋나도 잡히게 범위 조회
+        ORD_STRT_DT: ymdOffset(-3),
+        ORD_END_DT: ymdOffset(1),
         SLL_BUY_DVSN_CD: '00',
         CCLD_NCCS_DVSN: '01',
         OVRS_EXCG_CD: '',
