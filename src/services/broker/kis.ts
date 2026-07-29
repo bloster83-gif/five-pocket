@@ -636,6 +636,7 @@ export interface KisOverseasBalance {
   cash: number; // 외화 예수금(달러, best-effort)
   totalEval: number; // 평가금액 합계(달러)
   totalPnl: number; // 평가손익 합계(달러)
+  exchangeRate?: number; // KIS 고시환율(USD→KRW, best-effort) — 원화 환산용
 }
 
 /** 미국주식 잔고(보유종목 + 달러 평가·예수금). 실패해도 국내 조회에 영향 없게 별도 함수. */
@@ -687,43 +688,44 @@ export async function getOverseasBalance(account: BrokerAccount): Promise<KisOve
   // output2 는 단일 객체(요약). 외화 예수금은 계좌에 따라 필드가 없을 수 있어 best-effort.
   const s = (Array.isArray(json.output2) ? json.output2[0] : json.output2) ?? {};
   let cash = Number(s.frcr_dncl_amt1 ?? s.frcr_dncl_amt_2 ?? s.frcr_dncl_amt ?? 0);
+  let exchangeRate = 0;
 
-  // 예수금이 안 내려오면(0) '체결기준 현재잔고' TR 로 통화별 외화예수금을 보강 조회
-  if (!(cash > 0)) {
-    try {
-      const u2 = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/overseas-stock/v1/trading/inquire-present-balance`);
-      const p2: Record<string, string> = {
-        CANO: account.account_no,
-        ACNT_PRDT_CD: account.account_product_code,
-        WCRC_FRCR_DVSN_CD: '02', // 외화 기준
-        NATN_CD: '840', // 미국
-        TR_MKET_CD: '00',
-        INQR_DVSN_CD: '00',
-      };
-      Object.entries(p2).forEach(([k, v]) => u2.searchParams.set(k, v));
-      const res2 = await fetch(u2.toString(), {
-        headers: {
-          authorization: `Bearer ${token}`,
-          appkey: account.app_key,
-          appsecret: account.app_secret,
-          tr_id: account.is_virtual ? 'VTRP6504R' : 'CTRP6504R',
-          custtype: 'P',
-        },
-      });
-      const j2 = await res2.json();
-      if (res2.ok && j2.rt_cd === '0') {
-        const rows: any[] = Array.isArray(j2.output2) ? j2.output2 : j2.output2 ? [j2.output2] : [];
-        const usd = rows.find((r) => String(r?.crcy_cd ?? '').toUpperCase() === 'USD') ?? rows[0];
-        const c2 = Number(usd?.frcr_dncl_amt_2 ?? usd?.frcr_drwg_psbl_amt_1 ?? usd?.frcr_dncl_amt1 ?? usd?.frcr_dncl_amt ?? 0);
-        if (c2 > 0) cash = c2;
-      }
-    } catch {
-      /* 보강 실패 시 기존 값(0) 유지 */
+  // '체결기준 현재잔고' TR 로 통화별 외화예수금 + KIS 고시환율(원화 환산용) 조회
+  try {
+    const u2 = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/overseas-stock/v1/trading/inquire-present-balance`);
+    const p2: Record<string, string> = {
+      CANO: account.account_no,
+      ACNT_PRDT_CD: account.account_product_code,
+      WCRC_FRCR_DVSN_CD: '02', // 외화 기준
+      NATN_CD: '840', // 미국
+      TR_MKET_CD: '00',
+      INQR_DVSN_CD: '00',
+    };
+    Object.entries(p2).forEach(([k, v]) => u2.searchParams.set(k, v));
+    const res2 = await fetch(u2.toString(), {
+      headers: {
+        authorization: `Bearer ${token}`,
+        appkey: account.app_key,
+        appsecret: account.app_secret,
+        tr_id: account.is_virtual ? 'VTRP6504R' : 'CTRP6504R',
+        custtype: 'P',
+      },
+    });
+    const j2 = await res2.json();
+    if (res2.ok && j2.rt_cd === '0') {
+      const rows: any[] = Array.isArray(j2.output2) ? j2.output2 : j2.output2 ? [j2.output2] : [];
+      const usd = rows.find((r) => String(r?.crcy_cd ?? '').toUpperCase() === 'USD') ?? rows[0];
+      const c2 = Number(usd?.frcr_dncl_amt_2 ?? usd?.frcr_drwg_psbl_amt_1 ?? usd?.frcr_dncl_amt1 ?? usd?.frcr_dncl_amt ?? 0);
+      if (!(cash > 0) && c2 > 0) cash = c2;
+      const fx = Number(usd?.frst_bltn_exrt ?? usd?.bass_exrt ?? 0);
+      if (fx > 0) exchangeRate = fx;
     }
+  } catch {
+    /* 보강 실패 시 기존 값 유지 */
   }
 
   const totalEval = holdings.reduce((a, h) => a + h.evalAmount, 0);
   const totalPnl = holdings.reduce((a, h) => a + h.pnl, 0);
-  return { holdings, cash, totalEval, totalPnl };
+  return { holdings, cash, totalEval, totalPnl, exchangeRate: exchangeRate > 0 ? exchangeRate : undefined };
   });
 }

@@ -16,6 +16,7 @@ export default function HoldingsScreen() {
   const [balance, setBalance] = useState<KisBalance | null>(null);
   const [usHoldings, setUsHoldings] = useState<KisHolding[]>([]);
   const [usCash, setUsCash] = useState(0);
+  const [usFx, setUsFx] = useState(0); // KIS 고시환율 (USD→KRW)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,10 +45,12 @@ export default function HoldingsScreen() {
       .then((ov) => {
         setUsHoldings(ov.holdings);
         setUsCash(ov.cash);
+        setUsFx(ov.exchangeRate ?? 0);
       })
       .catch(() => {
         setUsHoldings([]);
         setUsCash(0);
+        setUsFx(0);
       });
     await Promise.allSettled([pDom, pOv]);
     setLoading(false);
@@ -63,7 +66,8 @@ export default function HoldingsScreen() {
   const krHoldings = balance?.holdings ?? [];
   const usEval = usHoldings.reduce((s, h) => s + h.evalAmount, 0);
   const usPnl = usHoldings.reduce((s, h) => s + h.pnl, 0);
-  const USD_KRW = 1500;
+  // KIS 고시환율 우선 (계좌와 동일한 환산), 못 받으면 1500 폴백
+  const USD_KRW = usFx > 0 ? usFx : 1500;
   const pctOf = (pnl: number, eval_: number) => {
     const cost = eval_ - pnl;
     return cost > 0 ? Math.round((pnl / cost) * 1000) / 10 : null; // 손익률(소수점 첫째)
@@ -152,7 +156,10 @@ export default function HoldingsScreen() {
           </Pressable>
         </View>
         <Text style={{ color: num.evalTotal, fontWeight: '900', fontSize: 26 }}>{formatMoney(totalAssetKRW, 'KRX')}</Text>
-        <Text style={{ color: colors.textDim, fontSize: 11 }}>국내(계좌 총자산 그대로) + 미국(평가+예수금)×1,500원 고정환율</Text>
+        <Text style={{ color: colors.textDim, fontSize: 11 }}>
+          국내(계좌 총자산 그대로) + 미국(평가+예수금)×
+          {usFx > 0 ? `고시환율 ₩${money(usFx, 2)}` : '환율 ₩1,500(고시환율 조회 실패 시)'}
+        </Text>
       </Card>
 
       {/* 국내(원화) — 요약 + 종목을 흰색 테두리로 묶음 */}

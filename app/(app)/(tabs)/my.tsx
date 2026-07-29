@@ -48,7 +48,7 @@ export default function MyScreen() {
   );
 
   const [usHoldings, setUsHoldings] = useState<KisHolding[]>([]);
-  const [usBal, setUsBal] = useState<{ cash: number; totalEval: number; totalPnl: number }>({ cash: 0, totalEval: 0, totalPnl: 0 });
+  const [usBal, setUsBal] = useState<{ cash: number; totalEval: number; totalPnl: number; fx: number }>({ cash: 0, totalEval: 0, totalPnl: 0, fx: 0 });
 
   const loadBalance = async () => {
     if (!account) return;
@@ -63,11 +63,11 @@ export default function MyScreen() {
     const pOv = getOverseasBalance(account)
       .then((ov) => {
         setUsHoldings(ov.holdings);
-        setUsBal({ cash: ov.cash, totalEval: ov.totalEval, totalPnl: ov.totalPnl });
+        setUsBal({ cash: ov.cash, totalEval: ov.totalEval, totalPnl: ov.totalPnl, fx: ov.exchangeRate ?? 0 });
       })
       .catch(() => {
         setUsHoldings([]);
-        setUsBal({ cash: 0, totalEval: 0, totalPnl: 0 });
+        setUsBal({ cash: 0, totalEval: 0, totalPnl: 0, fx: 0 });
       });
     await Promise.allSettled([pDom, pOv]);
     setBalLoading(false);
@@ -76,7 +76,7 @@ export default function MyScreen() {
   const tierExpiry = profile?.tier === 'auto' && profile?.tier_expires_at ? profile.tier_expires_at.slice(0, 10) : null;
 
   // 시장별 요약 (원화/달러) — 종목별 상세는 '자세히 보기' 페이지에서
-  const USD_KRW = 1500; // 앱 공통 고정환율
+  const USD_KRW = usBal.fx > 0 ? usBal.fx : 1500; // KIS 고시환율 우선, 실패 시 1500 폴백
   const pctOf = (pnl: number, eval_: number) => {
     const cost = eval_ - pnl;
     return cost > 0 ? Math.round((pnl / cost) * 1000) / 10 : null; // 손익률(소수점 첫째)
