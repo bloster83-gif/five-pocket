@@ -19,7 +19,8 @@ expo-env.d.ts
 .metro-health-check*
 
 # Env / secrets
-.env
+# .env 는 커밋함 — EXPO_PUBLIC_* 클라이언트 공개키만 담는다 (eas update 번들에 필요).
+# 진짜 비밀값은 .env.local 에 (커밋 안 됨).
 .env.local
 .env*.local
 
