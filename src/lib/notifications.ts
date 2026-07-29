@@ -20,6 +20,8 @@ Notifications.setNotificationHandler({
  * 웹/시뮬레이터에서는 로컬 알림만 동작하고 조용히 넘어간다.
  */
 export async function registerForNotifications(userId: string | undefined): Promise<void> {
+  // 사용자가 MY 탭에서 알림을 꺼뒀으면 앱 시작 시 재등록하지 않음 (설정 유지)
+  if (!(await getNotificationsEnabled())) return;
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {
       name: 'default',
@@ -54,8 +56,37 @@ export async function registerForNotifications(userId: string | undefined): Prom
   }
 }
 
-/** 즉시 로컬 알림 발송 */
+// ---- 알림 켜기/끄기 (MY 탭 설정) ----
+// 끄면: 로컬 알림 발송 중단 + profiles.expo_push_token 을 지워 서버 푸시(러너)도 차단.
+// 켜면: 다시 권한/토큰 등록.
+import AsyncStorage from '@react-native-async-storage/async-storage';
+const NOTI_KEY = 'notifications_enabled';
+
+export async function getNotificationsEnabled(): Promise<boolean> {
+  try {
+    return ((await AsyncStorage.getItem(NOTI_KEY)) ?? '1') === '1';
+  } catch {
+    return true;
+  }
+}
+
+export async function setNotificationsEnabled(userId: string | undefined, enabled: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(NOTI_KEY, enabled ? '1' : '0');
+  } catch {
+    /* 저장 실패해도 아래 토큰 처리는 진행 */
+  }
+  if (enabled) {
+    await registerForNotifications(userId); // 푸시 토큰 재등록
+  } else if (userId) {
+    // 서버(24시간 러너) 푸시도 못 오게 토큰 제거
+    await supabase.from('profiles').update({ expo_push_token: null }).eq('id', userId);
+  }
+}
+
+/** 즉시 로컬 알림 발송 (알림 꺼짐 설정이면 무시) */
 export async function notifyNow(title: string, body: string): Promise<void> {
+  if (!(await getNotificationsEnabled())) return;
   await Notifications.scheduleNotificationAsync({
     content: { title, body, sound: true },
     trigger: null,

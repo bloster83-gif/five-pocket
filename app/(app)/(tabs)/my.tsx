@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
@@ -9,6 +9,7 @@ import { StatsContent } from '@/components/StatsContent';
 import { colors, formatMoney, radius, signColor, spacing } from '@/theme';
 import { formatPhone, isValidPhone, onlyDigits, sendPhoneOtp, verifyPhoneOtp } from '@/lib/phoneAuth';
 import { deleteAccount } from '@/lib/account';
+import { getNotificationsEnabled, setNotificationsEnabled } from '@/lib/notifications';
 import { getDomesticBalance, getOverseasBalance, kisOrderBlocked, type KisBalance, type KisHolding } from '@/services/broker/kis';
 import type { BrokerAccount } from '@/types/db';
 
@@ -479,6 +480,9 @@ export default function MyScreen() {
         </Pressable>
       )}
 
+      {/* 알림 켜기/끄기 */}
+      <NotificationCard userId={session?.user?.id} />
+
       {/* 앱 업데이트 확인 (OTA) — 재시작 반복 없이 버튼 한 번으로 받기 */}
       <UpdateCard />
 
@@ -490,6 +494,48 @@ export default function MyScreen() {
         <Text style={{ color: colors.textDim, fontWeight: '700' }}>로그아웃</Text>
       </Pressable>
     </ScrollView>
+  );
+}
+
+// 알림 켜기/끄기 카드 — 끄면 앱 로컬 알림(신호 도달·주문 결과) + 서버 푸시(24시간 자동매매) 모두 중단
+function NotificationCard({ userId }: { userId?: string }) {
+  const [enabled, setEnabled] = useState<boolean | null>(null); // null=로딩중
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    getNotificationsEnabled().then(setEnabled);
+  }, []);
+
+  const toggle = async (v: boolean) => {
+    setEnabled(v);
+    setBusy(true);
+    try {
+      await setNotificationsEnabled(userId, v);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <View style={{ flex: 1, marginRight: 8 }}>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🔔 알림</Text>
+          <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 2 }}>
+            {enabled === false
+              ? '꺼짐 — 매수·매도 신호, 자동매매 주문 결과 알림을 받지 않아요'
+              : '켜짐 — 매수·매도 신호 도달, 자동매매 주문 결과를 알려드려요'}
+          </Text>
+        </View>
+        <Switch
+          value={enabled === true}
+          disabled={enabled === null || busy}
+          onValueChange={toggle}
+          trackColor={{ true: colors.primary, false: colors.border }}
+          thumbColor="#fff"
+        />
+      </View>
+    </Card>
   );
 }
 
