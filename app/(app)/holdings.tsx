@@ -73,7 +73,10 @@ export default function HoldingsScreen() {
   const krCash = balance?.cash ?? 0;
   const krRate = pctOf(krPnl, krEval);
   const usRate = pctOf(usPnl, usEval);
-  const totalAssetKRW = krEval + krCash + (usEval + usCash) * USD_KRW;
+  // 국내는 KIS 가 계산한 계좌 총평가금액(tot_evlu_amt)을 그대로 사용 (증권사 앱과 동일).
+  // 필드가 없으면 기존 방식(평가+예수금)으로 폴백.
+  const krTotal = balance?.totalAsset && balance.totalAsset > 0 ? balance.totalAsset : krEval + krCash;
+  const totalAssetKRW = krTotal + (usEval + usCash) * USD_KRW;
 
   // 어떤 상태에서도 항상 안정적인 뒤로가기 버튼을 유지 (헤더 리렌더로 기본 < 가 씹히는 문제 방지)
   const screen = (
@@ -149,7 +152,7 @@ export default function HoldingsScreen() {
           </Pressable>
         </View>
         <Text style={{ color: num.evalTotal, fontWeight: '900', fontSize: 26 }}>{formatMoney(totalAssetKRW, 'KRX')}</Text>
-        <Text style={{ color: colors.textDim, fontSize: 11 }}>국내(평가+예수금) + 미국(평가+예수금)×1,500원 고정환율</Text>
+        <Text style={{ color: colors.textDim, fontSize: 11 }}>국내(계좌 총자산 그대로) + 미국(평가+예수금)×1,500원 고정환율</Text>
       </Card>
 
       {/* 국내(원화) — 요약 + 종목을 흰색 테두리로 묶음 */}

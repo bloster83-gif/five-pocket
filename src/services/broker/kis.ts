@@ -549,6 +549,7 @@ export interface KisBalance {
   totalEval: number; // 유가증권 평가금액 합계 (원화)
   totalPnl: number; // 평가손익 합계 (원화)
   cash: number; // 예수금(주문가능현금, 원화)
+  totalAsset?: number; // 계좌 총평가금액(tot_evlu_amt) — 증권사 앱에 찍히는 총자산 그대로
   totalEvalUsd?: number; // 해외 평가금액 합계 (달러)
   totalPnlUsd?: number; // 해외 평가손익 합계 (달러)
 }
@@ -613,6 +614,8 @@ export async function getDomesticBalance(account: BrokerAccount): Promise<KisBal
     cash: Number(
       summary.prvs_rcdl_excc_amt ?? summary.nxdy_excc_amt ?? summary.dnca_tot_amt ?? 0
     ),
+    // 계좌 총평가금액(총자산) — 증권사 앱과 동일한 수치
+    totalAsset: Number(summary.tot_evlu_amt ?? 0) || undefined,
   };
   });
 }

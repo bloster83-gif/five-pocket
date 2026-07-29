@@ -88,8 +88,9 @@ export default function MyScreen() {
   const usPnl = usBal.totalPnl;
   const usCash = usBal.cash;
   const usRate = pctOf(usPnl, usEval);
-  // 전체 총자산(원화 환산) = 국내(평가+예수금) + 미국(평가+예수금)*환율
-  const totalAssetKRW = krEval + krCash + (usEval + usCash) * USD_KRW;
+  // 전체 총자산(원화 환산) = 국내(계좌 총자산 그대로, tot_evlu_amt) + 미국(평가+예수금)*환율
+  const krTotal = balance?.totalAsset && balance.totalAsset > 0 ? balance.totalAsset : krEval + krCash;
+  const totalAssetKRW = krTotal + (usEval + usCash) * USD_KRW;
 
   const startEdit = () => {
     setEditName(profile?.full_name ?? profile?.display_name ?? '');
