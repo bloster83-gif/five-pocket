@@ -213,7 +213,7 @@ export default function HoldingsScreen() {
               </Text>
             </View>
           </View>
-          <Row label="예수금 (주문가능·달러)" value={formatMoney(usCash, 'US')} valueColor={num.budget} />
+          <Row label="예수금 (D+1 정산·달러)" value={formatMoney(usCash, 'US')} valueColor={num.budget} />
           <Row label="미국 보유 종목" value={`${usHoldings.length}종목`} />
         </Card>
 

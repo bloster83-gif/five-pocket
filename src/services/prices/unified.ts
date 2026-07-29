@@ -8,6 +8,7 @@ import { Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { getDomesticPrice, getOverseasPrice } from '@/services/broker/kis';
 import { priceProvider } from './index';
+import { setStoredQuote } from './quoteStore';
 import type { BrokerAccount } from '@/types/db';
 
 // KIS 계좌 1회 로드 캐시 (유저별)
@@ -78,5 +79,7 @@ export async function getUnifiedQuote(
   }
   const changePct =
     previousClose && previousClose > 0 ? Math.round(((price - previousClose) / previousClose) * 10000) / 100 : null;
+  // 전역 캐시에 기록 — 모든 화면이 같은 '마지막 가격'을 공유
+  setStoredQuote(symbol, { price, previousClose, changePct });
   return { price, previousClose, changePct };
 }

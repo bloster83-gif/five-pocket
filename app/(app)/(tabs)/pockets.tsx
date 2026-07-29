@@ -9,8 +9,9 @@ import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
 import { colors, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { alignToKrxTick, computePnL, estimatedShares, sellTargetFromFill } from '@/domain/pockets';
-import { priceProvider } from '@/services/prices';
-import { getDomesticPrice, getOrderFill, getOverseasPrice, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
+import { getUnifiedQuote } from '@/services/prices/unified';
+import { getStoredQuotes } from '@/services/prices/quoteStore';
+import { getOrderFill, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 export default function PocketsScreen() {
@@ -52,46 +53,26 @@ export default function PocketsScreen() {
     }, [load])
   );
 
-  // 프로젝트별 실시간 시세 — 미국주식은 계좌 연결 시 KIS(주간가 포함) 우선, 아니면 야후
+  // 프로젝트별 실시간 시세 — 앱 공통 통합 시세(KIS 우선, 전역 캐시 공유).
+  // 진입 시 다른 화면이 받아둔 마지막 가격을 즉시 표시해 화면 간 가격 불일치를 없앤다.
   useFocusEffect(
     useCallback(() => {
       let alive = true;
       const uniq = Array.from(new Map(projects.filter((p) => p.symbol).map((p) => [p.symbol, p])).values());
+      // 1) 전역 캐시 프리필 (즉시, 네트워크 없이)
+      const cached = getStoredQuotes(uniq.map((p) => p.symbol));
+      if (Object.keys(cached).length > 0) {
+        setPrices((m) => {
+          const next = { ...m };
+          for (const [sym, q] of Object.entries(cached)) next[sym] = { price: q.price, changePct: q.changePct };
+          return next;
+        });
+      }
+      // 2) 최신 시세로 갱신
       uniq.forEach(async (p) => {
         try {
-          let price: number;
-          let previousClose: number | undefined;
-          if (p.market === 'US' && account && Platform.OS !== 'web') {
-            try {
-              const ov = await getOverseasPrice(account, p.symbol);
-              price = ov.price;
-              previousClose = ov.previousClose;
-            } catch {
-              const q = await priceProvider.getQuote(p.symbol);
-              price = q.price;
-              previousClose = q.previousClose;
-            }
-          } else if (p.market === 'KRX' && account && Platform.OS !== 'web') {
-            // 한국주식: KIS 통합(KRX+NXT) 시세 우선(NXT 장 반영), 실패 시 야후 폴백
-            try {
-              const dq = await getDomesticPrice(account, p.symbol);
-              price = dq.price;
-              previousClose = dq.previousClose;
-            } catch {
-              const q = await priceProvider.getQuote(p.symbol);
-              price = q.price;
-              previousClose = q.previousClose;
-            }
-          } else {
-            const q = await priceProvider.getQuote(p.symbol);
-            price = q.price;
-            previousClose = q.previousClose;
-          }
-          const changePct =
-            previousClose && previousClose > 0
-              ? Math.round(((price - previousClose) / previousClose) * 10000) / 100
-              : null;
-          if (alive) setPrices((m) => ({ ...m, [p.symbol]: { price, changePct } }));
+          const q = await getUnifiedQuote(account ?? null, p.symbol, p.market);
+          if (alive) setPrices((m) => ({ ...m, [p.symbol]: { price: q.price, changePct: q.changePct } }));
         } catch {
           /* 시세 실패는 무시 (— 표시) */
         }

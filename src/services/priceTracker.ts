@@ -7,6 +7,7 @@ import { evaluateSignals, type PriceSignal } from '@/domain/pockets';
 import type { BrokerAccount, Pocket, Project } from '@/types/db';
 import { getDomesticPrice, getOverseasPrice } from './broker/kis';
 import { priceProvider } from './prices';
+import { getStoredQuote, setStoredQuote } from './prices/quoteStore';
 
 export type TrackerStatus = 'loading' | 'live' | 'error';
 
@@ -64,6 +65,15 @@ export function usePriceTracker(
     setStatus('loading');
     setError(null);
 
+    // 다른 화면(목록·레이더 등)이 마지막으로 받은 가격을 즉시 표시 — 화면 간 가격 불일치 방지.
+    // (첫 폴링이 끝나면 최신값으로 자연히 대체됨)
+    const cached = getStoredQuote(project.symbol);
+    if (cached) {
+      setPrice(cached.price);
+      setPreviousClose(cached.previousClose ?? null);
+      setUpdatedAt(cached.at);
+    }
+
     // 미국·한국주식 + KIS 계좌 연결 시 실시간 시세용 계좌 로드 (네이티브만)
     // undefined=아직 안 불러옴, null=없음
     let account: BrokerAccount | null | undefined = undefined;
@@ -107,6 +117,15 @@ export function usePriceTracker(
         setUpdatedAt(q.at);
         setStatus('live');
         setError(null);
+        // 전역 캐시 갱신 — 목록·포켓·레이더가 같은 가격을 공유
+        setStoredQuote(project.symbol, {
+          price: q.price,
+          previousClose: q.previousClose,
+          changePct:
+            q.previousClose && q.previousClose > 0
+              ? Math.round(((q.price - q.previousClose) / q.previousClose) * 10000) / 100
+              : null,
+        });
 
         const signals = evaluateSignals(pocketsRef.current, q.price);
         for (const sig of signals) {

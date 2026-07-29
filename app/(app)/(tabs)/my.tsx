@@ -434,7 +434,7 @@ export default function MyScreen() {
                   color={signColor(usPnl)}
                 />
               </View>
-              <Row label="예수금 (주문가능·달러)" value={formatMoney(usCash, 'US')} />
+              <Row label="예수금 (D+1 정산·달러)" value={formatMoney(usCash, 'US')} />
               <Row label="미국 보유 종목" value={`${usHoldings.length}종목`} />
             </View>
 
@@ -455,7 +455,7 @@ export default function MyScreen() {
 
             <Text style={{ color: colors.textDim, fontSize: 11 }}>
               * {account.is_virtual ? '모의투자' : '실전'} 계좌 실시간 잔고 · 폰(네이티브)에서만 조회돼요. 종목별 상세는 오른쪽
-              위 ‘자세히 보기’에서. 달러 예수금은 계좌 설정에 따라 $0으로 보일 수 있어요. 총자산은 1달러=1,500원 고정환율 환산.
+              위 ‘자세히 보기’에서. 달러 예수금은 계좌 설정에 따라 $0으로 보일 수 있어요. 총자산은 KIS 고시환율로 환산(조회 실패 시 1,500원).
             </Text>
           </>
         ) : (

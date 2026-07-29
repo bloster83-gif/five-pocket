@@ -19,8 +19,7 @@ import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatMoney, formatPrice, num, radius, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
-import { priceProvider } from '@/services/prices';
-import { getDomesticPrice, getOverseasPrice } from '@/services/broker/kis';
+import { getUnifiedQuote } from '@/services/prices/unified';
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 const fmtDate = (iso: string | null) => (iso ? iso.slice(0, 10) : '-');
@@ -91,46 +90,10 @@ export default function ProjectsScreen() {
         const base = computePnL(tradesByProj[p.id] ?? [], null);
         const open = base.totalQtyOpen > 0;
         try {
-          // 미국주식 + 계좌 연결 + 네이티브면 KIS 시세(주간가 포함) 우선, 실패 시 야후 폴백
-          let price: number;
-          let previousClose: number | undefined;
-          let currency: string | undefined;
-          if (p.market === 'US' && account && Platform.OS !== 'web') {
-            try {
-              const ov = await getOverseasPrice(account, p.symbol);
-              price = ov.price;
-              previousClose = ov.previousClose;
-              currency = 'USD';
-            } catch {
-              const q = await priceProvider.getQuote(p.symbol);
-              price = q.price;
-              previousClose = q.previousClose;
-              currency = q.currency;
-            }
-          } else if (p.market === 'KRX' && account && Platform.OS !== 'web') {
-            // 한국주식: KIS 통합(KRX+NXT) 시세 우선(NXT 장 반영), 실패 시 야후 폴백
-            try {
-              const dq = await getDomesticPrice(account, p.symbol);
-              price = dq.price;
-              previousClose = dq.previousClose;
-              currency = 'KRW';
-            } catch {
-              const q = await priceProvider.getQuote(p.symbol);
-              price = q.price;
-              previousClose = q.previousClose;
-              currency = q.currency;
-            }
-          } else {
-            const q = await priceProvider.getQuote(p.symbol);
-            price = q.price;
-            previousClose = q.previousClose;
-            currency = q.currency;
-          }
-          const mkt = currency === 'KRW' ? 'KRX' : currency === 'USD' ? 'US' : p.market;
-          const changePct =
-            previousClose && previousClose > 0
-              ? Math.round(((price - previousClose) / previousClose) * 10000) / 100
-              : null;
+          // 앱 공통 통합 시세 (KIS 우선: 국내 NXT 통합·미국 주간거래, 실패 시 야후) + 전역 캐시 공유
+          const q = await getUnifiedQuote(account ?? null, p.symbol, p.market);
+          const price = q.price;
+          const changePct = q.changePct;
           setMetrics((m) => ({
             ...m,
             [p.id]: {
@@ -140,7 +103,7 @@ export default function ProjectsScreen() {
               value: open ? base.totalQtyOpen * price : 0,
               pnl: open ? (price - base.avgOpenPrice) * base.totalQtyOpen : 0,
               realized: base.realized,
-              market: mkt,
+              market: p.market,
             },
           }));
         } catch {

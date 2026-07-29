@@ -8,9 +8,8 @@ import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatPrice, money, num, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { searchSymbols } from '@/services/symbols';
-import { priceProvider } from '@/services/prices';
 import { getUnifiedQuote, loadBrokerAccount } from '@/services/prices/unified';
-import { getDomesticPrice, getOverseasPrice } from '@/services/broker/kis';
+import { getStoredQuotes } from '@/services/prices/quoteStore';
 import { setRadarBelowCount } from '@/lib/badges';
 import type { BrokerAccount, Market, SymbolResult, WatchlistGroup, WatchlistItem, WatchlistMemo } from '@/types/db';
 
@@ -93,49 +92,18 @@ export default function RadarScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [symMktKey]
   );
-  const accountRef = useRef<BrokerAccount | null | undefined>(undefined); // undefined=미조회, null=없음
   const fetchPrices = useCallback(async () => {
     if (symbolMarkets.length === 0) {
       setPrices({});
       return;
     }
-    const native = Platform.OS !== 'web';
-    // KIS 계좌 1회 로드 (네이티브에서만 실시간 시세 사용)
-    if (native && accountRef.current === undefined && session?.user?.id) {
-      const { data } = await supabase.from('broker_accounts').select('*').eq('user_id', session.user.id).maybeSingle();
-      accountRef.current = (data as BrokerAccount) ?? null;
-    }
-    const account = accountRef.current;
+    // 앱 공통 통합 시세 (KIS 우선: 국내 NXT 통합·미국 주간거래 → Yahoo 폴백, 전역 캐시 공유)
+    const account = await loadBrokerAccount(session?.user?.id);
     const rows = await Promise.all(
       symbolMarkets.map(async ({ symbol, market }) => {
         try {
-          let price: number | null = null;
-          let previousClose: number | undefined;
-          if (native && account) {
-            try {
-              if (market === 'US') {
-                const oq = await getOverseasPrice(account, symbol);
-                price = oq.price;
-                previousClose = oq.previousClose;
-              } else {
-                const dq = await getDomesticPrice(account, symbol); // 통합(UN)→NXT(NX)→KRX(J)
-                price = dq.price;
-                previousClose = dq.previousClose;
-              }
-            } catch {
-              /* KIS 실패 → Yahoo 폴백 */
-            }
-          }
-          if (price == null) {
-            const yq = await priceProvider.getQuote(symbol);
-            price = yq.price;
-            previousClose = yq.previousClose;
-          }
-          const changePct =
-            previousClose && previousClose > 0
-              ? Math.round(((price - previousClose) / previousClose) * 10000) / 100
-              : null;
-          return [symbol, { price, changePct }] as const;
+          const q = await getUnifiedQuote(account, symbol, market);
+          return [symbol, { price: q.price, changePct: q.changePct }] as const;
         } catch {
           return null;
         }
@@ -148,6 +116,17 @@ export default function RadarScreen() {
     setPrices(m);
     setUpdatedAt(Date.now());
   }, [symbolMarkets, session?.user?.id]);
+
+  // 진입 즉시 전역 캐시의 마지막 가격 프리필 (다른 화면과 같은 가격에서 시작)
+  useEffect(() => {
+    const cached = getStoredQuotes(symbolMarkets.map((s) => s.symbol));
+    if (Object.keys(cached).length === 0) return;
+    setPrices((m) => {
+      const next = { ...m };
+      for (const [sym, q] of Object.entries(cached)) if (!next[sym]) next[sym] = { price: q.price, changePct: q.changePct };
+      return next;
+    });
+  }, [symbolMarkets]);
 
   // 목록이 바뀌면 즉시 1회 시세 갱신
   useEffect(() => {
