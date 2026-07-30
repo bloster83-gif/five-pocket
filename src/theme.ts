@@ -51,6 +51,23 @@ export function daysUntil(iso: string | null | undefined): number {
   today.setHours(0, 0, 0, 0);
   return Math.max(0, Math.round((target.getTime() - today.getTime()) / 86400000));
 }
+/**
+ * AUTO 남은 기간 짧은 라벨 — 하루 미만이면 시간/분으로 정확히 표시.
+ * (샌드박스 결제는 기간이 압축돼 몇 분짜리라 'D-1'로 보이면 오해를 부름)
+ */
+export function remainingLabel(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+  const ms = t - Date.now();
+  if (ms <= 0) return '만료';
+  const mins = Math.floor(ms / 60000);
+  if (mins < 60) return `${mins}분`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}시간`;
+  return `D-${daysUntil(iso)}`;
+}
+
 export const radius = { sm: 8, md: 12, lg: 16 };
 
 // ---- 입력값 콤마 포맷 (세자리 구분) ----

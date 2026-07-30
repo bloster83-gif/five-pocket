@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { setProjectCount, useProjectCount, useRadarBelowCount } from '@/lib/badges';
 import { refreshRadarBadge } from '@/lib/radarBadge';
-import { colors, daysUntil, spacing } from '@/theme';
+import { colors, remainingLabel, spacing } from '@/theme';
 
 // 레이더를 가장 왼쪽 탭으로 두더라도, 앱 시작 화면은 항상 '프로젝트'(index)로 고정
 export const unstable_settings = { initialRouteName: 'index' };
@@ -29,7 +29,8 @@ function TierBadge() {
   const { tier, profile } = useAuth();
   const isAuto = tier === 'auto';
   const exp = isAuto ? profile?.tier_expires_at : null;
-  const dday = exp ? daysUntil(exp) : null;
+  // 하루 미만이면 시간/분으로 표시 (샌드박스 결제는 기간이 압축돼 몇 분짜리)
+  const dday = exp ? remainingLabel(exp) : null;
   return (
     <View
       style={{
@@ -49,7 +50,7 @@ function TierBadge() {
         {isAuto ? 'AUTO' : 'Diary'}
       </Text>
       {isAuto && dday != null && (
-        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 9, lineHeight: 11 }}>D-{dday}</Text>
+        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 9, lineHeight: 11 }}>{dday}</Text>
       )}
     </View>
   );

@@ -82,6 +82,21 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   );
 
+  // AUTO 부여 시: 이미 더 긴 기간(관리자 수동 부여 등)이 있으면 줄이지 않고 더 늦은 날짜를 유지.
+  // (샌드박스 결제는 기간이 압축돼 5분~1시간이라, 기존 유효기간을 덮어쓰면 즉시 만료돼 보임)
+  if (update.tier === 'auto') {
+    const { data: cur } = await admin
+      .from('profiles')
+      .select('tier_expires_at')
+      .eq('id', appUserId)
+      .maybeSingle();
+    const prevMs = cur?.tier_expires_at ? Date.parse(cur.tier_expires_at as string) : 0;
+    const nextMs = update.tier_expires_at ? Date.parse(update.tier_expires_at) : 0;
+    if (prevMs && nextMs && prevMs > nextMs) {
+      update.tier_expires_at = cur!.tier_expires_at as string;
+    }
+  }
+
   const { error } = await admin.from('profiles').update(update).eq('id', appUserId);
   if (error) {
     console.error('[revenuecat-webhook] update 실패', error);
