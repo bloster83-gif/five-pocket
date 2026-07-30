@@ -5,11 +5,11 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
 import { Button, Card, Field, NumberField } from '@/components/ui';
-import { colors, formatMoney, formatPrice, money, radius, spacing } from '@/theme';
+import { colors, formatMoney, formatPrice, money, num, radius, spacing } from '@/theme';
 import { buildPocketSeeds, clampPocketCount, estimatedShares, MAX_POCKET_COUNT, MIN_POCKET_COUNT, normalizeWeights, POCKET_COUNT } from '@/domain/pockets';
 import { searchSymbols } from '@/services/symbols';
 import { getUnifiedQuote, loadBrokerAccount } from '@/services/prices/unified';
-import { getDomesticBalance, kisOrderBlocked } from '@/services/broker/kis';
+import { getDomesticBalance, getOverseasBalance, kisOrderBlocked } from '@/services/broker/kis';
 import type { BrokerAccount, SymbolResult } from '@/types/db';
 
 export default function NewProjectScreen() {
@@ -48,8 +48,11 @@ export default function NewProjectScreen() {
     setWeights(Array(c).fill(String(Math.round((100 / c) * 100) / 100)));
   };
 
-  // 계좌 예수금(주문가능현금) — 예산이 예수금 초과 못하게 검사 (한투 계좌 연결 시)
-  const [cash, setCash] = useState<number | null>(null);
+  // 계좌 예수금(주문가능현금) + 대기중 포켓 예산 — 가능 예산 = 예수금 − 대기중 포켓 예산 합
+  const [cashKr, setCashKr] = useState<number | null>(null);
+  const [cashUs, setCashUs] = useState<number | null>(null);
+  const [waitingKr, setWaitingKr] = useState(0); // 진행중 프로젝트의 '대기중' 포켓 배분 예산 합 (원화)
+  const [waitingUs, setWaitingUs] = useState(0); // (달러)
   const [cashLoading, setCashLoading] = useState(false);
 
   const market = selected?.market ?? 'US';
@@ -67,10 +70,31 @@ export default function NewProjectScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.copy, params.symbol]);
 
-  // 계좌가 있으면 예수금을 1회 조회 (네이티브 + KRX 계좌만)
+  // 계좌 예수금(국내·미국) + 대기중 포켓 예산 합을 1회 조회 (네이티브만)
   useEffect(() => {
     (async () => {
-      if (!session?.user?.id || kisOrderBlocked('KRX')) return;
+      if (!session?.user?.id) return;
+      // 대기중 포켓 배분 예산 합 (진행중 프로젝트만) — 계좌 없이도 계산 가능
+      try {
+        const [{ data: pj }, { data: pk }] = await Promise.all([
+          supabase.from('projects').select('id, market, closed_at'),
+          supabase.from('pockets').select('project_id, status, budget'),
+        ]);
+        const projById = new Map(((pj as { id: string; market: string; closed_at: string | null }[]) ?? []).map((p) => [p.id, p]));
+        let kr = 0;
+        let us = 0;
+        (((pk as { project_id: string; status: string; budget: number | null }[]) ?? []) || []).forEach((k) => {
+          const proj = projById.get(k.project_id);
+          if (!proj || proj.closed_at || k.status !== 'waiting' || k.budget == null) return;
+          if (proj.market === 'US') us += Number(k.budget);
+          else kr += Number(k.budget);
+        });
+        setWaitingKr(kr);
+        setWaitingUs(us);
+      } catch {
+        /* 대기 예산 계산 실패 시 0 유지 */
+      }
+      if (kisOrderBlocked('KRX')) return; // 웹 등 — 예수금 조회 생략
       const { data } = await supabase
         .from('broker_accounts')
         .select('*')
@@ -79,8 +103,12 @@ export default function NewProjectScreen() {
       if (!data) return;
       setCashLoading(true);
       try {
-        const bal = await getDomesticBalance(data as BrokerAccount);
-        setCash(bal.cash);
+        const [dom, ov] = await Promise.allSettled([
+          getDomesticBalance(data as BrokerAccount),
+          getOverseasBalance(data as BrokerAccount),
+        ]);
+        if (dom.status === 'fulfilled') setCashKr(dom.value.cash);
+        if (ov.status === 'fulfilled') setCashUs(ov.value.cash);
       } catch {
         /* 조회 실패 시 예수금 검사 생략 */
       } finally {
@@ -138,8 +166,12 @@ export default function NewProjectScreen() {
   const weightSum = parsed.weights.reduce((a, b) => a + b, 0);
 
   // 예수금 초과 검사 (KRX + 예수금 조회 성공 시에만)
+  // 가능 예산 = 계좌 예수금 − 이미 대기중인 포켓들의 배분 예산 합 (시장별, 원/달러)
+  const cash = market === 'KRX' ? cashKr : cashUs;
+  const waitingBudget = market === 'KRX' ? waitingKr : waitingUs;
+  const availableBudget = cash != null ? Math.max(0, cash - waitingBudget) : null;
   const overBudget =
-    market === 'KRX' && cash != null && parsed.totalBudget != null && parsed.totalBudget > cash;
+    availableBudget != null && parsed.totalBudget != null && parsed.totalBudget > availableBudget;
 
   const seeds = useMemo(() => {
     if (!parsed.basePrice || parsed.basePrice <= 0) return [];
@@ -158,7 +190,10 @@ export default function NewProjectScreen() {
     if (!selected) return notify('종목 선택 필요', '먼저 종목을 검색해서 선택하세요.');
     if (!parsed.basePrice || parsed.basePrice <= 0) return notify('입력 필요', '기준가를 올바르게 입력하세요.');
     if (overBudget)
-      return notify('예산 초과', `예산이 D+2 예수금(${formatMoney(cash!, 'KRX')})을 초과했어요. 예수금 이하로 낮춰야 저장할 수 있어요.`);
+      return notify(
+        '예산 초과',
+        `예산이 가능 예산(${formatMoney(availableBudget!, market)})을 초과했어요.\n가능 예산 = 예수금 − 대기중 포켓 예산 합. 이 금액 이하로 낮춰야 저장할 수 있어요.`
+      );
     if (!session?.user?.id) return;
 
     setSaving(true);
@@ -294,21 +329,62 @@ export default function NewProjectScreen() {
           decimals
           placeholder="예: 1,000,000"
         />
-        {/* 계좌 예수금 안내 (한투 계좌 연결 시) */}
+        {/* 가능 예산 = 계좌 예수금 − 대기중 포켓 예산 (한투 계좌 연결 시) */}
         {cashLoading ? (
           <Text style={{ color: colors.textDim, fontSize: 12 }}>계좌 예수금 확인 중…</Text>
-        ) : cash != null ? (
-          <View style={{ backgroundColor: overBudget ? 'rgba(248,113,113,0.14)' : colors.cardAlt, borderRadius: 8, padding: spacing.sm, gap: 2, borderWidth: overBudget ? 1 : 0, borderColor: colors.danger }}>
-            <Text style={{ color: overBudget ? colors.danger : colors.textDim, fontSize: 12, fontWeight: overBudget ? '800' : '400' }}>
-              D+2 예수금(주문가능): {formatMoney(cash, 'KRX')}
-            </Text>
+        ) : cash != null && availableBudget != null ? (
+          <View
+            style={{
+              backgroundColor: overBudget ? 'rgba(248,113,113,0.14)' : colors.cardAlt,
+              borderRadius: 8,
+              padding: spacing.sm,
+              gap: 4,
+              borderWidth: overBudget ? 1 : 0,
+              borderColor: colors.danger,
+            }}
+          >
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ color: colors.textDim, fontSize: 12 }}>
+                예수금 ({market === 'KRX' ? 'D+2 정산·원화' : 'D+1 정산·달러'})
+              </Text>
+              <Text style={{ color: num.budget, fontSize: 12, fontWeight: '800' }}>{formatMoney(cash, market)}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ color: colors.textDim, fontSize: 12 }}>− 대기중 포켓 예산 (다른 프로젝트 포함)</Text>
+              <Text style={{ color: colors.sell, fontSize: 12, fontWeight: '800' }}>
+                −{formatMoney(waitingBudget, market)}
+              </Text>
+            </View>
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                borderTopWidth: 1,
+                borderTopColor: 'rgba(255,255,255,0.10)',
+                paddingTop: 4,
+              }}
+            >
+              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>= 가능 예산</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={{ color: overBudget ? colors.danger : colors.primary, fontSize: 15, fontWeight: '900' }}>
+                  {formatMoney(availableBudget, market)}
+                </Text>
+                <Pressable
+                  onPress={() => setTotalBudget(String(market === 'KRX' ? Math.floor(availableBudget) : availableBudget))}
+                  style={{ backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}
+                >
+                  <Text style={{ color: '#04121A', fontSize: 12, fontWeight: '900' }}>전액 입력</Text>
+                </Pressable>
+              </View>
+            </View>
             {overBudget ? (
               <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '800' }}>
-                ⚠️ 프로젝트 총 예산이 D+2 예수금을 초과했어요. 예수금 이하로 낮춰야 생성할 수 있어요.
+                ⚠️ 총 예산이 가능 예산을 초과했어요. 가능 예산 이하로 낮춰야 생성할 수 있어요.
               </Text>
             ) : (
               <Text style={{ color: colors.textDim, fontSize: 11 }}>
-                ※ 프로젝트 총 예산이 D+2 예수금보다 높으면 프로젝트를 생성할 수 없어요.
+                ※ 가능 예산(예수금 − 대기중 포켓 예산)을 초과하면 프로젝트를 생성할 수 없어요.
               </Text>
             )}
           </View>
