@@ -331,34 +331,15 @@ export default function RadarScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
             <Chip label="📂 전체" active={groupFilter === null} onPress={() => setGroupFilter(null)} />
             {groups.map((g) => (
-              <View key={g.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Chip
-                  label={g.name}
-                  active={groupFilter === g.id}
-                  onPress={() => setGroupFilter((f) => (f === g.id ? null : g.id))}
-                  onLongPress={() => groupMenu(g)}
-                  activeColor={colors.accent}
-                />
-                {/* 선택된 그룹은 이름변경·삭제 버튼을 눈에 보이게 표시 (길게 눌러도 동일) */}
-                {groupFilter === g.id && (
-                  <>
-                    <Pressable
-                      onPress={() => setGroupModal({ mode: 'rename', group: g })}
-                      hitSlop={8}
-                      style={{ paddingHorizontal: 4, paddingVertical: 2 }}
-                    >
-                      <Text style={{ fontSize: 13 }}>✏️</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => deleteGroup(g)}
-                      hitSlop={8}
-                      style={{ paddingHorizontal: 4, paddingVertical: 2 }}
-                    >
-                      <Text style={{ fontSize: 13 }}>🗑️</Text>
-                    </Pressable>
-                  </>
-                )}
-              </View>
+              // 그룹 칩을 길게 누르면 이름변경/삭제 메뉴
+              <Chip
+                key={g.id}
+                label={g.name}
+                active={groupFilter === g.id}
+                onPress={() => setGroupFilter((f) => (f === g.id ? null : g.id))}
+                onLongPress={() => groupMenu(g)}
+                activeColor={colors.accent}
+              />
             ))}
             {groups.length > 0 && (
               <Chip label="미분류" active={groupFilter === 'none'} onPress={() => setGroupFilter((f) => (f === 'none' ? null : 'none'))} />
