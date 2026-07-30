@@ -6,8 +6,11 @@
 const STABLE = 'https://financialmodelingprep.com/stable';
 const V3 = 'https://financialmodelingprep.com/api/v3';
 
+import Constants from 'expo-constants';
+
 function apiKey(): string | null {
-  const k = process.env.EXPO_PUBLIC_FMP_KEY;
+  // env 인라인이 빠진 번들(OTA 캐시 이슈 등)에서도 동작하도록 app.json extra 폴백
+  const k = process.env.EXPO_PUBLIC_FMP_KEY || (Constants.expoConfig?.extra?.fmpKey as string | undefined);
   return k && k.length > 0 ? k : null;
 }
 

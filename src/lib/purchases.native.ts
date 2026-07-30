@@ -1,6 +1,7 @@
 // 네이티브(iOS/Android) RevenueCat 인앱결제 구현.
 // 웹에서는 purchases.ts(no-op) 가 대신 사용된다 (Metro 플랫폼 확장자 해석).
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import Purchases, { LOG_LEVEL } from 'react-native-purchases';
 import type { PurchasesPackage, CustomerInfo } from 'react-native-purchases';
 import { ENTITLEMENT_ID, EMPTY_ENTITLEMENT } from './purchases.types';
@@ -12,9 +13,10 @@ let configured = false;
 let pkgCache: Record<string, PurchasesPackage> = {};
 
 function apiKey(): string | null {
+  // env 인라인이 빠진 번들(OTA 캐시 이슈 등)에서도 동작하도록 app.json extra 폴백
   const k =
     Platform.OS === 'ios'
-      ? process.env.EXPO_PUBLIC_RC_IOS_KEY
+      ? process.env.EXPO_PUBLIC_RC_IOS_KEY || (Constants.expoConfig?.extra?.rcIosKey as string | undefined)
       : process.env.EXPO_PUBLIC_RC_ANDROID_KEY;
   return k && k.length > 0 ? k : null;
 }
