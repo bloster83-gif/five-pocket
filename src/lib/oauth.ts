@@ -7,7 +7,59 @@ import { supabase } from './supabase';
 WebBrowser.maybeCompleteAuthSession();
 
 export type SnsProvider = 'google' | 'kakao';
-export type SnsButton = SnsProvider | 'naver';
+export type SnsButton = SnsProvider | 'naver' | 'apple';
+
+/**
+ * Apple 로그인 (iOS 전용) — App Store 심사 규정 4.8: 제3자 로그인(구글/카카오/네이버)을
+ * 제공하는 앱은 'Apple로 로그인'도 반드시 제공해야 한다.
+ * 네이티브 시트에서 인증 → identityToken 을 Supabase 에 전달해 세션 수립.
+ * Supabase 대시보드 → Authentication → Providers → Apple 활성화 +
+ * Client IDs 에 번들 ID(com.fivepocket.app) 추가 필요.
+ */
+export async function signInWithApple(): Promise<{ error?: string }> {
+  if (Platform.OS !== 'ios') return { error: 'Apple 로그인은 iOS에서만 지원돼요.' };
+  try {
+    const AppleAuthentication = await import('expo-apple-authentication');
+    const Crypto = await import('expo-crypto');
+    if (!(await AppleAuthentication.isAvailableAsync())) {
+      return { error: '이 기기에서는 Apple 로그인을 사용할 수 없어요.' };
+    }
+    // nonce: 재전송 공격 방지 — Apple 에는 해시를, Supabase 에는 원문을 전달
+    const rawNonce = Crypto.randomUUID();
+    const hashedNonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
+    const cred = await AppleAuthentication.signInAsync({
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+        AppleAuthentication.AppleAuthenticationScope.EMAIL,
+      ],
+      nonce: hashedNonce,
+    });
+    if (!cred.identityToken) return { error: 'Apple 인증 토큰을 받지 못했어요.' };
+    const { error } = await supabase.auth.signInWithIdToken({
+      provider: 'apple',
+      token: cred.identityToken,
+      nonce: rawNonce,
+    });
+    if (error) return { error: error.message };
+    // 최초 가입 시 Apple 이 주는 이름을 프로필에 저장 (두 번째 로그인부터는 안 내려옴)
+    const name = [cred.fullName?.familyName, cred.fullName?.givenName].filter(Boolean).join('');
+    if (name) {
+      const uid = (await supabase.auth.getUser()).data.user?.id;
+      if (uid) {
+        await supabase
+          .from('profiles')
+          .update({ full_name: name, display_name: name })
+          .eq('id', uid)
+          .is('full_name', null);
+      }
+    }
+    return {};
+  } catch (e: any) {
+    // 사용자가 시트를 닫은 경우는 조용히
+    if (e?.code === 'ERR_REQUEST_CANCELED' || /canceled/i.test(String(e?.message))) return {};
+    return { error: e?.message ?? 'Apple 로그인에 실패했어요.' };
+  }
+}
 
 /**
  * SNS 로그인 (Google / Kakao).

@@ -23,7 +23,8 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.fivepocket.app"
+      "bundleIdentifier": "com.fivepocket.app",
+      "usesAppleSignIn": true
     },
     "android": {
       "package": "com.fivepocket.app",
@@ -37,6 +38,7 @@
       "output": "single"
     },
     "plugins": [
+      "expo-apple-authentication",
       "expo-router",
       [
         "expo-notifications",

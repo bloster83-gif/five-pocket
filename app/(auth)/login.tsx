@@ -3,7 +3,7 @@ import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, Vie
 import { Link } from 'expo-router';
 import { useAuth } from '@/lib/auth';
 import { hasSupabaseConfig } from '@/lib/supabase';
-import { completeNaverWebLogin, signInWithNaver, signInWithProvider, type SnsButton, type SnsProvider } from '@/lib/oauth';
+import { completeNaverWebLogin, signInWithApple, signInWithNaver, signInWithProvider, type SnsButton, type SnsProvider } from '@/lib/oauth';
 import { Button, Card, Field } from '@/components/ui';
 import { colors, spacing } from '@/theme';
 
@@ -56,6 +56,14 @@ export default function LoginScreen() {
     setError(null);
     setSnsLoading('naver');
     const { error: err } = await signInWithNaver();
+    setSnsLoading(null);
+    if (err) setError(friendly(err));
+  };
+
+  const onApple = async () => {
+    setError(null);
+    setSnsLoading('apple');
+    const { error: err } = await signInWithApple();
     setSnsLoading(null);
     if (err) setError(friendly(err));
   };
@@ -120,6 +128,30 @@ export default function LoginScreen() {
             <Text style={{ color: colors.textDim, fontSize: 12 }}>또는 SNS로 시작</Text>
             <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
           </View>
+          {/* Apple 로그인 — App Store 규정 4.8: SNS 로그인 제공 시 필수 (iOS만, 맨 위 배치) */}
+          {Platform.OS === 'ios' && (
+            <Pressable
+              onPress={onApple}
+              disabled={snsLoading != null}
+              style={{
+                backgroundColor: '#000000',
+                borderRadius: 12,
+                paddingVertical: 14,
+                alignItems: 'center',
+                flexDirection: 'row',
+                justifyContent: 'center',
+                gap: 8,
+                borderWidth: 1,
+                borderColor: '#FFFFFF',
+                opacity: snsLoading && snsLoading !== 'apple' ? 0.5 : 1,
+              }}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 17 }}></Text>
+              <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 15 }}>
+                {snsLoading === 'apple' ? '연결 중…' : 'Apple로 계속하기'}
+              </Text>
+            </Pressable>
+          )}
           <Pressable
             onPress={() => onSns('google')}
             disabled={snsLoading != null}
