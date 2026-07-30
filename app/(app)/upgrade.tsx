@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Card } from '@/components/ui';
 import { colors, radius, spacing } from '@/theme';
 import { useAuth } from '@/lib/auth';
@@ -30,6 +30,9 @@ const AUTO = [
 ];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// 심사 규정 2.3.10: 바이너리에 다른 플랫폼(스토어) 언급 금지 → 실행 중인 플랫폼의 스토어만 표기
+const STORE_NAME = Platform.OS === 'ios' ? 'App Store' : 'Google Play';
 
 export default function UpgradeScreen() {
   const { tier, profile, refreshProfile } = useAuth();
@@ -147,7 +150,7 @@ export default function UpgradeScreen() {
 
         {!supported ? (
           <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 20 }}>
-            인앱결제는 설치된 앱(App Store / Google Play 정식 버전)에서만 이용할 수 있어요.
+            인앱결제는 설치된 앱({STORE_NAME} 정식 버전)에서만 이용할 수 있어요.
           </Text>
         ) : loading ? (
           <View style={{ paddingVertical: spacing.lg, alignItems: 'center' }}>
@@ -210,7 +213,7 @@ export default function UpgradeScreen() {
       {/* 구독 고지 (스토어 심사 필수 문구) */}
       <View style={{ gap: 6, paddingHorizontal: 4 }}>
         <Text style={{ color: colors.textDim, fontSize: 11, lineHeight: 17 }}>
-          · 결제는 구매 확정 시 App Store / Google Play 계정으로 청구됩니다.{'\n'}
+          · 결제는 구매 확정 시 {STORE_NAME} 계정으로 청구됩니다.{'\n'}
           · 자동 갱신 구독의 경우 현재 기간 종료 24시간 전까지 해지하지 않으면 자동 갱신되며, 동일 금액이 청구됩니다.{'\n'}
           · 구독 관리 및 해지는 기기의 스토어 계정 설정에서 할 수 있습니다.{'\n'}
           · 유효 기간이 만료되면 자동으로 다이어리(무료) 등급으로 전환됩니다.
