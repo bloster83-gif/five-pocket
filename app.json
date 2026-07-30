@@ -15,7 +15,8 @@
       "policy": "sdkVersion"
     },
     "updates": {
-      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 15000,
       "url": "https://u.expo.dev/3ce9482b-f426-46aa-aa39-a36a8134a65d"
     },
     "splash": {
