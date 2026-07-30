@@ -329,45 +329,24 @@ export default function NewProjectScreen() {
           decimals
           placeholder="예: 1,000,000"
         />
-        {/* 가능 예산 = 계좌 예수금 − 대기중 포켓 예산 (한투 계좌 연결 시) */}
+        {/* 사용가능 예산 = 계좌 예수금 − 대기중 포켓 예산 (한투 계좌 연결 시) */}
         {cashLoading ? (
-          <Text style={{ color: colors.textDim, fontSize: 12 }}>계좌 예수금 확인 중…</Text>
-        ) : cash != null && availableBudget != null ? (
+          <Text style={{ color: colors.textDim, fontSize: 12 }}>사용가능 예산 계산 중…</Text>
+        ) : availableBudget != null ? (
           <View
             style={{
               backgroundColor: overBudget ? 'rgba(248,113,113,0.14)' : colors.cardAlt,
               borderRadius: 8,
-              padding: spacing.sm,
+              padding: spacing.md,
               gap: 4,
-              borderWidth: overBudget ? 1 : 0,
-              borderColor: colors.danger,
+              borderWidth: 1,
+              borderColor: overBudget ? colors.danger : colors.primary,
             }}
           >
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={{ color: colors.textDim, fontSize: 12 }}>
-                예수금 ({market === 'KRX' ? 'D+2 정산·원화' : 'D+1 정산·달러'})
-              </Text>
-              <Text style={{ color: num.budget, fontSize: 12, fontWeight: '800' }}>{formatMoney(cash, market)}</Text>
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={{ color: colors.textDim, fontSize: 12 }}>− 대기중 포켓 예산 (다른 프로젝트 포함)</Text>
-              <Text style={{ color: colors.sell, fontSize: 12, fontWeight: '800' }}>
-                −{formatMoney(waitingBudget, market)}
-              </Text>
-            </View>
-            <View
-              style={{
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                borderTopWidth: 1,
-                borderTopColor: 'rgba(255,255,255,0.10)',
-                paddingTop: 4,
-              }}
-            >
-              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>= 가능 예산</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>💰 사용가능 예산</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={{ color: overBudget ? colors.danger : colors.primary, fontSize: 15, fontWeight: '900' }}>
+                <Text style={{ color: overBudget ? colors.danger : colors.primary, fontSize: 18, fontWeight: '900' }}>
                   {formatMoney(availableBudget, market)}
                 </Text>
                 <Pressable
@@ -380,11 +359,11 @@ export default function NewProjectScreen() {
             </View>
             {overBudget ? (
               <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '800' }}>
-                ⚠️ 총 예산이 가능 예산을 초과했어요. 가능 예산 이하로 낮춰야 생성할 수 있어요.
+                ⚠️ 예산이 사용가능 예산을 초과했어요! 이 금액 이하로 낮춰야 프로젝트를 만들 수 있어요.
               </Text>
             ) : (
               <Text style={{ color: colors.textDim, fontSize: 11 }}>
-                ※ 가능 예산(예수금 − 대기중 포켓 예산)을 초과하면 프로젝트를 생성할 수 없어요.
+                예수금에서 대기중인 포켓 예산(다른 프로젝트 포함)을 뺀, 실제로 쓸 수 있는 금액이에요.
               </Text>
             )}
           </View>
