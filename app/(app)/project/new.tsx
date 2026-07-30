@@ -316,7 +316,7 @@ export default function NewProjectScreen() {
             <Field label="매도 목표 %" value={sellTarget} onChangeText={setSellTarget} keyboardType="decimal-pad" />
           </View>
         </View>
-        <Text style={{ color: colors.textDim, fontSize: 12 }}>포켓 수는 5개로 고정됩니다.</Text>
+        <Text style={{ color: colors.textDim, fontSize: 12 }}>포켓 수는 5~10개로 선택할 수 있습니다.</Text>
       </Card>
 
       {/* 예산 + 포켓별 비율 */}
