@@ -17,7 +17,7 @@ import { setProjectCount } from '@/lib/badges';
 import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
-import { colors, formatMoney, formatPrice, num, radius, signColor, spacing } from '@/theme';
+import { colors, formatChangePct, formatMoney, formatPrice, num, radius, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import { getUnifiedQuote } from '@/services/prices/unified';
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
@@ -366,7 +366,7 @@ export default function ProjectsScreen() {
                           <Text style={{ color: signColor(m.changePct), fontWeight: '900', fontSize: 12 }}>
                             {m.changePct > 0 ? '▲' : m.changePct < 0 ? '▼' : ''}
                             {m.changePct > 0 ? '+' : ''}
-                            {m.changePct}%
+                            {formatChangePct(m.changePct)}%
                           </Text>
                         </View>
                       ) : (

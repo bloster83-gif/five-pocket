@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { BottomTabsBar } from '@/components/BottomTabsBar';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
-import { colors, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
+import { colors, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { alignToKrxTick, computePnL, estimatedShares, pnlPct, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
@@ -543,7 +543,7 @@ export default function ProjectDetailScreen() {
               {change != null && changePct != null && (
                 <Text style={{ color: signColor(change), fontSize: 16, fontWeight: '800', marginTop: 2 }}>
                   {change > 0 ? '▲' : change < 0 ? '▼' : ''} {formatMoney(Math.abs(change), mkt)} ({changePct > 0 ? '+' : ''}
-                  {changePct}%)
+                  {formatChangePct(changePct)}%)
                 </Text>
               )}
             </View>

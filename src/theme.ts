@@ -95,6 +95,11 @@ export function currencyForMarket(market: MarketCode): string {
 }
 
 /** 시장에 맞춘 가격 표기 (원화는 소수점 없음, 달러는 2자리) */
+/** 등락률(%) 표기 통일 — 항상 소수점 둘째 자리 (예: +2.10, -0.35) */
+export function formatChangePct(n: number): string {
+  return n.toFixed(2);
+}
+
 export function formatPrice(n: number | null | undefined, market: MarketCode): string {
   if (n == null || Number.isNaN(n)) return '-';
   if (market === 'KRX') return '₩' + money(n, 0);

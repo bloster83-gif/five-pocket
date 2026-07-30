@@ -4,7 +4,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Card } from '@/components/ui';
 import { BarChart5y, LineChart } from '@/components/MiniCharts';
 import { StockPriceChart } from '@/components/StockPriceChart';
-import { colors, formatPrice, num, radius, signColor, spacing } from '@/theme';
+import { colors, formatChangePct, formatPrice, num, radius, signColor, spacing } from '@/theme';
 import { getUnifiedQuote, loadBrokerAccount } from '@/services/prices/unified';
 import { getStoredQuote } from '@/services/prices/quoteStore';
 import { useAuth } from '@/lib/auth';
@@ -171,7 +171,7 @@ export default function StockValuationScreen() {
   // 등락률 (현재가 vs 전일종가)
   const changePct =
     livePrice != null && prevClose != null && prevClose > 0
-      ? Math.round((livePrice / prevClose - 1) * 1000) / 10
+      ? Math.round((livePrice / prevClose - 1) * 10000) / 100
       : null;
 
   return (
@@ -204,7 +204,7 @@ export default function StockValuationScreen() {
             {changePct != null && (
               <Text style={{ color: signColor(changePct), fontSize: 15, fontWeight: '800' }}>
                 {changePct > 0 ? '▲ +' : changePct < 0 ? '▼ ' : ''}
-                {changePct}%
+                {formatChangePct(changePct)}%
               </Text>
             )}
           </View>

@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
-import { colors, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
+import { colors, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { alignToKrxTick, computePnL, estimatedShares, sellTargetFromFill } from '@/domain/pockets';
 import { getUnifiedQuote } from '@/services/prices/unified';
 import { getStoredQuotes } from '@/services/prices/quoteStore';
@@ -542,7 +542,7 @@ export default function PocketsScreen() {
                   <Text style={{ color: signColor(changePct), fontWeight: '800', fontSize: 12 }}>
                     {changePct > 0 ? '▲' : changePct < 0 ? '▼' : ''}
                     {changePct > 0 ? '+' : ''}
-                    {changePct}%
+                    {formatChangePct(changePct)}%
                   </Text>
                 )}
               </View>

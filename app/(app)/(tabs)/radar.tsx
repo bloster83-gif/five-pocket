@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
-import { colors, formatPrice, money, num, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
+import { colors, formatChangePct, formatPrice, money, num, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { searchSymbols } from '@/services/symbols';
 import { getUnifiedQuote, loadBrokerAccount } from '@/services/prices/unified';
 import { getStoredQuotes } from '@/services/prices/quoteStore';
@@ -668,7 +668,7 @@ function WatchRow({
                   <Text style={{ color: signColor(changePct), fontSize: 11, fontWeight: '800' }} numberOfLines={1}>
                     {changePct > 0 ? '▲' : changePct < 0 ? '▼' : ''}
                     {changePct > 0 ? '+' : ''}
-                    {changePct}%
+                    {formatChangePct(changePct)}%
                   </Text>
                 )}
               </View>
