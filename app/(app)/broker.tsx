@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
 import { Button, Card, Field } from '@/components/ui';
-import { colors, spacing } from '@/theme';
+import { colors, radius, spacing } from '@/theme';
 import { testConnection } from '@/services/broker/kis';
 import type { BrokerAccount } from '@/types/db';
 
@@ -200,6 +200,16 @@ export default function BrokerScreen() {
           <Switch value={!isVirtual} onValueChange={(v) => setIsVirtual(!v)} />
         </View>
       </Card>
+
+      {/* 개인정보 수집 고지 (App Store 5.1.1 대응) — 수집 항목·목적·보관·삭제를 입력 화면에서 직접 안내 */}
+      <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 4 }}>
+        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>🔒 입력 정보 안내</Text>
+        <Text style={{ color: colors.textDim, fontSize: 11, lineHeight: 16 }}>
+          입력한 앱키·시크릿·계좌번호는 회원 본인 계정에만 안전하게 저장되며(사용자별 접근 제한), 본인 계좌의 시세·잔고
+          조회와 본인이 실행하는 주문에만 사용됩니다. 다른 용도로 사용하거나 제3자에게 제공하지 않으며, 아래 ‘연동 해제’
+          또는 회원 탈퇴 시 즉시 삭제됩니다. 자세한 내용은 개인정보 처리방침을 확인하세요.
+        </Text>
+      </View>
 
       <Button title="연결 테스트 (토큰 발급)" variant="ghost" onPress={onTest} loading={testing} />
       <Button title={hasAccount ? '계좌 정보 수정 저장' : '계좌 정보 저장'} onPress={save} loading={saving} large />
