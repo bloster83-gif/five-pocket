@@ -160,18 +160,23 @@ export function Chip({
   label,
   active,
   onPress,
+  onLongPress,
   icon,
   activeColor = colors.buy,
 }: {
   label: string;
   active: boolean;
   onPress: () => void;
+  /** 길게 누르기 (레이더 그룹: 이름변경/삭제 메뉴) */
+  onLongPress?: () => void;
   icon?: string;
   activeColor?: string;
 }) {
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={350}
       style={{
         flexDirection: 'row',
         alignItems: 'center',
