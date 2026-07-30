@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
 import {
   getAutoPackages,
+  lastPackagesDiagnostic,
   purchaseAuto,
   restoreAuto,
   purchasesSupported,
@@ -38,6 +39,7 @@ export default function UpgradeScreen() {
   const { tier, profile, refreshProfile } = useAuth();
   const supported = purchasesSupported();
   const [packages, setPackages] = useState<PurchasePackageInfo[]>([]);
+  const [diag, setDiag] = useState<string | null>(null); // 상품이 안 뜰 때 원인 안내
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null); // 구매 중인 패키지 id
 
@@ -52,6 +54,8 @@ export default function UpgradeScreen() {
     setLoading(true);
     const pkgs = await getAutoPackages();
     setPackages(pkgs);
+    // 모듈 변수는 호출 후에 채워지므로 여기서 읽어 화면에 표시
+    setDiag(pkgs.length === 0 ? lastPackagesDiagnostic : null);
     setLoading(false);
   }, [supported]);
 
@@ -161,6 +165,9 @@ export default function UpgradeScreen() {
             <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 20 }}>
               지금은 이용권을 불러올 수 없어요. 잠시 후 다시 시도해 주세요.
             </Text>
+            {diag && (
+              <Text style={{ color: colors.warn, fontSize: 11, lineHeight: 16 }}>진단: {diag}</Text>
+            )}
             <Pressable onPress={load} style={{ alignSelf: 'flex-start' }}>
               <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>다시 불러오기</Text>
             </Pressable>

@@ -95,13 +95,34 @@ function periodLabel(pkgType: string): string {
   }
 }
 
+/** 페이월이 비었을 때 원인을 화면에 보여주기 위한 마지막 진단 메시지 */
+export let lastPackagesDiagnostic: string | null = null;
+
 export async function getAutoPackages(): Promise<PurchasePackageInfo[]> {
+  lastPackagesDiagnostic = null;
   if (!configured) await initPurchases();
-  if (!configured) return [];
+  if (!configured) {
+    lastPackagesDiagnostic = apiKey()
+      ? 'RevenueCat 초기화에 실패했어요.'
+      : '결제 키(RevenueCat)가 앱에 포함되지 않았어요.';
+    return [];
+  }
   try {
     const offerings = await Purchases.getOfferings();
     const current = offerings.current;
-    if (!current) return [];
+    if (!current) {
+      const all = Object.keys(offerings.all ?? {});
+      lastPackagesDiagnostic = all.length
+        ? `RevenueCat 오퍼링(${all.join(', ')})이 있지만 'Current'로 지정되지 않았어요.`
+        : 'RevenueCat에 오퍼링이 없어요. (대시보드 → Offerings 확인)';
+      return [];
+    }
+    if (current.availablePackages.length === 0) {
+      lastPackagesDiagnostic =
+        `오퍼링 '${current.identifier}'에 사용 가능한 상품이 없어요. ` +
+        'App Store Connect 구독 상태(제출 준비 완료/승인)와 유료 앱 계약(세금·금융 정보)을 확인하세요.';
+      return [];
+    }
     pkgCache = {};
     const sorted = [...current.availablePackages].sort(
       (a, b) => periodRank(a.packageType) - periodRank(b.packageType)
@@ -116,8 +137,9 @@ export async function getAutoPackages(): Promise<PurchasePackageInfo[]> {
         period: periodLabel(p.packageType),
       };
     });
-  } catch (e) {
+  } catch (e: any) {
     console.warn('[purchases] offerings 조회 실패', e);
+    lastPackagesDiagnostic = `상품 조회 실패: ${e?.message ?? e}`;
     return [];
   }
 }

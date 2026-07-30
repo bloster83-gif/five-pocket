@@ -20,6 +20,9 @@ export async function setPurchasesUser(_userId: string | null): Promise<void> {
   /* no-op */
 }
 
+/** 페이월이 비었을 때 원인 표시용 (웹에서는 미지원 안내) */
+export const lastPackagesDiagnostic: string | null = null;
+
 /** 페이월 패키지 목록 (웹에서는 빈 배열) */
 export async function getAutoPackages(): Promise<PurchasePackageInfo[]> {
   return [];
