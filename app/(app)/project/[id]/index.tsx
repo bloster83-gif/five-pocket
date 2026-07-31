@@ -402,10 +402,16 @@ export default function ProjectDetailScreen() {
     const freed = k.budget != null ? formatPrice(Number(k.budget), project.market) : null;
     confirmAction(
       `포켓 ${k.idx + 1} 삭제`,
-      `포켓 ${k.idx + 1}(대기중)을 삭제할까요?${freed ? `\n배분 예산 ${freed}이 사용가능 예산으로 돌아가요.` : ''}`,
+      `포켓 ${k.idx + 1}(대기중)을 삭제할까요?${freed ? `\n배분 예산 ${freed}이 프로젝트 예산에서 빠지고, 사용가능 예산으로 돌아가요.` : ''}`,
       async () => {
         const { error } = await supabase.from('pockets').delete().eq('id', k.id);
         if (error) return notify('삭제 실패', error.message);
+        // 프로젝트 총 예산에서도 그 포켓의 배분액만큼 차감
+        const freedAmt = Number(k.budget ?? 0);
+        if (freedAmt > 0 && project.total_budget != null) {
+          const nextTotal = Math.max(0, Number(project.total_budget) - freedAmt);
+          await supabase.from('projects').update({ total_budget: nextTotal }).eq('id', project.id);
+        }
         await load();
       },
       '삭제'
