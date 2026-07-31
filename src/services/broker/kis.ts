@@ -154,6 +154,115 @@ export function alignToKrxTick(price: number, side?: TradeSide): number {
   return Math.max(t, aligned); // 최소 1틱 보장
 }
 
+// 국내주식 주문 정정/취소 TR
+const CANCEL_TR = { real: 'TTTC0803U', virtual: 'VTTC0803U' } as const;
+
+/**
+ * 국내주식 미체결 주문 취소.
+ * 매수 주문가를 바꾸려면 '취소 후 새 가격으로 재주문'하는 방식을 쓴다.
+ */
+export async function cancelDomesticOrder(
+  account: BrokerAccount,
+  orderNo: string,
+  quantity: number
+): Promise<{ message: string }> {
+  const token = await getValidToken(account);
+  const res = await fetch(`${kisBaseUrl(account.is_virtual)}/uapi/domestic-stock/v1/trading/order-rvsecncl`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      authorization: `Bearer ${token}`,
+      appkey: account.app_key,
+      appsecret: account.app_secret,
+      tr_id: CANCEL_TR[account.is_virtual ? 'virtual' : 'real'],
+      custtype: 'P',
+    },
+    body: JSON.stringify({
+      CANO: account.account_no,
+      ACNT_PRDT_CD: account.account_product_code,
+      KRX_FWDG_ORD_ORGNO: '',
+      ORGN_ODNO: orderNo, // 원주문번호
+      ORD_DVSN: '00', // 지정가
+      RVSE_CNCL_DVSN_CD: '02', // 01 정정 / 02 취소
+      ORD_QTY: String(Math.floor(quantity)),
+      ORD_UNPR: '0',
+      QTY_ALL_ORD_YN: 'Y', // 잔량 전부 취소
+    }),
+  });
+  const json = await res.json();
+  if (!res.ok || json.rt_cd !== '0') {
+    throw new Error(json.msg1 ?? `주문 취소 실패 (HTTP ${res.status})`);
+  }
+  return { message: json.msg1 ?? '주문이 취소됐어요.' };
+}
+
+// 해외주식(미국) 정정취소 TR — 정규장 / 주간거래(블루오션, 실전만)
+const OVERSEAS_CANCEL_TR = { real: 'TTTT1004U', virtual: 'VTTT1004U' } as const;
+const OVERSEAS_DAYTIME_CANCEL_TR = 'TTTS6038U';
+
+/**
+ * 미국주식 미체결 주문 취소.
+ * 국내와 마찬가지로 '취소 후 새 가격으로 재주문' 방식에 쓴다.
+ */
+export async function cancelOverseasOrder(
+  account: BrokerAccount,
+  orderNo: string,
+  symbol: string,
+  quantity: number
+): Promise<{ message: string }> {
+  const token = await getValidToken(account);
+  const sym = toKisSymbol(symbol).toUpperCase();
+  const priceExch = await resolveUsExchange(account, sym);
+  const ovrsExcg = ORDER_EXCH[priceExch] ?? 'NASD';
+  // 주문할 때와 같은 기준으로 정규장/주간거래를 판정해 같은 창구로 취소한다.
+  const useDaytime = !account.is_virtual && !usRegularOpenNow() && usDaytimeOpenNow();
+  const path = useDaytime
+    ? '/uapi/overseas-stock/v1/trading/daytime-order-rvsecncl'
+    : '/uapi/overseas-stock/v1/trading/order-rvsecncl';
+  const trId = useDaytime ? OVERSEAS_DAYTIME_CANCEL_TR : OVERSEAS_CANCEL_TR[account.is_virtual ? 'virtual' : 'real'];
+
+  const res = await fetch(`${kisBaseUrl(account.is_virtual)}${path}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      authorization: `Bearer ${token}`,
+      appkey: account.app_key,
+      appsecret: account.app_secret,
+      tr_id: trId,
+      custtype: 'P',
+    },
+    body: JSON.stringify({
+      CANO: account.account_no,
+      ACNT_PRDT_CD: account.account_product_code,
+      OVRS_EXCG_CD: ovrsExcg,
+      PDNO: sym,
+      ORGN_ODNO: orderNo, // 원주문번호
+      RVSE_CNCL_DVSN_CD: '02', // 01 정정 / 02 취소
+      ORD_QTY: String(Math.floor(quantity)),
+      OVRS_ORD_UNPR: '0',
+      ORD_SVR_DVSN_CD: '0',
+    }),
+  });
+  const json = await res.json();
+  if (!res.ok || json.rt_cd !== '0') {
+    throw new Error(json.msg1 ?? `해외 주문 취소 실패 (HTTP ${res.status})`);
+  }
+  return { message: json.msg1 ?? '주문이 취소됐어요.' };
+}
+
+/** 시장에 맞는 미체결 주문 취소 (국내/미국 공통 진입점) */
+export async function cancelOrder(
+  account: BrokerAccount,
+  market: string,
+  orderNo: string,
+  symbol: string,
+  quantity: number
+): Promise<{ message: string }> {
+  return market === 'US'
+    ? cancelOverseasOrder(account, orderNo, symbol, quantity)
+    : cancelDomesticOrder(account, orderNo, quantity);
+}
+
 /**
  * 국내주식 현금 매수/매도 주문 (지정가).
  * 성공 시 주문번호를 반환하고, 실패 시 KIS 메시지로 throw.

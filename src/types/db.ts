@@ -138,7 +138,7 @@ export interface BrokerAccount {
   updated_at: string;
 }
 
-export type AutoOrderStatus = 'sent' | 'failed';
+export type AutoOrderStatus = 'sent' | 'filled' | 'failed';
 
 // 자동 매수/매도 주문 이력
 export interface AutoOrder {
