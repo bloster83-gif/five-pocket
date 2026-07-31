@@ -8,7 +8,7 @@ import { registerForNotifications } from '@/lib/notifications';
 import { colors } from '@/theme';
 
 function RootNavigator() {
-  const { session, loading, phoneVerified, profileLoaded } = useAuth();
+  const { session, loading, phoneVerified, profileLoaded, phoneSkipped } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
@@ -20,13 +20,13 @@ function RootNavigator() {
       router.replace('/login');
     } else if (session && inAuthGroup) {
       router.replace('/');
-    } else if (session && profileLoaded && !phoneVerified && !onVerifyPhone) {
+    } else if (session && profileLoaded && !phoneVerified && !phoneSkipped && !onVerifyPhone) {
       // 로그인했지만 휴대폰 인증이 안 된 경우(SNS 가입 등) → 번호 등록 게이트로
       router.replace('/verify-phone');
     } else if (session && profileLoaded && phoneVerified && onVerifyPhone) {
       router.replace('/');
     }
-  }, [session, loading, segments, phoneVerified, profileLoaded]);
+  }, [session, loading, segments, phoneVerified, profileLoaded, phoneSkipped]);
 
   useEffect(() => {
     if (session?.user?.id) registerForNotifications(session.user.id);

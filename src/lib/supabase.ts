@@ -2,9 +2,13 @@ import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
-const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+// env 인라인이 빠진 번들(OTA/Metro 캐시 등)에서도 동작하도록 app.json extra 폴백.
+// 이 값이 비면 supabase 호출이 전부 'Network request failed' 로 실패한다.
+const url = process.env.EXPO_PUBLIC_SUPABASE_URL || (Constants.expoConfig?.extra?.supabaseUrl as string | undefined);
+const anonKey =
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || (Constants.expoConfig?.extra?.supabaseAnonKey as string | undefined);
 
 if (!url || !anonKey) {
   // .env 파일이 없으면 명확한 에러로 알려준다 (앱 실행 전 흔한 실수)

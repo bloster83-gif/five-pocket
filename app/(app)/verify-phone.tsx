@@ -11,7 +11,7 @@ import { formatPhone, isValidPhone, onlyDigits, sendPhoneOtp, verifyPhoneOtp } f
 // SNS 로그인(또는 번호 미등록) 후 실명 등록 + 휴대폰 인증을 요구하는 게이트 화면
 export default function VerifyPhoneScreen() {
   const router = useRouter();
-  const { session, profile, refreshProfile, signOut } = useAuth();
+  const { session, profile, refreshProfile, signOut, skipPhoneVerification } = useAuth();
 
   const [name, setName] = useState(profile?.full_name ?? '');
   const [phone, setPhone] = useState(profile?.phone ? formatPhone(profile.phone) : '');
@@ -145,6 +145,20 @@ export default function VerifyPhoneScreen() {
             </View>
           )}
         </Card>
+
+        {/* 휴대폰 인증은 선택 — 나중에 MY 탭에서 등록할 수 있게 건너뛰기 제공.
+            (해외 번호 사용자·심사자가 한국 SMS 인증을 못 해 앱에 진입조차 못 하던 문제) */}
+        <Button
+          title="나중에 하기 (건너뛰고 시작)"
+          variant="ghost"
+          onPress={() => {
+            skipPhoneVerification();
+            router.replace('/');
+          }}
+        />
+        <Text style={{ color: colors.textDim, fontSize: 11, textAlign: 'center' }}>
+          휴대폰 인증은 MY 탭 → 내 정보에서 언제든 완료할 수 있어요.
+        </Text>
 
         <Button title="다른 계정으로 로그인" variant="ghost" onPress={signOut} />
       </ScrollView>

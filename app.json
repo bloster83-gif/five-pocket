@@ -56,7 +56,9 @@
         "projectId": "3ce9482b-f426-46aa-aa39-a36a8134a65d"
       },
       "fmpKey": "lSYZ4XMwfNSUvrfFa49obhlwWQauK8FN",
-      "rcIosKey": "appl_elAgbcBJOqVEgRBagnyHcllwzKO"
+      "rcIosKey": "appl_elAgbcBJOqVEgRBagnyHcllwzKO",
+      "supabaseUrl": "https://ohqkfdvgjqcjsmstftzs.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ocWtmZHZnanFjanNtc3RmdHpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxNDUyNTQsImV4cCI6MjA5OTcyMTI1NH0.oalA2gemy1ZwfUlgmlxYIJ6Jbo3b9hdJqzxaNpQ_8cM"
     }
   }
 }

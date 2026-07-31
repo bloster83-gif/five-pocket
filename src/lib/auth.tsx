@@ -16,6 +16,9 @@ interface AuthState {
   phoneVerified: boolean;
   /** 프로필을 한 번이라도 불러왔는지 (게이트 판단 전 대기용) */
   profileLoaded: boolean;
+  /** 휴대폰 인증을 '나중에 하기'로 건너뛴 상태 (게이트 통과, MY 탭에서 나중에 완료) */
+  phoneSkipped: boolean;
+  skipPhoneVerification: () => void;
   refreshProfile: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (
@@ -34,6 +37,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  // 휴대폰 인증 '나중에 하기' — 앱 실행 중 유지되는 게이트 통과 플래그
+  const [phoneSkipped, setPhoneSkipped] = useState(false);
 
   const loadProfile = async (userId: string | undefined) => {
     if (!userId) {
@@ -140,6 +145,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAdmin: profile?.is_admin ?? false,
         phoneVerified: profile?.phone_verified ?? false,
         profileLoaded,
+        phoneSkipped,
+        skipPhoneVerification: () => setPhoneSkipped(true),
         refreshProfile,
         signIn,
         signUp,
