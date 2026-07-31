@@ -12,7 +12,7 @@ import { alignToKrxTick, computePnL, estimatedShares, sellTargetFromFill } from 
 import { getUnifiedQuote } from '@/services/prices/unified';
 import { getStoredQuotes } from '@/services/prices/quoteStore';
 import { getOrderFill, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
-import { cancelPendingOrder, loadPendingOrders, reconcilePendingOrders } from '@/services/pendingOrders';
+import { cancelPendingOrder, healBoughtPockets, loadPendingOrders, reconcilePendingOrders } from '@/services/pendingOrders';
 import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 export default function PocketsScreen() {
@@ -136,6 +136,21 @@ export default function PocketsScreen() {
     });
     return m;
   }, [trades]);
+
+  // 상태 불일치 자동 정리 — '매수 주문완료'인데 실제 체결 기록이 있는 포켓은 '보유중'으로 승격.
+  // (체결 감지가 늦어 DB status 만 buy_ordered 로 남은 포켓을 조용히 바로잡는다)
+  const healedRef = useRef(false);
+  useEffect(() => {
+    if (loading || healedRef.current) return;
+    const stale = pockets
+      .filter((k) => k.status === 'buy_ordered' && Math.floor(computePnL(tradesByPocket[k.id] ?? [], null).totalQtyOpen) > 0)
+      .map((k) => k.id);
+    if (stale.length === 0) return;
+    healedRef.current = true;
+    void healBoughtPockets(stale).then((n) => {
+      if (n > 0) load();
+    });
+  }, [loading, pockets, tradesByPocket, load]);
 
   // 프로젝트 예산 합산 (진행중 프로젝트, 시장별)
   const budgetByMarket = useMemo(() => {
@@ -558,9 +573,19 @@ export default function PocketsScreen() {
         //  · buy_ordered  : 매수 주문만 넣고 아직 미체결 → '매수 주문완료'
         //  · sell_ordered : 매도 주문만 넣고 아직 미체결 → '매도 주문완료'
         //  (체결이 확인되면 체결 기록이 생기면서 bought/sold 로 바뀐다)
+        //  · 매수 주문완료라도 실제 체결(보유수량)이 있으면 '보유중' — 프로젝트 상세와 같은 규칙
+        //  · 매도 주문완료는 보유 중에 주문을 낸 상태라 보유수량이 있어도 '매도 주문완료' 유지
         const held = Math.floor(pnl.totalQtyOpen) > 0;
-        const pending = k.status === 'buy_ordered' || k.status === 'sell_ordered';
-        const effStatus = pending ? k.status : held ? 'bought' : k.status;
+        const effStatus =
+          k.status === 'sell_ordered'
+            ? 'sell_ordered'
+            : k.status === 'buy_ordered'
+              ? held
+                ? 'bought'
+                : 'buy_ordered'
+              : held
+                ? 'bought'
+                : k.status;
         const statusMeta =
           effStatus === 'bought'
             ? { text: '보유중', color: colors.buy, bg: colors.buyBg }
@@ -652,8 +677,7 @@ export default function PocketsScreen() {
 
               {/* 주문완료(미체결) 박스 — 체결 기록이 없어 보유 정보가 비는 구간을 주문 내역으로 채운다.
                   주문가·수량·주문금액·주문시각을 보여주고, 매수는 가격을 바꿔 재주문할 수 있다. */}
-              {pending &&
-                pnl.totalQtyOpen <= 0 &&
+              {(effStatus === 'buy_ordered' || effStatus === 'sell_ordered') &&
                 (() => {
                   const po = pendingOrders[k.id];
                   const ordPrice = po ? Number(po.order_price) : null;

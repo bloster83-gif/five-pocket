@@ -112,6 +112,18 @@ export async function reconcilePendingOrders(
 }
 
 /**
+ * 상태가 어긋난 포켓을 바로잡는다.
+ * '매수 주문완료'인데 실제 체결(보유수량)이 있으면 = 이미 체결된 것이므로 '보유중'으로 승격.
+ * (체결 감지가 늦었거나 서버 러너가 잠깐 멈춘 사이에 생기는 불일치를 화면을 열 때 조용히 정리)
+ * 반환값 = 고친 포켓 수.
+ */
+export async function healBoughtPockets(staleIds: string[]): Promise<number> {
+  if (staleIds.length === 0) return 0;
+  const { error } = await supabase.from('pockets').update({ status: 'bought' }).in('id', staleIds);
+  return error ? 0 : staleIds.length;
+}
+
+/**
  * 미체결 주문을 취소하고 포켓을 되돌린다.
  *  - 매수 주문 취소 → 포켓 '대기중'(매도목표가 초기화)
  *  - 매도 주문 취소 → 포켓 '보유중'
