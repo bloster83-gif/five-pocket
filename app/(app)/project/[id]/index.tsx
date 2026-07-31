@@ -387,6 +387,27 @@ export default function ProjectDetailScreen() {
     return { ok: true };
   };
 
+  // 대기중 포켓 삭제 — 시장이 크게 변해 의미 없어진 포켓 정리용.
+  // 체결 이력이 있으면 손익이 꼬이므로 불가. 삭제하면 그 배분 예산이 사용가능 예산으로 돌아간다.
+  const confirmDeletePocket = (k: Pocket) => {
+    if (!project) return;
+    const kt = trades.filter((t) => t.pocket_id === k.id);
+    if (kt.length > 0 || Math.floor(computePnL(kt, null).totalQtyOpen) > 0) {
+      return notify('삭제할 수 없어요', '이미 매수(체결) 이력이 있는 포켓은 삭제할 수 없어요. 매도 후 정리해 주세요.');
+    }
+    const freed = k.budget != null ? formatPrice(Number(k.budget), project.market) : null;
+    confirmAction(
+      `포켓 ${k.idx + 1} 삭제`,
+      `포켓 ${k.idx + 1}(대기중)을 삭제할까요?${freed ? `\n배분 예산 ${freed}이 사용가능 예산으로 돌아가요.` : ''}`,
+      async () => {
+        const { error } = await supabase.from('pockets').delete().eq('id', k.id);
+        if (error) return notify('삭제 실패', error.message);
+        await load();
+      },
+      '삭제'
+    );
+  };
+
   const confirmBuyPocket = (k: Pocket) => {
     // 현재가가 목표가보다 낮으면 현재가 기준으로 안내·주문
     const eff = price != null && price > 0 ? Math.min(k.buy_target_price, price) : k.buy_target_price;
@@ -787,6 +808,7 @@ export default function ProjectDetailScreen() {
                   key={k.id}
                   auto={isAuto}
                   onBuy={() => (isAuto ? setAutoOrderPocket(k) : confirmBuyPocket(k))}
+                  onDelete={() => confirmDeletePocket(k)}
                 >
                   {card}
                 </BuyOrderSwipe>
@@ -839,7 +861,7 @@ export default function ProjectDetailScreen() {
         <Text style={{ color: colors.textDim, fontSize: 11, textAlign: 'center', marginTop: spacing.xs }}>
           💡 포켓을 왼쪽으로 밀면 — 대기중은 <Text style={{ color: colors.buy, fontWeight: '800' }}>매수주문</Text>, 보유중은{' '}
           <Text style={{ color: colors.buy, fontWeight: '800' }}>익절</Text>/<Text style={{ color: colors.sell, fontWeight: '800' }}>손절</Text>{' '}
-          할 수 있어요.
+          할 수 있어요. 대기중 포켓을 <Text style={{ color: colors.danger, fontWeight: '800' }}>오른쪽</Text>으로 밀면 삭제돼요(예산 복구).
         </Text>
       )}
 
@@ -976,14 +998,42 @@ function StopLossSwipe({ onStopLoss, profit, children }: { onStopLoss: () => voi
 
 // 대기중 포켓 — 보유중 포켓(손절)과 동일하게 왼쪽으로 스와이프하면 '매수주문' 버튼이 나타나고, 끝까지 밀면 실행
 //  (AUTO 등급은 가격 직접입력 모달, 다이어리는 목표가 매수 — onBuy 안에서 분기)
-function BuyOrderSwipe({ onBuy, auto, children }: { onBuy: () => void; auto?: boolean; children: ReactNode }) {
+function BuyOrderSwipe({
+  onBuy,
+  onDelete,
+  auto,
+  children,
+}: {
+  onBuy: () => void;
+  /** 오른쪽으로 밀면 포켓 삭제 (대기중 포켓만) */
+  onDelete?: () => void;
+  auto?: boolean;
+  children: ReactNode;
+}) {
   const ref = useRef<Swipeable>(null);
   return (
     <Swipeable
       ref={ref}
       friction={2}
       rightThreshold={48}
+      leftThreshold={48}
       overshootRight={false}
+      overshootLeft={false}
+      renderLeftActions={
+        onDelete
+          ? () => (
+              <View style={{ width: 84, paddingRight: spacing.sm }}>
+                <View style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
+                  {'포켓삭제'.split('').map((ch, i) => (
+                    <Text key={i} style={{ color: '#fff', fontWeight: '900', fontSize: 14, lineHeight: 17 }}>
+                      {ch}
+                    </Text>
+                  ))}
+                </View>
+              </View>
+            )
+          : undefined
+      }
       renderRightActions={() => (
         <View style={{ width: 84, paddingLeft: spacing.sm }}>
           <View style={{ flex: 1, backgroundColor: auto ? colors.primary : colors.buy, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
@@ -997,10 +1047,9 @@ function BuyOrderSwipe({ onBuy, auto, children }: { onBuy: () => void; auto?: bo
         </View>
       )}
       onSwipeableOpen={(dir) => {
-        if (dir === 'right') {
-          ref.current?.close();
-          onBuy();
-        }
+        ref.current?.close();
+        if (dir === 'right') onBuy();
+        else if (dir === 'left') onDelete?.();
       }}
     >
       {children}

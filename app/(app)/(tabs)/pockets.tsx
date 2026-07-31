@@ -310,6 +310,27 @@ export default function PocketsScreen() {
     return { ok: true };
   };
 
+  // 대기중 포켓 삭제 — 시장 상황이 바뀌어 의미 없어진 포켓을 정리한다.
+  // 보유중/체결 이력이 있는 포켓은 손익 계산이 꼬이므로 삭제 불가.
+  // 삭제하면 그 포켓의 배분 예산만큼 '사용가능 예산'이 다시 살아난다.
+  const confirmDeletePocket = (k: Pocket, proj: Project) => {
+    const kt = tradesByPocket[k.id] ?? [];
+    if (Math.floor(computePnL(kt, null).totalQtyOpen) > 0 || kt.length > 0) {
+      return notify('삭제할 수 없어요', '이미 매수(체결) 이력이 있는 포켓은 삭제할 수 없어요. 매도 후 정리해 주세요.');
+    }
+    const freed = k.budget != null ? formatPrice(Number(k.budget), proj.market) : null;
+    confirmAction(
+      `포켓 ${k.idx + 1} 삭제`,
+      `${proj.name} 포켓 ${k.idx + 1}(대기중)을 삭제할까요?${freed ? `\n배분 예산 ${freed}이 사용가능 예산으로 돌아가요.` : ''}`,
+      async () => {
+        const { error } = await supabase.from('pockets').delete().eq('id', k.id);
+        if (error) return notify('삭제 실패', error.message);
+        await load();
+      },
+      '삭제'
+    );
+  };
+
   const confirmBuyPocket = (k: Pocket, proj: Project) => {
     // 현재가가 목표가보다 낮으면 현재가 기준으로 안내·주문
     const nowPrice = prices[proj.symbol]?.price;
@@ -689,6 +710,7 @@ export default function PocketsScreen() {
                 key={k.id}
                 auto={isAuto}
                 onBuy={() => (isAuto ? setAutoOrder({ pocket: k, proj }) : confirmBuyPocket(k, proj))}
+                onDelete={() => confirmDeletePocket(k, proj)}
               >
                 {cardEl}
               </BuyOrderSwipe>
@@ -776,14 +798,42 @@ function StopLossSwipe({ onStopLoss, profit, children }: { onStopLoss: () => voi
 }
 
 // 대기중 포켓 — 보유중 포켓(손절)과 동일하게 왼쪽으로 스와이프하면 '매수주문' 실행 (AUTO는 가격 직접입력 모달, 다이어리는 목표가)
-function BuyOrderSwipe({ onBuy, auto, children }: { onBuy: () => void; auto?: boolean; children: ReactNode }) {
+function BuyOrderSwipe({
+  onBuy,
+  onDelete,
+  auto,
+  children,
+}: {
+  onBuy: () => void;
+  /** 오른쪽으로 밀면 포켓 삭제 (대기중 포켓만) */
+  onDelete?: () => void;
+  auto?: boolean;
+  children: ReactNode;
+}) {
   const ref = useRef<Swipeable>(null);
   return (
     <Swipeable
       ref={ref}
       friction={2}
       rightThreshold={48}
+      leftThreshold={48}
       overshootRight={false}
+      overshootLeft={false}
+      renderLeftActions={
+        onDelete
+          ? () => (
+              <View style={{ width: 84, paddingRight: spacing.sm }}>
+                <View style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
+                  {'포켓삭제'.split('').map((ch, i) => (
+                    <Text key={i} style={{ color: '#fff', fontWeight: '900', fontSize: 14, lineHeight: 17 }}>
+                      {ch}
+                    </Text>
+                  ))}
+                </View>
+              </View>
+            )
+          : undefined
+      }
       renderRightActions={() => (
         <View style={{ width: 84, paddingLeft: spacing.sm }}>
           <View style={{ flex: 1, backgroundColor: auto ? colors.primary : colors.buy, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
@@ -797,10 +847,9 @@ function BuyOrderSwipe({ onBuy, auto, children }: { onBuy: () => void; auto?: bo
         </View>
       )}
       onSwipeableOpen={(dir) => {
-        if (dir === 'right') {
-          ref.current?.close();
-          onBuy();
-        }
+        ref.current?.close();
+        if (dir === 'right') onBuy();
+        else if (dir === 'left') onDelete?.();
       }}
     >
       {children}
