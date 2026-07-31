@@ -20,6 +20,7 @@ import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatChangePct, formatMoney, formatPrice, num, radius, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import { getUnifiedQuote } from '@/services/prices/unified';
+import { reconcilePendingOrders } from '@/services/pendingOrders';
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 const fmtDate = (iso: string | null) => (iso ? iso.slice(0, 10) : '-');
@@ -121,6 +122,33 @@ export default function ProjectsScreen() {
       load();
     }, [load])
   );
+
+  // 미체결 자동주문 체결 감지 — 목록에서도 짧은 주기로 확인해 포켓 신호등이
+  // '주문(흐린 빨강) → 보유(빨강)'으로 곧바로 바뀌게 한다.
+  const hasPendingPocket = useMemo(
+    () => Object.values(pocketsByProject).some((ks) => ks.some((k) => k.status === 'buy_ordered' || k.status === 'sell_ordered')),
+    [pocketsByProject]
+  );
+  useEffect(() => {
+    if (!account) return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        if (await reconcilePendingOrders(account)) {
+          if (alive) await load();
+        }
+      } catch {
+        /* 조회 실패는 무시 */
+      }
+    };
+    void tick();
+    const timer = hasPendingPocket ? setInterval(tick, 15000) : null;
+    return () => {
+      alive = false;
+      if (timer) clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account, hasPendingPocket]);
 
   // 목록에서 바로 자동매매 on/off (AUTO 등급 전용)
   const toggleAuto = async (p: Project, val: boolean) => {
@@ -487,11 +515,22 @@ export default function ProjectsScreen() {
                                 const st = pk.status;
                                 const reached =
                                   st === 'waiting' && m?.price != null && m.price <= Number(pk.buy_target_price);
-                                const held = st === 'bought' || st === 'buy_ordered' || st === 'sell_ordered';
+                                // 매수 주문만 넣고 아직 체결 전(buy_ordered) → 흐린 빨강,
+                                // 실제 체결되어 보유중(bought)·매도주문완료 → 진한 빨강
+                                const ordered = st === 'buy_ordered';
+                                const held = st === 'bought' || st === 'sell_ordered';
                                 const sold = st === 'sold';
-                                const lit = held || sold || reached;
-                                const fill = held ? colors.buy : sold ? colors.sell : reached ? colors.warn : 'transparent';
-                                const border = held ? colors.buy : sold ? colors.sell : reached ? colors.warn : colors.border;
+                                const lit = held || ordered || sold || reached;
+                                const fill = held
+                                  ? colors.buy
+                                  : ordered
+                                    ? colors.buyDim
+                                    : sold
+                                      ? colors.sell
+                                      : reached
+                                        ? colors.warn
+                                        : 'transparent';
+                                const border = held || ordered ? colors.buy : sold ? colors.sell : reached ? colors.warn : colors.border;
                                 return (
                                   <View
                                     key={idx}
@@ -517,8 +556,9 @@ export default function ProjectsScreen() {
                         })()}
                         {/* 미니 범례 */}
                         <View style={{ flexDirection: 'row', gap: 8 }}>
-                          <LightLegend color={colors.warn} label="매수도달" />
-                          <LightLegend color={colors.buy} label="매수" />
+                          <LightLegend color={colors.warn} label="도달" />
+                          <LightLegend color={colors.buyDim} label="주문" />
+                          <LightLegend color={colors.buy} label="보유" />
                           <LightLegend color={colors.sell} label="매도" />
                         </View>
                       </View>
