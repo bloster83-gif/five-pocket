@@ -345,17 +345,21 @@ export default function ProjectDetailScreen() {
           /* 조회 실패 → 미체결(주문완료)로 간주, 지정가 기록 */
         }
 
-        // 매수는 주문 시점에 기록(보유 표시용). 미체결이면 'buy_ordered'.
-        await supabase.from('trades').insert({
-          user_id: session.user.id,
-          project_id: project.id,
-          pocket_id: k.id,
-          side: 'buy',
-          price: fillPrice,
-          quantity: fillQty,
-          executed_at: new Date().toISOString(),
-          note: `자동주문(KIS ${r.orderNo || '-'})`,
-        });
+        // 체결이 확인된 경우에만 기록한다(매도와 동일 규칙).
+        // 미체결이면 '매수 주문완료'로만 두고, 나중에 체결이 확인될 때
+        // (화면 진입 시 동기화·서버 러너) 체결 기록이 생성된다.
+        if (filled) {
+          await supabase.from('trades').insert({
+            user_id: session.user.id,
+            project_id: project.id,
+            pocket_id: k.id,
+            side: 'buy',
+            price: fillPrice,
+            quantity: fillQty,
+            executed_at: new Date().toISOString(),
+            note: `자동주문(KIS ${r.orderNo || '-'})`,
+          });
+        }
         await supabase
           .from('pockets')
           .update({

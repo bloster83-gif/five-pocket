@@ -155,9 +155,10 @@ export function useAutoTrader(
           }
 
           // 체결 기록 + 포켓 상태 갱신
-          //  매수: 주문 시점에 기록(보유 표시용). 매도: '체결'되어야 기록(실현손익은 체결 시점).
-          //  미체결 매도(주문완료)는 기록하지 않고, 서버/재조회가 체결 확인 시 매도 기록을 생성.
-          if (sig.kind === 'buy' || filled) {
+          //  매수·매도 모두 '체결이 확인된 경우에만' 기록한다.
+          //  미체결이면 주문완료(buy_ordered/sell_ordered) 상태로만 두고,
+          //  나중에 체결이 확인될 때(재조회·서버 러너) 체결 기록이 생성된다.
+          if (filled) {
             await supabase.from('trades').insert({
               user_id: uid,
               project_id: proj.id,

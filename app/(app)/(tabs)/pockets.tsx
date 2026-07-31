@@ -272,16 +272,19 @@ export default function PocketsScreen() {
         } catch {
           /* 조회 실패 → 미체결로 간주 */
         }
-        await supabase.from('trades').insert({
-          user_id: session.user.id,
-          project_id: proj.id,
-          pocket_id: k.id,
-          side: 'buy',
-          price: fillPrice,
-          quantity: fillQty,
-          executed_at: new Date().toISOString(),
-          note: `자동주문(KIS ${r.orderNo || '-'})`,
-        });
+        // 체결이 확인된 경우에만 기록 (미체결은 '매수 주문완료' 상태로만 둠)
+        if (filled) {
+          await supabase.from('trades').insert({
+            user_id: session.user.id,
+            project_id: proj.id,
+            pocket_id: k.id,
+            side: 'buy',
+            price: fillPrice,
+            quantity: fillQty,
+            executed_at: new Date().toISOString(),
+            note: `자동주문(KIS ${r.orderNo || '-'})`,
+          });
+        }
         await supabase
           .from('pockets')
           .update({
@@ -515,10 +518,14 @@ export default function PocketsScreen() {
         const sellTargetDisp =
           k.sell_target_price != null ? (isKrx ? alignToKrxTick(k.sell_target_price, 'sell') : k.sell_target_price) : null;
         const open = expanded === k.id;
-        // 실제 보유수량이 있으면 '보유중'으로 판정 — 자동주문 체결 후 status 필드가
-        // buy_ordered 에 멈춰 있어도 보유수량 기준으로 올바르게 표시(체결 감지 지연 방어)
+        // 상태 판정: 주문완료(미체결) 상태는 그대로 존중하고,
+        // 그 외에는 실제 보유수량으로 보정한다(체결 감지 지연 방어).
+        //  · buy_ordered  : 매수 주문만 넣고 아직 미체결 → '매수 주문완료'
+        //  · sell_ordered : 매도 주문만 넣고 아직 미체결 → '매도 주문완료'
+        //  (체결이 확인되면 체결 기록이 생기면서 bought/sold 로 바뀐다)
         const held = Math.floor(pnl.totalQtyOpen) > 0;
-        const effStatus = held ? 'bought' : k.status;
+        const pending = k.status === 'buy_ordered' || k.status === 'sell_ordered';
+        const effStatus = pending ? k.status : held ? 'bought' : k.status;
         const statusMeta =
           effStatus === 'bought'
             ? { text: '보유중', color: colors.buy, bg: colors.buyBg }

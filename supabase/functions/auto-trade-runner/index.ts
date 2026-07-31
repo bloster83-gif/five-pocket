@@ -683,9 +683,9 @@ Deno.serve(async (req: Request) => {
           fillQty = fill.filledQty;
         }
 
-        // 매수는 주문 시점 기록(보유 표시). 매도는 '체결'되어야 기록(실현손익은 체결 시점).
-        // 미체결 매도(주문완료)는 기록하지 않고, reconcilePendingFills 가 체결 확인 시 생성.
-        if (side === 'buy' || filledNow) {
+        // 매수·매도 모두 '체결이 확인된 경우에만' 기록한다.
+        // 미체결이면 주문완료 상태로만 두고, reconcilePendingFills 가 체결 확인 시 기록을 생성.
+        if (filledNow) {
           await admin.from('trades').insert({
             user_id: proj.user_id,
             project_id: proj.id,
