@@ -833,17 +833,32 @@ export default function ProjectDetailScreen() {
           <Button
             title="삭제"
             variant="danger"
-            onPress={() =>
+            onPress={() => {
+              // 보유 중이거나 체결 이력이 있으면 삭제 금지 —
+              // 실제 계좌의 주식은 남는데 기록만 사라져 손익 계산이 어긋난다.
+              const openQtyAll = Math.floor(computePnL(trades, null).totalQtyOpen);
+              if (openQtyAll > 0) {
+                return notify(
+                  '삭제할 수 없어요',
+                  `아직 보유 중인 주식이 ${money(openQtyAll, 0)}주 있어요.\n먼저 매도(익절·손절)해서 정리한 뒤 삭제할 수 있어요.`
+                );
+              }
+              if (trades.length > 0) {
+                return notify(
+                  '삭제할 수 없어요',
+                  '체결 기록이 있는 프로젝트는 삭제할 수 없어요. 손익 기록이 사라지지 않도록 "프로젝트 종료"를 사용해 주세요.'
+                );
+              }
               confirmAction(
                 '프로젝트 삭제',
-                `"${project.name}"과(와) 모든 포켓·거래 기록이 삭제됩니다. 계속할까요?`,
+                `"${project.name}"과(와) 모든 포켓이 삭제됩니다. 계속할까요?`,
                 async () => {
                   await supabase.from('projects').delete().eq('id', project.id);
                   router.replace('/');
                 },
                 '삭제'
-              )
-            }
+              );
+            }}
           />
         </View>
       </View>
