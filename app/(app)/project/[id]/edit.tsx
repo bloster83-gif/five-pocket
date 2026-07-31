@@ -7,6 +7,7 @@ import { Button, Card, Field, NumberField } from '@/components/ui';
 import { colors, formatPrice, money, spacing } from '@/theme';
 import { buildPocketSeeds, normalizeWeights, POCKET_COUNT } from '@/domain/pockets';
 import type { Pocket, Project } from '@/types/db';
+import { BackHeader } from '@/components/BackHeader';
 
 // 프로젝트 수정 — 종목/시장/이름은 고정(이름=종목명).
 //  - 거래가 하나도 없으면: 전략·예산·포켓비중 수정 가능
@@ -142,6 +143,7 @@ export default function EditProjectScreen() {
   return (
     // keyboardDismissMode="interactive" 는 입력 중 키보드가 멋대로 닫히는 원인이라 제거
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+      <BackHeader fallback="/" />
       {locked && (
         <Card style={{ borderColor: colors.warn }}>
           <Text style={{ color: colors.warn, fontWeight: '800' }}>🔒 수정할 수 없어요</Text>

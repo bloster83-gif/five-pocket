@@ -12,6 +12,7 @@ import {
   purchasesSupported,
   type PurchasePackageInfo,
 } from '@/lib/purchases';
+import { BackHeader } from '@/components/BackHeader';
 
 const PRIVACY_URL = 'https://bloster83-gif.github.io/five-pocket/privacy-policy.html';
 // 별도 EULA 가 없으면 Apple 표준 사용약관을 사용해도 됩니다.
@@ -114,6 +115,7 @@ export default function UpgradeScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 60 }}>
+      <BackHeader fallback="/my" />
       <Text style={{ color: colors.text, fontWeight: '900', fontSize: 20 }}>🚀 오토(AUTO) 회원 업그레이드</Text>
 
       {isAuto && (

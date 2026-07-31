@@ -7,6 +7,7 @@ import { notify } from '@/lib/alert';
 import { Card, Field, NumberField } from '@/components/ui';
 import { colors, spacing } from '@/theme';
 import type { CashFlowType, Market } from '@/types/db';
+import { BackHeader } from '@/components/BackHeader';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const todayStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -62,6 +63,7 @@ export default function CashFlowScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
+      <BackHeader fallback="/journal" />
       <Card>
         <Text style={{ color: colors.textDim }}>종류</Text>
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>

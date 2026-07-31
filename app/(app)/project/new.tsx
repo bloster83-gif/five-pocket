@@ -11,6 +11,7 @@ import { searchSymbols } from '@/services/symbols';
 import { getUnifiedQuote, loadBrokerAccount } from '@/services/prices/unified';
 import { getDomesticBalance, getOverseasBalance, kisOrderBlocked } from '@/services/broker/kis';
 import type { BrokerAccount, SymbolResult } from '@/types/db';
+import { BackHeader } from '@/components/BackHeader';
 
 export default function NewProjectScreen() {
   const router = useRouter();
@@ -250,6 +251,7 @@ export default function NewProjectScreen() {
       // (예산 배분 숫자 입력 불편) → 제거. 빈 곳 탭하면 키보드 닫히는 건 그대로.
       automaticallyAdjustKeyboardInsets
     >
+      <BackHeader fallback="/" />
       {/* 종목 검색 */}
       <Card>
         <Field

@@ -8,6 +8,7 @@ import { Button, Card, Field, NumberField } from '@/components/ui';
 import { colors, formatPrice, money, radius, spacing } from '@/theme';
 import { alignToKrxTick, estimatedShares, sellTargetFromFill } from '@/domain/pockets';
 import type { TradeSide } from '@/types/db';
+import { BackHeader } from '@/components/BackHeader';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const todayStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -89,6 +90,7 @@ export default function TradeScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
+      <BackHeader fallback="/" />
       {/* 매매구분 고정 표시 (토글 없음) */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
         <View style={{ backgroundColor: accent, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}>

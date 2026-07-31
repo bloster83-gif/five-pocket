@@ -9,6 +9,7 @@ import { colors, daysUntil, radius, spacing } from '@/theme';
 import { formatPhone } from '@/lib/phoneAuth';
 import { deleteAccount } from '@/lib/account';
 import type { MemberTier, Profile } from '@/types/db';
+import { BackHeader } from '@/components/BackHeader';
 
 // profiles.tier 컬럼이 아직 없을 때(마이그레이션 전) 나는 에러인지 판별
 function isMissingSchema(err: { code?: string; message?: string } | null): boolean {
@@ -218,6 +219,7 @@ export default function AdminScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
+      <BackHeader fallback="/my" />
       {migrationNeeded && (
         <Card style={{ borderColor: colors.warn }}>
           <Text style={{ color: colors.warn, fontWeight: '800' }}>DB 마이그레이션이 필요해요</Text>

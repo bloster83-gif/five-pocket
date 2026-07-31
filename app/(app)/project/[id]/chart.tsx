@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase';
 import { colors, formatPrice, spacing } from '@/theme';
 import { fetchCandles, type Candle, type CandleMode } from '@/services/prices/yahooProvider';
 import type { Pocket, Project, Trade } from '@/types/db';
+import { BackHeader } from '@/components/BackHeader';
 
 const MODES: { key: CandleMode; label: string }[] = [
   { key: 'day', label: '일봉' },
@@ -165,6 +166,7 @@ export default function ChartScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}>
+      <BackHeader fallback="/" />
       {/* 일봉/주봉/년봉 + 확대축소 */}
       <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
         {MODES.map((m) => (

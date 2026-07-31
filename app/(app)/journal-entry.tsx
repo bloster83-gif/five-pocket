@@ -8,6 +8,7 @@ import { Button, Card, Field, NumberField } from '@/components/ui';
 import { colors, spacing } from '@/theme';
 import { searchSymbols } from '@/services/symbols';
 import type { SymbolResult, TradeSide } from '@/types/db';
+import { BackHeader } from '@/components/BackHeader';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const todayStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -86,6 +87,7 @@ export default function JournalEntryScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
+      <BackHeader fallback="/journal" />
       <Card>
         <Field
           label="종목 검색 (이름/티커)"
