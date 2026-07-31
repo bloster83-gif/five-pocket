@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, ScrollView, Switch, Text, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { ActivityIndicator, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
@@ -16,6 +16,7 @@ function isMissingSchema(err: { code?: string; message?: string } | null): boole
 }
 
 export default function BrokerScreen() {
+  const router = useRouter();
   const { session, tier } = useAuth();
   const uid = session?.user?.id;
 
@@ -129,9 +130,39 @@ export default function BrokerScreen() {
     }
   };
 
+  // 저장 후 화면이 다시 그려지면 기본 '<' 가 반응하지 않는 경우가 있어
+  // 항상 동작하는 뒤로가기 버튼을 직접 제공한다. (보유주식 상세와 동일한 방식)
+  const screen = (
+    <Stack.Screen
+      options={{
+        headerLeft: () => (
+          <Pressable
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/my'))}
+            hitSlop={20}
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 17,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: colors.cardAlt,
+              borderWidth: 1,
+              borderColor: colors.border,
+              marginLeft: spacing.sm,
+              marginRight: spacing.sm,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 24, fontWeight: '800', marginTop: -3 }}>‹</Text>
+          </Pressable>
+        ),
+      }}
+    />
+  );
+
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center' }}>
+        {screen}
         <ActivityIndicator color={colors.buy} />
       </View>
     );
@@ -139,6 +170,7 @@ export default function BrokerScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
+      {screen}
       {migrationNeeded && (
         <Card style={{ borderColor: colors.warn }}>
           <Text style={{ color: colors.warn, fontWeight: '800' }}>DB 마이그레이션이 필요해요</Text>
