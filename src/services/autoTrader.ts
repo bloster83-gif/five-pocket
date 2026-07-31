@@ -60,6 +60,10 @@ export function useAutoTrader(
   const accountRef = useRef<BrokerAccount | null | undefined>(undefined);
   // 포켓+방향별 처리중 잠금 (중복 주문 방지)
   const inFlightRef = useRef<Set<string>>(new Set());
+  // 포켓+방향별 마지막 실패 사유·시각 — 같은 사유가 계속 나오면 알림·이력을 남기지 않는다.
+  // (장 운영시간이 아닐 때처럼 조건이 바뀔 때까지 계속 실패하는 경우 알림이 도배되는 걸 방지)
+  const lastFailRef = useRef<Map<string, { msg: string; at: number }>>(new Map());
+  const FAIL_MUTE_MS = 30 * 60 * 1000; // 같은 사유는 30분에 한 번만 알림
 
   const report = useCallback(async (ev: AutoTradeEvent, title: string, bodyMsg: string) => {
     setLastEvent(ev);
@@ -193,6 +197,13 @@ export function useAutoTrader(
           onExecuted?.();
         } catch (e: any) {
           const msg = typeof e?.message === 'string' ? e.message : '자동주문에 실패했어요.';
+          // 같은 사유의 실패가 30분 안에 반복되면 조용히 넘어간다 (알림 도배 방지)
+          const prev = lastFailRef.current.get(key);
+          if (prev && prev.msg === msg && Date.now() - prev.at < FAIL_MUTE_MS) {
+            setLastEvent({ at: Date.now(), kind: sig.kind, pocketIdx: sig.pocket.idx, ok: false, message: msg });
+            return;
+          }
+          lastFailRef.current.set(key, { msg, at: Date.now() });
           // 실패 이력도 남긴다 (테이블이 아직 없으면 조용히 무시)
           await supabase
             .from('auto_orders')

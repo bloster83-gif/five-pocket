@@ -328,13 +328,30 @@ const DAYTIME_OF: Record<string, string> = { NAS: 'BAQ', NYS: 'BAY', AMS: 'BAA' 
 const REGULAR_OF: Record<string, string> = { BAQ: 'NAS', BAY: 'NYS', BAA: 'AMS' };
 const exchangeCache = new Map<string, string>(); // 정규 거래소 코드 캐시
 
-// 미국 정규장(대략 09:30~16:00 ET)을 UTC로 판정. 겨울(EST)·여름(EDT) 모두 커버.
+/**
+ * 현재 시각을 미국 동부시간(ET) 기준 요일·분으로 변환.
+ * UTC 오프셋을 하드코딩하면 서머타임(EDT/EST) 전환 때 1시간씩 어긋나므로
+ * Intl 로 실제 뉴욕 시간을 얻는다.
+ */
+function etNow(): { day: number; mins: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour12: false,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const hour = Number(get('hour')) % 24; // en-US 는 자정을 24 로 주기도 함
+  return { day: dayMap[get('weekday')] ?? 0, mins: hour * 60 + Number(get('minute')) };
+}
+
+/** 미국 정규장 (ET 09:30~16:00, 평일) */
 function usRegularOpenNow(): boolean {
-  const d = new Date();
-  const day = d.getUTCDay();
+  const { day, mins } = etNow();
   if (day === 0 || day === 6) return false; // 주말
-  const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
-  return mins >= 13 * 60 + 30 && mins <= 21 * 60; // 13:30~21:00 UTC
+  return mins >= 9 * 60 + 30 && mins <= 16 * 60;
 }
 
 export interface OverseasQuote {
@@ -463,13 +480,18 @@ const OVERSEAS_DAYTIME_ORDER_TR = {
 // 시세 거래소코드(NAS/NYS/AMS) → 주문 거래소코드(NASD/NYSE/AMEX)
 const ORDER_EXCH: Record<string, string> = { NAS: 'NASD', NYS: 'NYSE', AMS: 'AMEX' };
 
-// 미국 주간거래(블루오션) 시간대(대략 KST 10:00~22:30 = 정규장 시작 전)를 UTC로 판정. 평일만.
+/**
+ * 미국 주간거래(블루오션 ATS) 운영시간.
+ * 실제 운영: 일~목 ET 20:00 ~ 다음날 ET 04:00 (한국시간으로는 평일 09:00~17:00 전후).
+ * 예전엔 'KST 10:00~22:30' 으로 잡아 두어서, 블루오션이 이미 끝난 프리마켓 시간대
+ * (ET 04:00~09:30 = KST 17:00~22:30)에도 주간거래로 주문을 보내
+ * "주간거래 장운영시간이 아닙니다" 로 거부당했다.
+ */
 function usDaytimeOpenNow(): boolean {
-  const d = new Date();
-  const day = d.getUTCDay();
-  if (day === 0 || day === 6) return false; // 주말
-  const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
-  return mins >= 60 && mins < 13 * 60 + 30; // 01:00 ~ 13:30 UTC
+  const { day, mins } = etNow();
+  if (day >= 0 && day <= 4 && mins >= 20 * 60) return true; // 일~목 20:00 이후
+  if (day >= 1 && day <= 5 && mins < 4 * 60) return true; // 월~금 04:00 이전
+  return false;
 }
 
 /**
@@ -487,15 +509,6 @@ export async function placeOverseasOrder(
   const qty = Math.floor(input.quantity);
   if (qty <= 0) throw new Error('주문 수량이 0입니다.');
 
-  // 정규장이 아니고 주간거래 시간대면(실전만) 주간거래(블루오션) 주문으로 전송, 그 외엔 정규장 주문.
-  const useDaytime = !account.is_virtual && !usRegularOpenNow() && usDaytimeOpenNow();
-  const trId = useDaytime
-    ? OVERSEAS_DAYTIME_ORDER_TR[input.side]
-    : OVERSEAS_ORDER_TR[account.is_virtual ? 'virtual' : 'real'][input.side];
-  const path = useDaytime
-    ? '/uapi/overseas-stock/v1/trading/daytime-order'
-    : '/uapi/overseas-stock/v1/trading/order';
-
   const body = {
     CANO: account.account_no,
     ACNT_PRDT_CD: account.account_product_code,
@@ -507,26 +520,48 @@ export async function placeOverseasOrder(
     ORD_DVSN: '00', // 지정가 (주간거래도 지정가만 지원)
   };
 
-  const res = await fetch(`${kisBaseUrl(account.is_virtual)}${path}`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      authorization: `Bearer ${token}`,
-      appkey: account.app_key,
-      appsecret: account.app_secret,
-      tr_id: trId,
-      custtype: 'P',
-    },
-    body: JSON.stringify(body),
-  });
-  const json = await res.json();
-  if (!res.ok || json.rt_cd !== '0') {
-    throw new Error(json.msg1 ?? `해외 주문 실패 (HTTP ${res.status})`);
-  }
-  return {
-    orderNo: json.output?.ODNO ?? '',
-    message: (json.msg1 ?? '해외 주문 전송 완료') + (useDaytime ? ' (주간거래)' : ''),
+  // 지금 시간대에 맞는 창구를 먼저 시도하고, 거부당하면 다른 창구로 폴백한다.
+  //  · 주간거래(블루오션)  : 일~목 ET 20:00 ~ 04:00
+  //  · 정규장 TR           : 정규장 + 프리/애프터 시간대 접수(브로커가 대기 처리)
+  // 장 경계(개장 직전·직후)에는 KIS 판정과 1~2분 어긋날 수 있어 폴백이 필요하다.
+  // 모의투자는 주간거래를 지원하지 않으므로 정규장 TR 만 쓴다.
+  const daytimeFirst = !account.is_virtual && !usRegularOpenNow() && usDaytimeOpenNow();
+  const regular = {
+    daytime: false,
+    trId: OVERSEAS_ORDER_TR[account.is_virtual ? 'virtual' : 'real'][input.side],
+    path: '/uapi/overseas-stock/v1/trading/order',
   };
+  const daytime = {
+    daytime: true,
+    trId: OVERSEAS_DAYTIME_ORDER_TR[input.side],
+    path: '/uapi/overseas-stock/v1/trading/daytime-order',
+  };
+  const attempts = account.is_virtual ? [regular] : daytimeFirst ? [daytime, regular] : [regular, daytime];
+
+  let lastMsg = '해외 주문 실패';
+  for (const a of attempts) {
+    const res = await fetch(`${kisBaseUrl(account.is_virtual)}${a.path}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        authorization: `Bearer ${token}`,
+        appkey: account.app_key,
+        appsecret: account.app_secret,
+        tr_id: a.trId,
+        custtype: 'P',
+      },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json();
+    if (res.ok && json.rt_cd === '0') {
+      return {
+        orderNo: json.output?.ODNO ?? '',
+        message: (json.msg1 ?? '해외 주문 전송 완료') + (a.daytime ? ' (주간거래)' : ''),
+      };
+    }
+    lastMsg = json.msg1 ?? `해외 주문 실패 (HTTP ${res.status})`;
+  }
+  throw new Error(lastMsg);
 }
 
 // --------------------------- 체결 조회 (실제 체결단가) ---------------------------
