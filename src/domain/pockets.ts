@@ -91,6 +91,39 @@ export function buildPocketSeeds(s: StrategyInput): PocketSeed[] {
 }
 
 /** 배분액과 매수 목표가로 예상 매수 수량(정수)을 계산 (참고용). */
+/**
+ * 프로젝트 총예산이 포켓 배분액의 합과 어긋난 경우를 찾아낸다.
+ *
+ * 프로젝트 예산은 생성 시 포켓들에 전액 배분되므로 `총예산 = Σ 포켓 배분액` 이 항상 성립해야 한다.
+ * 포켓이 삭제되면 총예산도 줄어야 하는데, '삭제할 때 빼기' 방식은 그 코드를 거치지 않은
+ * 경로(과거 데이터·다른 화면)를 놓친다. 그래서 별도 카운터를 믿지 않고 매번 합에서 유도한다.
+ *
+ * 배분액이 하나라도 비어 있는 프로젝트는 판단하지 않는다 (부분 배분 상태일 수 있으므로).
+ */
+export function findBudgetMismatches<
+  P extends { id: string; total_budget: number | null },
+  K extends { project_id: string; budget: number | null },
+>(projects: P[], pockets: K[]): { id: string; current: number; correct: number }[] {
+  const byProject = new Map<string, K[]>();
+  pockets.forEach((k) => {
+    const arr = byProject.get(k.project_id) ?? [];
+    arr.push(k);
+    byProject.set(k.project_id, arr);
+  });
+
+  const out: { id: string; current: number; correct: number }[] = [];
+  for (const p of projects) {
+    if (p.total_budget == null) continue;
+    const ks = byProject.get(p.id);
+    if (!ks || ks.length === 0) continue; // 포켓이 없으면 판단 보류 (예산만 잡아둔 상태일 수 있음)
+    if (ks.some((k) => k.budget == null)) continue; // 배분이 덜 된 상태
+    const sum = ks.reduce((s, k) => s + Number(k.budget), 0);
+    const cur = Number(p.total_budget);
+    if (Math.abs(sum - cur) > 0.01) out.push({ id: p.id, current: cur, correct: sum });
+  }
+  return out;
+}
+
 export function estimatedShares(budget: number | null, price: number): number {
   if (!budget || budget <= 0 || price <= 0) return 0;
   return Math.floor(budget / price);

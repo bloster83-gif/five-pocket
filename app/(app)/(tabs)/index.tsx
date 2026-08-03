@@ -18,7 +18,7 @@ import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatChangePct, formatMoney, formatPrice, num, radius, signColor, spacing } from '@/theme';
-import { computePnL } from '@/domain/pockets';
+import { computePnL, findBudgetMismatches } from '@/domain/pockets';
 import { getUnifiedQuote } from '@/services/prices/unified';
 import { reconcilePendingOrders } from '@/services/pendingOrders';
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
@@ -79,6 +79,21 @@ export default function ProjectsScreen() {
     });
     setPocketsByProject(pk);
     setLoading(false);
+
+    // 프로젝트 총예산이 포켓 배분액 합과 어긋나면 조용히 바로잡는다.
+    // (포켓을 지웠는데 총예산이 그대로 남아 '사용가능 예산'이 잘못 계산되던 문제)
+    const bad = findBudgetMismatches(projs, (pocketData as Pocket[]) ?? []);
+    if (bad.length > 0) {
+      await Promise.all(
+        bad.map((b) => supabase.from('projects').update({ total_budget: b.correct }).eq('id', b.id))
+      );
+      setProjects((prev) =>
+        prev.map((p) => {
+          const f = bad.find((b) => b.id === p.id);
+          return f ? { ...p, total_budget: f.correct } : p;
+        })
+      );
+    }
 
     // 프로젝트별 보유 포지션 계산 + 현재가로 평가총액/평가손익
     const tradesByProj: Record<string, Trade[]> = {};

@@ -8,7 +8,7 @@ import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { BottomTabsBar } from '@/components/BottomTabsBar';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
 import { colors, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
-import { alignToKrxTick, computePnL, estimatedShares, pnlPct, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
+import { alignToKrxTick, computePnL, estimatedShares, findBudgetMismatches, pnlPct, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
 import { useAutoTrader } from '@/services/autoTrader';
@@ -44,6 +44,15 @@ export default function ProjectDetailScreen() {
     if (t) setTrades(t as Trade[]);
     setPendingOrders(po);
     setLoading(false);
+
+    // 총예산이 포켓 배분액 합과 어긋나면 바로잡는다 (포켓 삭제 후 예산이 그대로 남는 문제)
+    if (p && k) {
+      const bad = findBudgetMismatches([p as Project], k as Pocket[]);
+      if (bad.length > 0) {
+        await supabase.from('projects').update({ total_budget: bad[0].correct }).eq('id', bad[0].id);
+        setProject((prev) => (prev ? { ...prev, total_budget: bad[0].correct } : prev));
+      }
+    }
   }, [id]);
 
   // 손절 주문용 증권사 계좌 (AUTO 등급)
