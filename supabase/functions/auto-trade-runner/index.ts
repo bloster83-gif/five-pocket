@@ -349,6 +349,14 @@ async function placeUsOrder(
 }
 
 // ----- 실제 체결단가 조회 (주문번호로 체결 평균가·수량) -----
+// KIS 주문번호 비교 — 응답마다 앞자리 0 패딩이 달라서('0005466100' vs '5466100')
+// 단순 문자열 비교로는 같은 주문을 놓친다.
+function sameOrderNo(a: unknown, b: unknown): boolean {
+  const norm = (v: unknown) => String(v ?? '').trim().replace(/^0+/, '');
+  const x = norm(a);
+  return x.length > 0 && x === norm(b);
+}
+
 function todayYmd(): string {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, '0');
@@ -403,7 +411,7 @@ async function getOrderFill(
       const json = await res.json();
       const rows = (json?.output ?? []) as Array<Record<string, string>>;
       // 여러 날 범위 조회라 다른 주문이 섞여 있다 → 주문번호 정확 일치 행만 사용
-      const row = rows.find((r) => String(r.odno) === String(orderNo));
+      const row = rows.find((r) => sameOrderNo(r.odno, orderNo));
       const qty = Number(row?.ft_ccld_qty ?? row?.ccld_qty ?? 0);
       const price = Number(row?.ft_ccld_unpr3 ?? row?.ccld_unpr ?? 0);
       return qty > 0 && price > 0 ? { avgPrice: price, filledQty: qty } : null;
@@ -439,7 +447,7 @@ async function getOrderFill(
     const json = await res.json();
     const rows = (json?.output1 ?? []) as Array<Record<string, string>>;
     // 여러 날 범위 조회라 다른 주문이 섞여 있다 → 주문번호 정확 일치 행만 사용
-    const row = rows.find((r) => String(r.odno) === String(orderNo));
+    const row = rows.find((r) => sameOrderNo(r.odno, orderNo));
     const qty = Number(row?.tot_ccld_qty ?? 0);
     const amt = Number(row?.tot_ccld_amt ?? 0);
     const avg = Number(row?.avg_prvs ?? 0) || (qty > 0 ? amt / qty : 0);
