@@ -108,15 +108,23 @@ export default function ProjectDetailScreen() {
         `메시지: ${d.message || '-'}`,
       ].filter(Boolean) as string[];
 
-      if (d.fill) {
-        // 체결이 확인됐으면 바로 반영
-        if (await reconcilePendingOrders(account, project.id)) await load();
+      // 체결조회가 못 잡아도 잔고에 실제로 들어와 있으면 반영된다 → 동기화를 한 번 돌려보고 결과로 판단
+      const changed = await reconcilePendingOrders(account, project.id);
+      if (changed) {
+        await load();
         return notify(
           '체결 확인 ✅',
-          `${lines.join('\n')}\n\n체결가 ${formatPrice(d.fill.avgPrice, project.market)} · ${money(d.fill.filledQty, 0)}주\n\n보유중으로 반영했어요.`
+          `${lines.join('\n')}\n\n${
+            d.fill
+              ? `체결가 ${formatPrice(d.fill.avgPrice, project.market)} · ${money(d.fill.filledQty, 0)}주`
+              : '체결조회로는 못 찾았지만 계좌 잔고로 체결이 확인됐어요.'
+          }\n\n보유중으로 반영했어요.`
         );
       }
-      notify('체결이 확인되지 않았어요', `${lines.join('\n')}\n\n증권사에서 이미 체결됐다면 '＋ 체결 직접 입력'으로 반영해 주세요.`);
+      notify(
+        '체결이 확인되지 않았어요',
+        `${lines.join('\n')}\n\n계좌 잔고로도 확인되지 않았어요.\n증권사에서 이미 체결됐다면 '＋ 체결 직접 입력'으로 반영해 주세요.`
+      );
     },
     [account, project, pendingOrders, load]
   );

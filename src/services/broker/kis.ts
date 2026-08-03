@@ -639,7 +639,7 @@ export async function inspectOrderFill(
           ORD_STRT_DT: ymdOffset(-7),
           ORD_END_DT: ymdOffset(1),
           SLL_BUY_DVSN_CD: '00',
-          CCLD_NCCS_DVSN: '01', // 체결
+          CCLD_NCCS_DVSN: '00', // 전체 → 앱에서 체결수량으로 판별
           OVRS_EXCG_CD: '',
           SORT_SQN: 'DS',
           ORD_DT: '',
@@ -656,10 +656,13 @@ export async function inspectOrderFill(
           INQR_END_DT: ymdOffset(0),
           SLL_BUY_DVSN_CD: '00',
           INQR_DVSN: '00',
-          PDNO: symbol ? toKisSymbol(symbol) : '',
-          CCLD_DVSN: '01', // 체결만
+          // 서버측 필터를 최소화한다 — 종목코드·체결구분·주문번호로 거르면
+          // SOR/NXT 로 체결된 주문처럼 KIS 내부 표기가 다른 건이 통째로 빠진다.
+          // (실제로 SOR 현금매수 체결이 '조회할 내용이 없습니다'로 0건 반환됐다)
+          PDNO: '',
+          CCLD_DVSN: '00', // 전체(체결+미체결) → 앱에서 체결수량으로 판별
           ORD_GNO_BRNO: '',
-          ODNO: '', // ← 서버 필터를 걸지 않는다
+          ODNO: '',
           INQR_DVSN_3: '00',
           INQR_DVSN_1: '',
           CTX_AREA_FK100: '',

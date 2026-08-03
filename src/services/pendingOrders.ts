@@ -8,9 +8,61 @@
 // =====================================================================
 
 import { supabase } from '@/lib/supabase';
-import { alignToKrxTick, sellTargetFromFill } from '@/domain/pockets';
-import { cancelOrder, getOrderFill } from '@/services/broker/kis';
-import type { AutoOrder, BrokerAccount, Project } from '@/types/db';
+import { alignToKrxTick, computePnL, sellTargetFromFill } from '@/domain/pockets';
+import { cancelOrder, getDomesticBalance, getOrderFill, getOverseasBalance, toKisSymbol } from '@/services/broker/kis';
+import type { AutoOrder, BrokerAccount, Project, Trade } from '@/types/db';
+
+/**
+ * 잔고로 체결을 확인하는 보조 수단.
+ *
+ * 체결조회(inquire-daily-ccld)는 SOR/NXT 로 체결된 주문처럼 KIS 내부 표기가 다르면
+ * 0건을 돌려주는 경우가 있다. 그럴 때도 '잔고에 실제로 들어와 있는 수량'은 정확하므로,
+ *   계좌 보유수량 >= (앱에 이미 기록된 보유수량 + 이 주문 수량)
+ * 이면 이 주문이 체결된 것으로 판단한다. (이미 기록된 만큼을 빼므로 중복 인정되지 않는다)
+ *
+ * 매도 주문은 이 방식으로 판단하면 위험하므로(수량이 줄어든 이유가 여러 가지) 매수만 다룬다.
+ */
+async function confirmBuyByBalance(
+  account: BrokerAccount,
+  order: AutoOrder,
+  market: string
+): Promise<{ avgPrice: number; filledQty: number } | null> {
+  if (order.side !== 'buy') return null;
+  const orderQty = Math.floor(Number(order.quantity));
+  if (orderQty <= 0) return null;
+  const want = toKisSymbol(order.symbol).toUpperCase();
+
+  let heldQty = 0;
+  let heldAvg = 0;
+  try {
+    const bal = market === 'US' ? await getOverseasBalance(account) : await getDomesticBalance(account);
+    const h = bal.holdings.find((x) => toKisSymbol(x.symbol).toUpperCase() === want);
+    if (!h) return null;
+    heldQty = Math.floor(h.quantity);
+    heldAvg = h.avgPrice;
+  } catch {
+    return null;
+  }
+  if (heldQty <= 0) return null;
+
+  // 이 종목으로 앱에 이미 기록된 순보유수량 (모든 프로젝트·포켓 합산)
+  const { data: projRows } = await supabase.from('projects').select('id').eq('symbol', order.symbol);
+  const projIds = ((projRows ?? []) as { id: string }[]).map((p) => p.id);
+  let recordedQty = 0;
+  if (projIds.length > 0) {
+    const { data: tradeRows } = await supabase.from('trades').select('*').in('project_id', projIds);
+    recordedQty = Math.floor(computePnL((tradeRows ?? []) as Trade[], null).totalQtyOpen);
+  }
+
+  if (heldQty >= recordedQty + orderQty) {
+    // 체결가는 주문 지정가를 쓴다 (지정가 매수는 지정가 이하로 체결 — 잔고 평단은 여러 매수의 혼합값이라 부정확).
+    // 평단이 지정가보다 낮으면(더 유리하게 체결) 평단을 쓴다.
+    const limit = Number(order.order_price);
+    const price = heldAvg > 0 && heldAvg < limit ? heldAvg : limit;
+    return { avgPrice: price, filledQty: orderQty };
+  }
+  return null;
+}
 
 /**
  * 미체결 자동주문을 포켓별로 로드한다 (포켓당 가장 최근 1건).
@@ -62,7 +114,11 @@ export async function reconcilePendingOrders(
     try {
       fill = await getOrderFill(account, p.market === 'US' ? 'US' : 'KRX', o.kis_order_no!, p.symbol);
     } catch {
-      continue; // 조회 실패 → 다음 주기에 다시 시도
+      /* 체결조회 실패 → 아래 잔고 확인으로 폴백 */
+    }
+    // 체결조회가 못 잡으면(SOR/NXT 체결 등) 잔고로 재확인
+    if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) {
+      fill = await confirmBuyByBalance(account, o, p.market);
     }
     if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) continue;
 

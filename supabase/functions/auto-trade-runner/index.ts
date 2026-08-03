@@ -389,7 +389,7 @@ async function getOrderFill(
         ORD_STRT_DT: ymdOffset(-3),
         ORD_END_DT: ymdOffset(1),
         SLL_BUY_DVSN_CD: '00',
-        CCLD_NCCS_DVSN: '01',
+        CCLD_NCCS_DVSN: '00',
         OVRS_EXCG_CD: '',
         SORT_SQN: 'DS',
         ORD_DT: '',
@@ -425,8 +425,9 @@ async function getOrderFill(
       INQR_END_DT: ymdOffset(0),
       SLL_BUY_DVSN_CD: '00',
       INQR_DVSN: '00',
-      PDNO: toKisSymbol(symbol),
-      CCLD_DVSN: '01',
+      // 서버측 필터 최소화 — 종목코드·체결구분으로 거르면 SOR/NXT 체결건이 통째로 빠진다
+      PDNO: '',
+      CCLD_DVSN: '00',
       ORD_GNO_BRNO: '',
       ODNO: '', // 서버 필터를 걸지 않는다 — 주문번호 패딩이 달라도 0건이 되지 않게
       INQR_DVSN_3: '00',
