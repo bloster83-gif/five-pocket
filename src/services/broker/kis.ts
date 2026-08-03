@@ -37,6 +37,36 @@ async function retryOnRateLimit<T>(fn: () => Promise<T>, tries = 4): Promise<T> 
   }
 }
 
+/**
+ * KIS 시세 호출 동시성 제한.
+ *
+ * KIS 는 초당 호출수 제한(EGW00201)이 있는데, 레이더·포켓탭처럼 여러 종목을
+ * Promise.all 로 한꺼번에 조회하면 이 제한에 걸린다. 그러면 시세 조회가 실패해
+ * Yahoo(15분 지연 정규장 종가)로 폴백되면서 NXT·주간거래 가격이 사라진다.
+ * 동시 요청 수를 제한하고 최소 간격을 두어 제한에 걸리지 않게 한다.
+ */
+const KIS_MAX_CONCURRENT = 2;
+const KIS_MIN_GAP_MS = 70;
+let kisActive = 0;
+let kisLastAt = 0;
+const kisWaiters: (() => void)[] = [];
+
+async function withKisSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (kisActive >= KIS_MAX_CONCURRENT) {
+    await new Promise<void>((resolve) => kisWaiters.push(resolve));
+  }
+  kisActive++;
+  try {
+    const gap = Date.now() - kisLastAt;
+    if (gap < KIS_MIN_GAP_MS) await new Promise((r) => setTimeout(r, KIS_MIN_GAP_MS - gap));
+    kisLastAt = Date.now();
+    return await fn();
+  } finally {
+    kisActive--;
+    kisWaiters.shift()?.();
+  }
+}
+
 // 국내주식 현금주문 TR ID (실전 T…, 모의 V…)
 const TR_ID = {
   real: { buy: 'TTTC0802U', sell: 'TTTC0801U' },
@@ -366,6 +396,10 @@ export interface OverseasQuote {
  * 거래소(BAQ/BAY/BAA)를 우선 조회해 '주간 현재가'도 반영한다. 실패 시 서로 폴백.
  */
 export async function getOverseasPrice(account: BrokerAccount, symbol: string): Promise<OverseasQuote> {
+  return withKisSlot(() => retryOnRateLimit(() => getOverseasPriceRaw(account, symbol)));
+}
+
+async function getOverseasPriceRaw(account: BrokerAccount, symbol: string): Promise<OverseasQuote> {
   const token = await getValidToken(account);
   const sym = symbol.replace(/\.(KS|KQ)$/i, '').trim().toUpperCase();
 
@@ -420,6 +454,13 @@ export interface DomesticQuote {
  * 통합/NXT 미지원이면 KRX(J)로 폴백.
  */
 export async function getDomesticPrice(account: BrokerAccount, symbol: string): Promise<DomesticQuote> {
+  return withKisSlot(() => retryOnRateLimit(() => getDomesticPriceRaw(account, symbol)));
+}
+
+// 종목코드 → 시세가 나오는 시장구분(UN/NX/J) 캐시
+const krxMktCache = new Map<string, string>();
+
+async function getDomesticPriceRaw(account: BrokerAccount, symbol: string): Promise<DomesticQuote> {
   const token = await getValidToken(account);
   const code = toKisSymbol(symbol);
 
@@ -445,11 +486,18 @@ export async function getDomesticPrice(account: BrokerAccount, symbol: string): 
     return null;
   };
 
-  // 통합 → NXT → KRX 순 폴백
-  for (const mkt of ['UN', 'NX', 'J']) {
+  // 통합 → NXT → KRX 순 폴백.
+  // 종목마다 되는 시장구분을 캐시해 매번 3번씩 호출하지 않게 한다
+  // (호출수가 줄어야 KIS 초당 제한에 안 걸리고, 걸리면 NXT 가격이 사라진다)
+  const cached = krxMktCache.get(code);
+  const order = cached ? [cached, ...['UN', 'NX', 'J'].filter((m) => m !== cached)] : ['UN', 'NX', 'J'];
+  for (const mkt of order) {
     try {
       const q = await tryMkt(mkt);
-      if (q) return q;
+      if (q) {
+        krxMktCache.set(code, mkt);
+        return q;
+      }
     } catch {
       /* 다음 시장구분으로 폴백 */
     }
