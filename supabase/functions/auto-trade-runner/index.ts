@@ -394,7 +394,7 @@ async function getOrderFill(
         SORT_SQN: 'DS',
         ORD_DT: '',
         ORD_GNO_BRNO: '',
-        ODNO: orderNo,
+        ODNO: '', // 서버 필터를 걸지 않는다 — 주문번호 패딩이 달라도 0건이 되지 않게
         CTX_AREA_FK200: '',
         CTX_AREA_NK200: '',
       };
@@ -428,7 +428,7 @@ async function getOrderFill(
       PDNO: toKisSymbol(symbol),
       CCLD_DVSN: '01',
       ORD_GNO_BRNO: '',
-      ODNO: orderNo,
+      ODNO: '', // 서버 필터를 걸지 않는다 — 주문번호 패딩이 달라도 0건이 되지 않게
       INQR_DVSN_3: '00',
       INQR_DVSN_1: '',
       CTX_AREA_FK100: '',

@@ -12,7 +12,7 @@ import { alignToKrxTick, computePnL, estimatedShares, pnlPct, realizedEvents, se
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
 import { useAutoTrader } from '@/services/autoTrader';
-import { getOrderFill, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
+import { getOrderFill, inspectOrderFill, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import { cancelPendingOrder, loadPendingOrders, reconcilePendingOrders } from '@/services/pendingOrders';
 import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
@@ -86,6 +86,39 @@ export default function ProjectDetailScreen() {
     useCallback(() => {
       load();
     }, [load])
+  );
+
+  /**
+   * 체결 조회 진단 — 증권사가 실제로 뭐라고 답하는지 그대로 보여준다.
+   * 체결이 확인되면 그 자리에서 반영까지 한다(조회는 됐는데 자동 동기화가 안 도는 경우 구제).
+   */
+  const diagnoseFill = useCallback(
+    async (k: Pocket) => {
+      const po = pendingOrders[k.id];
+      if (!project) return;
+      if (!account) return notify('진단 불가', '증권사 계좌가 연결돼 있지 않아요. MY 탭 → 한국투자증권 계좌 연결을 확인해 주세요.');
+      if (!po) return notify('진단 불가', '이 포켓에 미체결 주문 기록이 없어요.');
+      const d = await inspectOrderFill(account, project.market === 'US' ? 'US' : 'KRX', po.kis_order_no ?? '', project.symbol);
+      const lines = [
+        `주문번호: ${po.kis_order_no || '(없음)'}`,
+        `증권사 응답: ${d.ok ? '정상' : '실패'}`,
+        `조회된 체결 건수: ${d.rows}`,
+        `이 주문 일치: ${d.matched ? '예' : '아니오'}`,
+        d.sampleOdnos.length > 0 ? `조회된 주문번호: ${d.sampleOdnos.join(', ')}` : null,
+        `메시지: ${d.message || '-'}`,
+      ].filter(Boolean) as string[];
+
+      if (d.fill) {
+        // 체결이 확인됐으면 바로 반영
+        if (await reconcilePendingOrders(account, project.id)) await load();
+        return notify(
+          '체결 확인 ✅',
+          `${lines.join('\n')}\n\n체결가 ${formatPrice(d.fill.avgPrice, project.market)} · ${money(d.fill.filledQty, 0)}주\n\n보유중으로 반영했어요.`
+        );
+      }
+      notify('체결이 확인되지 않았어요', `${lines.join('\n')}\n\n증권사에서 이미 체결됐다면 '＋ 체결 직접 입력'으로 반영해 주세요.`);
+    },
+    [account, project, pendingOrders, load]
   );
 
   // 자동매매 (AUTO 등급 + 프로젝트 자동매매 ON 일 때만 실제 주문)
@@ -756,6 +789,7 @@ export default function ProjectDetailScreen() {
                 setOrderChange(po);
                 setAutoOrderPocket(k);
               }}
+              onDiagnose={() => diagnoseFill(k)}
               projectClosed={!!project.closed_at}
               onUpdateTargets={async (buyP, sellP) => {
                 await supabase
@@ -1217,6 +1251,7 @@ function PocketCard({
   onRestart,
   pendingOrder,
   onChangeOrderPrice,
+  onDiagnose,
   projectClosed,
   onUpdateTargets,
   onTrade,
@@ -1239,6 +1274,7 @@ function PocketCard({
   onRestart: () => void;
   pendingOrder: AutoOrder | null; // 미체결(주문완료) 주문 — 주문가·수량 표시용
   onChangeOrderPrice: () => void; // 미체결 매수 주문가 변경 (취소 후 재주문)
+  onDiagnose: () => void; // 증권사 체결조회 결과를 그대로 보여주는 진단
   projectClosed: boolean; // 프로젝트 종료 시 재시작 버튼 숨김
   onUpdateTargets: (buyPrice: number, sellPrice: number | null) => Promise<void>; // 목표 매수·매도가 직접 수정
   onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number, budget?: number) => void;
@@ -1513,11 +1549,19 @@ function PocketCard({
               <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 4 }}>
                 체결이 확인되면 자동으로 {pendingWord === '매수' ? '보유중' : '매도완료'}으로 바뀌어요.
               </Text>
-              {pendingWord === '매수' && pendingOrder && !projectClosed && (
-                <Pressable onPress={onChangeOrderPrice} style={{ alignSelf: 'flex-start', marginTop: 6 }} hitSlop={6}>
-                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>✏️ 주문 취소하고 매수가 변경</Text>
-                </Pressable>
-              )}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: 6, flexWrap: 'wrap' }}>
+                {pendingWord === '매수' && pendingOrder && !projectClosed && (
+                  <Pressable onPress={onChangeOrderPrice} hitSlop={6}>
+                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>✏️ 주문 취소하고 매수가 변경</Text>
+                  </Pressable>
+                )}
+                {/* 체결이 됐는데 앱이 못 잡을 때, 증권사가 실제로 뭐라고 답하는지 바로 확인 */}
+                {pendingOrder && (
+                  <Pressable onPress={onDiagnose} hitSlop={6}>
+                    <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '800' }}>🔍 체결 조회 진단</Text>
+                  </Pressable>
+                )}
+              </View>
               {/* 체결 감지 실패 대비 수동 입력 —
                   증권사에서 이미 체결됐는데 앱이 못 잡는 경우(주문번호 누락·조회 실패 등)
                   사용자가 직접 체결을 입력해 '보유중'으로 넘어갈 수 있어야 한다. */}

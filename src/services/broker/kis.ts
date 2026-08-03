@@ -598,6 +598,110 @@ function sameOrderNo(a: unknown, b: unknown): boolean {
   return x.length > 0 && x === norm(b);
 }
 
+export interface OrderFillDiag {
+  ok: boolean; // KIS 호출 자체가 성공했는지
+  rows: number; // 조회된 체결행 수
+  matched: boolean; // 이 주문번호와 일치하는 행을 찾았는지
+  message: string; // KIS msg1 또는 예외 메시지
+  sampleOdnos: string[]; // 조회된 주문번호 샘플 (패딩·형식 확인용)
+  fill: OrderFill | null;
+}
+
+/**
+ * 체결 조회 + 진단 정보.
+ *
+ * 요청에 ODNO 를 필터로 넣지 않는다 — KIS 가 저장한 주문번호와 패딩·형식이 조금만
+ * 달라도 서버에서 0건이 돌아와, 클라이언트 비교(sameOrderNo)를 해볼 기회조차 없어진다.
+ * 기간 전체를 받아온 뒤 앱에서 주문번호를 맞춘다.
+ */
+export async function inspectOrderFill(
+  account: BrokerAccount,
+  market: 'KRX' | 'US',
+  orderNo: string,
+  symbol?: string
+): Promise<OrderFillDiag> {
+  const base: OrderFillDiag = { ok: false, rows: 0, matched: false, message: '', sampleOdnos: [], fill: null };
+  if (!orderNo) return { ...base, message: '주문번호가 없어요. (주문 시 KIS 가 주문번호를 주지 않았습니다)' };
+  try {
+    const token = await getValidToken(account);
+    const isUs = market === 'US';
+    const u = new URL(
+      `${kisBaseUrl(account.is_virtual)}${
+        isUs ? '/uapi/overseas-stock/v1/trading/inquire-ccnl' : '/uapi/domestic-stock/v1/trading/inquire-daily-ccld'
+      }`
+    );
+    const params: Record<string, string> = isUs
+      ? {
+          CANO: account.account_no,
+          ACNT_PRDT_CD: account.account_product_code,
+          PDNO: symbol ? toKisSymbol(symbol).toUpperCase() : '%',
+          // 미국 주문은 KIS 가 '미국 현지 날짜'로 기록 — 한국 날짜와 어긋나도 잡히게 범위 조회
+          ORD_STRT_DT: ymdOffset(-7),
+          ORD_END_DT: ymdOffset(1),
+          SLL_BUY_DVSN_CD: '00',
+          CCLD_NCCS_DVSN: '01', // 체결
+          OVRS_EXCG_CD: '',
+          SORT_SQN: 'DS',
+          ORD_DT: '',
+          ORD_GNO_BRNO: '',
+          ODNO: '', // ← 서버 필터를 걸지 않는다 (위 주석 참고)
+          CTX_AREA_FK200: '',
+          CTX_AREA_NK200: '',
+        }
+      : {
+          CANO: account.account_no,
+          ACNT_PRDT_CD: account.account_product_code,
+          // 주문 당일에 체결이 안 잡히면 영영 못 찾으므로 최근 7일 범위 (TTTC8001R 은 3개월까지 가능)
+          INQR_STRT_DT: ymdOffset(-7),
+          INQR_END_DT: ymdOffset(0),
+          SLL_BUY_DVSN_CD: '00',
+          INQR_DVSN: '00',
+          PDNO: symbol ? toKisSymbol(symbol) : '',
+          CCLD_DVSN: '01', // 체결만
+          ORD_GNO_BRNO: '',
+          ODNO: '', // ← 서버 필터를 걸지 않는다
+          INQR_DVSN_3: '00',
+          INQR_DVSN_1: '',
+          CTX_AREA_FK100: '',
+          CTX_AREA_NK100: '',
+        };
+    Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+
+    const res = await fetch(u.toString(), {
+      headers: {
+        authorization: `Bearer ${token}`,
+        appkey: account.app_key,
+        appsecret: account.app_secret,
+        tr_id: isUs
+          ? OVERSEAS_CCLD_TR[account.is_virtual ? 'virtual' : 'real']
+          : DAILY_CCLD_TR[account.is_virtual ? 'virtual' : 'real'],
+        custtype: 'P',
+      },
+    });
+    const json = await res.json();
+    const msg = String(json?.msg1 ?? '').trim();
+    if (!res.ok || (json?.rt_cd !== undefined && json.rt_cd !== '0')) {
+      return { ...base, message: msg || `조회 실패 (HTTP ${res.status})` };
+    }
+    const rows = ((isUs ? json?.output : json?.output1) ?? []) as any[];
+    const sampleOdnos = rows.slice(0, 8).map((r) => String(r?.odno ?? ''));
+    const row = rows.find((r) => sameOrderNo(r.odno, orderNo));
+    if (!row) {
+      return { ...base, ok: true, rows: rows.length, message: msg || '조회는 됐지만 이 주문번호의 체결이 없어요.', sampleOdnos };
+    }
+    const qty = isUs ? Number(row.ft_ccld_qty ?? row.ccld_qty ?? 0) : Number(row.tot_ccld_qty ?? 0);
+    const avg = isUs
+      ? Number(row.ft_ccld_unpr3 ?? row.ccld_unpr ?? 0)
+      : Number(row.avg_prvs ?? 0) || (qty > 0 ? Number(row.tot_ccld_amt ?? 0) / qty : 0);
+    if (qty > 0 && avg > 0) {
+      return { ok: true, rows: rows.length, matched: true, message: msg || '체결 확인', sampleOdnos, fill: { avgPrice: avg, filledQty: qty } };
+    }
+    return { ...base, ok: true, rows: rows.length, matched: true, message: '주문은 찾았지만 체결수량이 0이에요 (미체결).', sampleOdnos };
+  } catch (e: any) {
+    return { ...base, message: typeof e?.message === 'string' ? e.message : '조회 중 오류가 났어요.' };
+  }
+}
+
 /**
  * 주문번호(ODNO)로 실제 체결 평균단가·수량을 조회. 지정가 주문이 실제로 얼마에 체결됐는지 반영용.
  * 아직 미체결이거나 조회 실패면 null → 호출측에서 지정가로 폴백.
@@ -608,89 +712,7 @@ export async function getOrderFill(
   orderNo: string,
   symbol?: string
 ): Promise<OrderFill | null> {
-  if (!orderNo) return null;
-  const token = await getValidToken(account);
-  try {
-    if (market === 'US') {
-      const u = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/overseas-stock/v1/trading/inquire-ccnl`);
-      const params: Record<string, string> = {
-        CANO: account.account_no,
-        ACNT_PRDT_CD: account.account_product_code,
-        PDNO: symbol ? toKisSymbol(symbol).toUpperCase() : '%',
-        // 미국 주문은 KIS 가 '미국 현지 날짜'로 기록 — 한국 날짜와 하루 어긋나도 잡히게 범위 조회
-        ORD_STRT_DT: ymdOffset(-3),
-        ORD_END_DT: ymdOffset(1),
-        SLL_BUY_DVSN_CD: '00',
-        CCLD_NCCS_DVSN: '01', // 체결
-        OVRS_EXCG_CD: '',
-        SORT_SQN: 'DS',
-        ORD_DT: '',
-        ORD_GNO_BRNO: '',
-        ODNO: orderNo,
-        CTX_AREA_FK200: '',
-        CTX_AREA_NK200: '',
-      };
-      Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
-      const res = await fetch(u.toString(), {
-        headers: {
-          authorization: `Bearer ${token}`,
-          appkey: account.app_key,
-          appsecret: account.app_secret,
-          tr_id: OVERSEAS_CCLD_TR[account.is_virtual ? 'virtual' : 'real'],
-          custtype: 'P',
-        },
-      });
-      const json = await res.json();
-      const rows = (json?.output ?? []) as any[];
-      // 여러 날 범위 조회라 다른 주문이 섞여 있다 → 주문번호 정확 일치 행만 사용
-      const row = rows.find((r) => sameOrderNo(r.odno, orderNo));
-      const qty = Number(row?.ft_ccld_qty ?? row?.ccld_qty ?? 0);
-      const price = Number(row?.ft_ccld_unpr3 ?? row?.ccld_unpr ?? 0);
-      if (qty > 0 && price > 0) return { avgPrice: price, filledQty: qty };
-      return null;
-    }
-    // 국내 — 주문 당일에 체결이 안 잡히면(장 마감 후 반영·다음날 체결 등) 영영 못 찾으므로
-    //        최근 7일 범위로 조회한다. (TTTC8001R 은 최근 3개월까지 조회 가능)
-    const u = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/domestic-stock/v1/trading/inquire-daily-ccld`);
-    const params: Record<string, string> = {
-      CANO: account.account_no,
-      ACNT_PRDT_CD: account.account_product_code,
-      INQR_STRT_DT: ymdOffset(-7),
-      INQR_END_DT: ymdOffset(0),
-      SLL_BUY_DVSN_CD: '00',
-      INQR_DVSN: '00',
-      PDNO: symbol ? toKisSymbol(symbol) : '',
-      CCLD_DVSN: '01', // 체결만
-      ORD_GNO_BRNO: '',
-      ODNO: orderNo,
-      INQR_DVSN_3: '00',
-      INQR_DVSN_1: '',
-      CTX_AREA_FK100: '',
-      CTX_AREA_NK100: '',
-    };
-    Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
-    const res = await fetch(u.toString(), {
-      headers: {
-        authorization: `Bearer ${token}`,
-        appkey: account.app_key,
-        appsecret: account.app_secret,
-        tr_id: DAILY_CCLD_TR[account.is_virtual ? 'virtual' : 'real'],
-        custtype: 'P',
-      },
-    });
-    const json = await res.json();
-    const rows = (json?.output1 ?? []) as any[];
-    // 조회 범위가 여러 날이라 다른 주문이 섞여 있다 → 주문번호가 정확히 일치하는 행만 사용.
-    // (임의로 첫 행을 쓰면 엉뚱한 주문의 체결가가 기록된다)
-    const row = rows.find((r) => sameOrderNo(r.odno, orderNo));
-    const qty = Number(row?.tot_ccld_qty ?? 0);
-    const amt = Number(row?.tot_ccld_amt ?? 0);
-    const avg = Number(row?.avg_prvs ?? 0) || (qty > 0 ? amt / qty : 0);
-    if (qty > 0 && avg > 0) return { avgPrice: avg, filledQty: qty };
-    return null;
-  } catch {
-    return null;
-  }
+  return (await inspectOrderFill(account, market, orderNo, symbol)).fill;
 }
 
 // --------------------------- 잔고 조회 ---------------------------
