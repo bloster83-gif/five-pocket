@@ -599,7 +599,6 @@ export async function getOrderFill(
 ): Promise<OrderFill | null> {
   if (!orderNo) return null;
   const token = await getValidToken(account);
-  const ymd = todayYmd();
   try {
     if (market === 'US') {
       const u = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/overseas-stock/v1/trading/inquire-ccnl`);
@@ -632,19 +631,21 @@ export async function getOrderFill(
       });
       const json = await res.json();
       const rows = (json?.output ?? []) as any[];
-      const row = rows.find((r) => r.odno === orderNo) ?? rows[0];
+      // 여러 날 범위 조회라 다른 주문이 섞여 있다 → 주문번호 정확 일치 행만 사용
+      const row = rows.find((r) => String(r.odno) === String(orderNo));
       const qty = Number(row?.ft_ccld_qty ?? row?.ccld_qty ?? 0);
       const price = Number(row?.ft_ccld_unpr3 ?? row?.ccld_unpr ?? 0);
       if (qty > 0 && price > 0) return { avgPrice: price, filledQty: qty };
       return null;
     }
-    // 국내
+    // 국내 — 주문 당일에 체결이 안 잡히면(장 마감 후 반영·다음날 체결 등) 영영 못 찾으므로
+    //        최근 7일 범위로 조회한다. (TTTC8001R 은 최근 3개월까지 조회 가능)
     const u = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/domestic-stock/v1/trading/inquire-daily-ccld`);
     const params: Record<string, string> = {
       CANO: account.account_no,
       ACNT_PRDT_CD: account.account_product_code,
-      INQR_STRT_DT: ymd,
-      INQR_END_DT: ymd,
+      INQR_STRT_DT: ymdOffset(-7),
+      INQR_END_DT: ymdOffset(0),
       SLL_BUY_DVSN_CD: '00',
       INQR_DVSN: '00',
       PDNO: symbol ? toKisSymbol(symbol) : '',
@@ -668,7 +669,9 @@ export async function getOrderFill(
     });
     const json = await res.json();
     const rows = (json?.output1 ?? []) as any[];
-    const row = rows.find((r) => r.odno === orderNo) ?? rows[0];
+    // 조회 범위가 여러 날이라 다른 주문이 섞여 있다 → 주문번호가 정확히 일치하는 행만 사용.
+    // (임의로 첫 행을 쓰면 엉뚱한 주문의 체결가가 기록된다)
+    const row = rows.find((r) => String(r.odno) === String(orderNo));
     const qty = Number(row?.tot_ccld_qty ?? 0);
     const amt = Number(row?.tot_ccld_amt ?? 0);
     const avg = Number(row?.avg_prvs ?? 0) || (qty > 0 ? amt / qty : 0);

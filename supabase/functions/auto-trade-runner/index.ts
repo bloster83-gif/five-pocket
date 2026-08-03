@@ -370,7 +370,6 @@ async function getOrderFill(
   symbol: string
 ): Promise<{ avgPrice: number; filledQty: number } | null> {
   if (!orderNo) return null;
-  const ymd = todayYmd();
   try {
     if (market === 'US') {
       const u = new URL(`${baseUrl(acc)}/uapi/overseas-stock/v1/trading/inquire-ccnl`);
@@ -403,7 +402,8 @@ async function getOrderFill(
       });
       const json = await res.json();
       const rows = (json?.output ?? []) as Array<Record<string, string>>;
-      const row = rows.find((r) => r.odno === orderNo) ?? rows[0];
+      // 여러 날 범위 조회라 다른 주문이 섞여 있다 → 주문번호 정확 일치 행만 사용
+      const row = rows.find((r) => String(r.odno) === String(orderNo));
       const qty = Number(row?.ft_ccld_qty ?? row?.ccld_qty ?? 0);
       const price = Number(row?.ft_ccld_unpr3 ?? row?.ccld_unpr ?? 0);
       return qty > 0 && price > 0 ? { avgPrice: price, filledQty: qty } : null;
@@ -412,8 +412,9 @@ async function getOrderFill(
     const params: Record<string, string> = {
       CANO: acc.account_no,
       ACNT_PRDT_CD: acc.account_product_code,
-      INQR_STRT_DT: ymd,
-      INQR_END_DT: ymd,
+      // 주문 당일에 체결이 안 잡히면 영영 못 찾으므로 최근 7일 범위로 조회
+      INQR_STRT_DT: ymdOffset(-7),
+      INQR_END_DT: ymdOffset(0),
       SLL_BUY_DVSN_CD: '00',
       INQR_DVSN: '00',
       PDNO: toKisSymbol(symbol),
@@ -437,7 +438,8 @@ async function getOrderFill(
     });
     const json = await res.json();
     const rows = (json?.output1 ?? []) as Array<Record<string, string>>;
-    const row = rows.find((r) => r.odno === orderNo) ?? rows[0];
+    // 여러 날 범위 조회라 다른 주문이 섞여 있다 → 주문번호 정확 일치 행만 사용
+    const row = rows.find((r) => String(r.odno) === String(orderNo));
     const qty = Number(row?.tot_ccld_qty ?? 0);
     const amt = Number(row?.tot_ccld_amt ?? 0);
     const avg = Number(row?.avg_prvs ?? 0) || (qty > 0 ? amt / qty : 0);
