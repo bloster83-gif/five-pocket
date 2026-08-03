@@ -88,11 +88,22 @@ export async function loadPendingOrders(projectId?: string): Promise<Record<stri
  *
  * 주문완료 상태가 오래 남아 있지 않도록 화면에서 짧은 주기로 호출한다.
  */
+let inFlight: Promise<boolean> | null = null;
+
 export async function reconcilePendingOrders(
   account: BrokerAccount | null,
   projectId?: string
 ): Promise<boolean> {
   if (!account) return false;
+  // 여러 화면이 동시에 호출해도 실제 실행은 하나만 — 나머지는 그 결과를 함께 받는다.
+  if (inFlight) return inFlight;
+  inFlight = reconcileOnce(account, projectId).finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+}
+
+async function reconcileOnce(account: BrokerAccount, projectId?: string): Promise<boolean> {
   const orders = Object.values(await loadPendingOrders(projectId)).filter((o) => o.kis_order_no);
   if (orders.length === 0) return false;
 
@@ -121,6 +132,20 @@ export async function reconcilePendingOrders(
       fill = await confirmBuyByBalance(account, o, p.market);
     }
     if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) continue;
+
+    // ── 주문을 '선점'한다 (중복 기록 방지) ──────────────────────────────
+    // 이 동기화는 여러 화면(목록·포켓탭·상세)과 서버 러너에서 동시에 돌 수 있다.
+    // '기록이 있나 읽고 → 없으면 쓴다'로는 두 실행이 동시에 "없다"고 판단해
+    // 같은 체결을 두 번 기록해버린다(실제로 25주가 50주로 중복됨).
+    // status='sent' 인 행만 'filled' 로 바꾸는 단일 UPDATE 는 DB 에서 원자적이라,
+    // 갱신된 행이 0건이면 이미 다른 실행이 처리한 것이므로 건너뛴다.
+    const { data: claimed } = await supabase
+      .from('auto_orders')
+      .update({ status: 'filled' })
+      .eq('id', o.id)
+      .eq('status', 'sent')
+      .select('id');
+    if (!claimed || claimed.length === 0) continue; // 다른 실행이 이미 선점함
 
     // 같은 주문번호의 체결 기록이 이미 있으면 실제 체결가·수량으로 갱신, 없으면 새로 기록
     const { data: existing } = await supabase
@@ -161,7 +186,6 @@ export async function reconcilePendingOrders(
         await supabase.from('pockets').update({ status: 'sold' }).eq('id', o.pocket_id);
       }
     }
-    await supabase.from('auto_orders').update({ status: 'filled' }).eq('id', o.id);
     changed = true;
   }
   return changed;

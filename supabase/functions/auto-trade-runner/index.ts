@@ -486,6 +486,17 @@ async function reconcilePendingFills(admin: SupabaseClient): Promise<number> {
       const token = await getToken(admin, acc);
       const fill = await getOrderFill(acc, token, proj.market === 'US' ? 'US' : 'KRX', o.kis_order_no, o.symbol);
       if (!fill || fill.avgPrice <= 0) continue;
+      // ── 주문 '선점' (중복 기록 방지) ──
+      // 앱(여러 화면)과 이 러너가 동시에 같은 주문을 처리하면 체결이 두 번 기록된다.
+      // status='sent' 인 행만 'filled' 로 바꾸는 단일 UPDATE 는 원자적이므로,
+      // 갱신된 행이 0건이면 이미 다른 쪽이 처리한 것이라 건너뛴다.
+      const { data: claimed } = await admin
+        .from('auto_orders')
+        .update({ status: 'filled' })
+        .eq('id', o.id)
+        .eq('status', 'sent')
+        .select('id');
+      if (!claimed || claimed.length === 0) continue;
       // 이 주문의 체결 기록이 이미 있으면 실제 체결가로 갱신(주로 매수), 없으면(주문완료 매도 등) 생성.
       const { data: existing } = await admin
         .from('trades')
@@ -525,7 +536,6 @@ async function reconcilePendingFills(admin: SupabaseClient): Promise<number> {
           await admin.from('pockets').update({ status: 'sold' }).eq('id', o.pocket_id);
         }
       }
-      await admin.from('auto_orders').update({ status: 'filled' }).eq('id', o.id);
       updated++;
     } catch {
       /* 개별 실패는 무시하고 다음에 재시도 */
