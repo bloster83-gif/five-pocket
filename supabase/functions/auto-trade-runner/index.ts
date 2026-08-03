@@ -384,7 +384,7 @@ async function getOrderFill(
       const params: Record<string, string> = {
         CANO: acc.account_no,
         ACNT_PRDT_CD: acc.account_product_code,
-        PDNO: toKisSymbol(symbol).toUpperCase(),
+        PDNO: '%', // 서버 필터를 걸지 않는다 (국내와 동일한 이유)
         // 미국 주문은 KIS 가 '미국 현지 날짜'로 기록 + 서버는 UTC — 하루 어긋나도 잡히게 범위 조회
         ORD_STRT_DT: ymdOffset(-3),
         ORD_END_DT: ymdOffset(1),

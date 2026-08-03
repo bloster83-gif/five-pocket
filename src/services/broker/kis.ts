@@ -634,7 +634,7 @@ export async function inspectOrderFill(
       ? {
           CANO: account.account_no,
           ACNT_PRDT_CD: account.account_product_code,
-          PDNO: symbol ? toKisSymbol(symbol).toUpperCase() : '%',
+          PDNO: '%', // 서버 필터를 걸지 않는다 (국내와 동일한 이유)
           // 미국 주문은 KIS 가 '미국 현지 날짜'로 기록 — 한국 날짜와 어긋나도 잡히게 범위 조회
           ORD_STRT_DT: ymdOffset(-7),
           ORD_END_DT: ymdOffset(1),

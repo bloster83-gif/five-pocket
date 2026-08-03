@@ -75,32 +75,39 @@ export async function checkHolding(
 }
 
 /**
- * 잔고로 매수 체결을 확인하는 보조 수단.
+ * 잔고로 체결을 확인하는 보조 수단.
  *
- * 체결조회(inquire-daily-ccld)는 SOR/NXT 로 체결된 주문처럼 KIS 내부 표기가 다르면
- * 0건을 돌려주는 경우가 있다. 그럴 때도 '잔고에 실제로 들어와 있는 수량'은 정확하므로,
- *   계좌 보유수량 >= (앱에 이미 기록된 보유수량 + 이 주문 수량)
- * 이면 이 주문이 체결된 것으로 판단한다. (이미 기록된 만큼을 빼므로 중복 인정되지 않는다)
+ * 체결조회는 SOR/NXT 체결처럼 KIS 내부 표기가 다르면 0건을 돌려주는 경우가 있다.
+ * 그럴 때도 '계좌에 실제로 남아 있는 수량'은 정확하므로 그것으로 판단한다.
  *
- * 매도 주문은 이 방식으로 판단하면 위험하므로(수량이 줄어든 이유가 여러 가지) 매수만 다룬다.
+ *  매수: 계좌 보유수량 >= 앱 기록 + 주문수량   → 이 매수가 들어와 있다
+ *  매도: 계좌 보유수량 <= 앱 기록 - 주문수량   → 이 매도가 빠져나갔다
+ *
+ * 어느 쪽도 '이미 기록된 수량'을 기준으로 계산하므로 같은 체결이 두 번 인정되지 않는다.
  */
-async function confirmBuyByBalance(
-  account: BrokerAccount,
+function confirmByBalance(
   order: AutoOrder,
-  market: string,
   chk: HoldingCheck
-): Promise<{ avgPrice: number; filledQty: number } | null> {
-  if (order.side !== 'buy' || !chk.ok || chk.heldQty <= 0) return null;
+): { avgPrice: number; filledQty: number } | null {
+  if (!chk.ok) return null;
   const orderQty = Math.floor(Number(order.quantity));
   if (orderQty <= 0) return null;
-  if (chk.heldQty >= chk.recordedQty + orderQty) {
-    // 체결가는 주문 지정가 기준 (지정가 매수는 지정가 이하로 체결).
-    // 계좌 평단이 지정가보다 낮으면 더 유리하게 체결된 것이므로 평단을 쓴다.
-    const limit = Number(order.order_price);
+  const limit = Number(order.order_price);
+  if (limit <= 0) return null;
+
+  if (order.side === 'buy') {
+    if (chk.heldQty <= 0) return null;
+    if (chk.heldQty < chk.recordedQty + orderQty) return null;
+    // 지정가 매수는 지정가 이하로 체결 — 계좌 평단이 더 낮으면 그쪽이 실제에 가깝다
     const price = chk.heldAvg > 0 && chk.heldAvg < limit ? chk.heldAvg : limit;
     return { avgPrice: price, filledQty: orderQty };
   }
-  return null;
+
+  // 매도: 앱에 기록된 보유분이 계좌에서 그만큼 빠져나갔으면 체결된 것
+  if (chk.recordedQty <= 0) return null;
+  if (chk.heldQty > chk.recordedQty - orderQty) return null;
+  // 지정가 매도는 지정가 이상으로 체결 — 정확한 체결가는 알 수 없으므로 지정가로 기록(매매일지에서 수정 가능)
+  return { avgPrice: limit, filledQty: orderQty };
 }
 
 /**
@@ -156,7 +163,7 @@ async function reconcileOnce(account: BrokerAccount, projectId?: string): Promis
 
     // 체결조회가 못 잡으면(SOR/NXT 체결 등) 잔고로 재확인
     if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) {
-      fill = await confirmBuyByBalance(account, o, p.market, chk);
+      fill = confirmByBalance(o, chk);
     }
     if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) continue;
 
@@ -164,13 +171,20 @@ async function reconcileOnce(account: BrokerAccount, projectId?: string): Promis
     // 계좌 잔고가 언제나 사실이다. 이 체결을 기록했을 때 앱의 보유수량이
     // 실제 계좌 보유수량을 넘어서면 = 이미 기록된 체결을 또 기록하려는 것이므로 막는다.
     // (잔고 조회에 실패했으면 검증하지 않고 통과 — 조회 장애로 정상 체결을 놓치면 안 되니까)
-    if (o.side === 'buy' && chk.ok && chk.recordedQty + fill.filledQty > chk.heldQty) {
+    // 매수: 기록 후 앱 보유수량이 계좌를 넘으면 중복 기록
+    // 매도: 기록 후 앱 보유수량이 계좌보다 적어지면 중복 기록
+    const wouldOverRecord =
+      chk.ok &&
+      (o.side === 'buy'
+        ? chk.recordedQty + fill.filledQty > chk.heldQty
+        : chk.recordedQty - fill.filledQty < chk.heldQty);
+    if (wouldOverRecord) {
       // 주문은 종결 처리해 매 주기마다 다시 조회하지 않게 한다.
       await supabase
         .from('auto_orders')
         .update({
           status: 'filled',
-          error_message: `잔고 검증으로 중복 기록 차단 (계좌 ${chk.heldQty}주 / 기록 ${chk.recordedQty}주 + 이번 ${fill.filledQty}주)`,
+          error_message: `잔고 검증으로 중복 기록 차단 (계좌 ${chk.heldQty}주 / 기록 ${chk.recordedQty}주 / 이번 ${o.side === 'buy' ? '+' : '-'}${fill.filledQty}주)`,
         })
         .eq('id', o.id)
         .eq('status', 'sent');
