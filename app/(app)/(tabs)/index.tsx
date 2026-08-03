@@ -515,22 +515,33 @@ export default function ProjectsScreen() {
                                 const st = pk.status;
                                 const reached =
                                   st === 'waiting' && m?.price != null && m.price <= Number(pk.buy_target_price);
-                                // 매수 주문만 넣고 아직 체결 전(buy_ordered) → 흐린 빨강,
-                                // 실제 체결되어 보유중(bought)·매도주문완료 → 진한 빨강
-                                const ordered = st === 'buy_ordered';
-                                const held = st === 'bought' || st === 'sell_ordered';
+                                // 체결 전 '주문완료'는 같은 색의 옅은 원 + 진한 테두리로 구분한다.
+                                //  매수주문 = 흐린 빨강 + 빨강 테두리 → 체결되면 진한 빨강
+                                //  매도주문 = 흐린 파랑 + 파랑 테두리 → 체결되면 진한 파랑
+                                const buyOrdered = st === 'buy_ordered';
+                                const sellOrdered = st === 'sell_ordered';
+                                const held = st === 'bought';
                                 const sold = st === 'sold';
-                                const lit = held || ordered || sold || reached;
+                                const lit = held || sold || buyOrdered || sellOrdered || reached;
                                 const fill = held
                                   ? colors.buy
-                                  : ordered
+                                  : buyOrdered
                                     ? colors.buyDim
                                     : sold
                                       ? colors.sell
+                                      : sellOrdered
+                                        ? colors.sellDim
+                                        : reached
+                                          ? colors.warn
+                                          : 'transparent';
+                                const border =
+                                  held || buyOrdered
+                                    ? colors.buy
+                                    : sold || sellOrdered
+                                      ? colors.sell
                                       : reached
                                         ? colors.warn
-                                        : 'transparent';
-                                const border = held || ordered ? colors.buy : sold ? colors.sell : reached ? colors.warn : colors.border;
+                                        : colors.border;
                                 return (
                                   <View
                                     key={idx}
@@ -557,7 +568,6 @@ export default function ProjectsScreen() {
                         {/* 미니 범례 */}
                         <View style={{ flexDirection: 'row', gap: 8 }}>
                           <LightLegend color={colors.warn} label="도달" />
-                          <LightLegend color={colors.buyDim} label="주문" />
                           <LightLegend color={colors.buy} label="보유" />
                           <LightLegend color={colors.sell} label="매도" />
                         </View>
