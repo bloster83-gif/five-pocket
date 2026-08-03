@@ -738,6 +738,23 @@ export default function PocketsScreen() {
                           </Pressable>
                         )}
                       </View>
+                      {/* 체결 감지 실패 대비 수동 입력 — 증권사에선 체결됐는데 앱이 못 잡을 때 직접 반영 */}
+                      <Pressable
+                        onPress={() =>
+                          router.push(
+                            `/project/${proj.id}/trade?pocket=${k.id}&idx=${k.idx}&side=${isBuy ? 'buy' : 'sell'}` +
+                              `&sqty=${ordQty ?? estimatedShares(k.budget, buyTargetDisp)}` +
+                              `&sprice=${ordPrice ?? price ?? buyTargetDisp}&budget=${k.budget ?? ''}&mkt=${proj.market}`
+                          )
+                        }
+                        style={{ borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)', paddingTop: 6 }}
+                        hitSlop={6}
+                      >
+                        <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                          증권사에선 이미 {isBuy ? '매수' : '매도'}됐나요?{' '}
+                          <Text style={{ color: colors.primary, fontWeight: '800' }}>＋ 체결 직접 입력</Text>
+                        </Text>
+                      </Pressable>
                       {!po && (
                         <Text style={{ color: colors.textDim, fontSize: 11 }}>
                           주문 내역을 찾지 못했어요. 체결이 확인되면 자동으로 보유중으로 바뀌어요.

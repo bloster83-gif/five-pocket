@@ -1518,6 +1518,28 @@ function PocketCard({
                   <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>✏️ 주문 취소하고 매수가 변경</Text>
                 </Pressable>
               )}
+              {/* 체결 감지 실패 대비 수동 입력 —
+                  증권사에서 이미 체결됐는데 앱이 못 잡는 경우(주문번호 누락·조회 실패 등)
+                  사용자가 직접 체결을 입력해 '보유중'으로 넘어갈 수 있어야 한다. */}
+              {!projectClosed && (
+                <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.12)', paddingTop: spacing.sm }}>
+                  <Text style={{ color: colors.textDim, fontSize: 11, marginBottom: 6 }}>
+                    증권사에서는 이미 {pendingWord}됐는데 여기가 안 바뀌었나요? 직접 입력하면 바로 반영돼요.
+                  </Text>
+                  <Button
+                    title={`＋ ${pendingWord} 체결 직접 입력`}
+                    variant={pendingWord === '매수' ? 'buy' : 'sell'}
+                    onPress={() =>
+                      onTrade(
+                        pendingWord === '매수' ? 'buy' : 'sell',
+                        pendingOrder ? Math.floor(Number(pendingOrder.quantity)) : buyableQty,
+                        pendingOrder ? Number(pendingOrder.order_price) : price ?? buyTargetDisp,
+                        k.budget ?? undefined
+                      )
+                    }
+                  />
+                </View>
+              )}
             </View>
           ) : autoMode ? (
             <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
