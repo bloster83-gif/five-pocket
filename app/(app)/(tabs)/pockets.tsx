@@ -12,7 +12,7 @@ import { alignToKrxTick, computePnL, estimatedShares, sellTargetFromFill } from 
 import { getUnifiedQuote } from '@/services/prices/unified';
 import { getStoredQuotes } from '@/services/prices/quoteStore';
 import { getOrderFill, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
-import { cancelPendingOrder, healBoughtPockets, loadPendingOrders, reconcilePendingOrders } from '@/services/pendingOrders';
+import { cancelPendingOrder, findHoldingMismatches, healBoughtPockets, loadPendingOrders, reconcilePendingOrders, type HoldingMismatch } from '@/services/pendingOrders';
 import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 export default function PocketsScreen() {
@@ -37,6 +37,7 @@ export default function PocketsScreen() {
   // 왼쪽 스와이프 자동주문(AUTO). pending 이 있으면 '주문가 변경'(취소 후 재주문) 모드.
   const [autoOrder, setAutoOrder] = useState<{ pocket: Pocket; proj: Project; pending?: AutoOrder } | null>(null);
   const [pendingOrders, setPendingOrders] = useState<Record<string, AutoOrder>>({}); // pocket_id → 미체결 주문
+  const [mismatches, setMismatches] = useState<HoldingMismatch[]>([]); // 앱 기록 ↔ 계좌 잔고 불일치
 
   const load = useCallback(async () => {
     const [{ data: p }, { data: k }, { data: t }, po] = await Promise.all([
@@ -122,6 +123,18 @@ export default function PocketsScreen() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account, hasPending]);
+
+  // 앱 기록 ↔ 증권사 잔고 대조 — 어긋나면 화면 위에 경고를 띄운다 (중복 기록·앱 밖 매매 감지)
+  useEffect(() => {
+    if (!account || loading) return;
+    let alive = true;
+    findHoldingMismatches(account)
+      .then((m) => alive && setMismatches(m))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [account, loading, trades]);
 
   const projMap = useMemo(() => {
     const m: Record<string, Project> = {};
@@ -546,6 +559,27 @@ export default function PocketsScreen() {
           </View>
         )}
       </Card>
+
+      {/* 앱 기록 ↔ 증권사 계좌 대조 결과 — 어긋나면 바로 알 수 있게 경고 */}
+      {mismatches.length > 0 && (
+        <Card style={{ borderColor: colors.warn, backgroundColor: 'rgba(251,191,36,0.08)' }}>
+          <Text style={{ color: colors.warn, fontWeight: '900', fontSize: 14 }}>⚠️ 보유수량이 계좌와 달라요</Text>
+          <Text style={{ color: colors.textDim, fontSize: 11, marginBottom: 4 }}>
+            앱 기록이 많으면 체결이 중복 기록된 것이고, 계좌가 많으면 앱 밖에서 매매한 거예요. 매매일지에서 바로잡을 수 있어요.
+          </Text>
+          {mismatches.map((m) => (
+            <View key={m.symbol} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flexShrink: 1 }} numberOfLines={1}>
+                {m.name}
+              </Text>
+              <Text style={{ fontSize: 13, fontWeight: '800' }}>
+                <Text style={{ color: m.recordedQty > m.heldQty ? colors.buy : colors.sell }}>앱 {money(m.recordedQty, 0)}주</Text>
+                <Text style={{ color: colors.textDim }}> · 계좌 {money(m.heldQty, 0)}주</Text>
+              </Text>
+            </View>
+          ))}
+        </Card>
+      )}
 
       {filtered.length === 0 && (
         <Card>

@@ -22,48 +22,6 @@ import type { AutoOrder, BrokerAccount, Project, Trade } from '@/types/db';
  *
  * 매도 주문은 이 방식으로 판단하면 위험하므로(수량이 줄어든 이유가 여러 가지) 매수만 다룬다.
  */
-async function confirmBuyByBalance(
-  account: BrokerAccount,
-  order: AutoOrder,
-  market: string
-): Promise<{ avgPrice: number; filledQty: number } | null> {
-  if (order.side !== 'buy') return null;
-  const orderQty = Math.floor(Number(order.quantity));
-  if (orderQty <= 0) return null;
-  const want = toKisSymbol(order.symbol).toUpperCase();
-
-  let heldQty = 0;
-  let heldAvg = 0;
-  try {
-    const bal = market === 'US' ? await getOverseasBalance(account) : await getDomesticBalance(account);
-    const h = bal.holdings.find((x) => toKisSymbol(x.symbol).toUpperCase() === want);
-    if (!h) return null;
-    heldQty = Math.floor(h.quantity);
-    heldAvg = h.avgPrice;
-  } catch {
-    return null;
-  }
-  if (heldQty <= 0) return null;
-
-  // 이 종목으로 앱에 이미 기록된 순보유수량 (모든 프로젝트·포켓 합산)
-  const { data: projRows } = await supabase.from('projects').select('id').eq('symbol', order.symbol);
-  const projIds = ((projRows ?? []) as { id: string }[]).map((p) => p.id);
-  let recordedQty = 0;
-  if (projIds.length > 0) {
-    const { data: tradeRows } = await supabase.from('trades').select('*').in('project_id', projIds);
-    recordedQty = Math.floor(computePnL((tradeRows ?? []) as Trade[], null).totalQtyOpen);
-  }
-
-  if (heldQty >= recordedQty + orderQty) {
-    // 체결가는 주문 지정가를 쓴다 (지정가 매수는 지정가 이하로 체결 — 잔고 평단은 여러 매수의 혼합값이라 부정확).
-    // 평단이 지정가보다 낮으면(더 유리하게 체결) 평단을 쓴다.
-    const limit = Number(order.order_price);
-    const price = heldAvg > 0 && heldAvg < limit ? heldAvg : limit;
-    return { avgPrice: price, filledQty: orderQty };
-  }
-  return null;
-}
-
 /**
  * 미체결 자동주문을 포켓별로 로드한다 (포켓당 가장 최근 1건).
  * auto_orders 테이블이 아직 없거나 조회 실패면 빈 객체 (화면은 그대로 동작).
@@ -78,6 +36,71 @@ export async function loadPendingOrders(projectId?: string): Promise<Record<stri
     if (o.pocket_id) m[o.pocket_id] = o; // created_at 오름차순 → 마지막(=최신)이 남는다
   }
   return m;
+}
+
+export interface HoldingCheck {
+  heldQty: number; // 증권사 계좌 실제 보유수량
+  heldAvg: number; // 계좌 평균단가
+  recordedQty: number; // 앱에 기록된 순보유수량 (같은 종목, 모든 프로젝트 합산)
+  ok: boolean; // 잔고 조회 성공 여부 (실패면 검증을 건너뛴다)
+}
+
+/**
+ * 이 종목의 '증권사 실제 보유수량' 과 '앱에 기록된 보유수량' 을 함께 조회한다.
+ * 체결 기록의 진위를 판단하는 기준으로 쓴다 — 계좌 잔고가 언제나 사실이다.
+ */
+export async function checkHolding(
+  account: BrokerAccount,
+  symbol: string,
+  market: string
+): Promise<HoldingCheck> {
+  const base: HoldingCheck = { heldQty: 0, heldAvg: 0, recordedQty: 0, ok: false };
+  const want = toKisSymbol(symbol).toUpperCase();
+  try {
+    const bal = market === 'US' ? await getOverseasBalance(account) : await getDomesticBalance(account);
+    const h = bal.holdings.find((x) => toKisSymbol(x.symbol).toUpperCase() === want);
+    base.heldQty = h ? Math.floor(h.quantity) : 0;
+    base.heldAvg = h ? h.avgPrice : 0;
+    base.ok = true;
+  } catch {
+    return base; // 잔고 조회 실패 → 검증 불가 (호출측에서 통과시킨다)
+  }
+  const { data: projRows } = await supabase.from('projects').select('id').eq('symbol', symbol);
+  const projIds = ((projRows ?? []) as { id: string }[]).map((p) => p.id);
+  if (projIds.length > 0) {
+    const { data: tradeRows } = await supabase.from('trades').select('*').in('project_id', projIds);
+    base.recordedQty = Math.floor(computePnL((tradeRows ?? []) as Trade[], null).totalQtyOpen);
+  }
+  return base;
+}
+
+/**
+ * 잔고로 매수 체결을 확인하는 보조 수단.
+ *
+ * 체결조회(inquire-daily-ccld)는 SOR/NXT 로 체결된 주문처럼 KIS 내부 표기가 다르면
+ * 0건을 돌려주는 경우가 있다. 그럴 때도 '잔고에 실제로 들어와 있는 수량'은 정확하므로,
+ *   계좌 보유수량 >= (앱에 이미 기록된 보유수량 + 이 주문 수량)
+ * 이면 이 주문이 체결된 것으로 판단한다. (이미 기록된 만큼을 빼므로 중복 인정되지 않는다)
+ *
+ * 매도 주문은 이 방식으로 판단하면 위험하므로(수량이 줄어든 이유가 여러 가지) 매수만 다룬다.
+ */
+async function confirmBuyByBalance(
+  account: BrokerAccount,
+  order: AutoOrder,
+  market: string,
+  chk: HoldingCheck
+): Promise<{ avgPrice: number; filledQty: number } | null> {
+  if (order.side !== 'buy' || !chk.ok || chk.heldQty <= 0) return null;
+  const orderQty = Math.floor(Number(order.quantity));
+  if (orderQty <= 0) return null;
+  if (chk.heldQty >= chk.recordedQty + orderQty) {
+    // 체결가는 주문 지정가 기준 (지정가 매수는 지정가 이하로 체결).
+    // 계좌 평단이 지정가보다 낮으면 더 유리하게 체결된 것이므로 평단을 쓴다.
+    const limit = Number(order.order_price);
+    const price = chk.heldAvg > 0 && chk.heldAvg < limit ? chk.heldAvg : limit;
+    return { avgPrice: price, filledQty: orderQty };
+  }
+  return null;
 }
 
 /**
@@ -127,11 +150,32 @@ async function reconcileOnce(account: BrokerAccount, projectId?: string): Promis
     } catch {
       /* 체결조회 실패 → 아래 잔고 확인으로 폴백 */
     }
+
+    // 계좌 잔고를 함께 조회한다 — 체결조회의 폴백이자, 기록 전 검증 기준이 된다.
+    const chk = await checkHolding(account, p.symbol, p.market);
+
     // 체결조회가 못 잡으면(SOR/NXT 체결 등) 잔고로 재확인
     if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) {
-      fill = await confirmBuyByBalance(account, o, p.market);
+      fill = await confirmBuyByBalance(account, o, p.market, chk);
     }
     if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) continue;
+
+    // ── 기록 전 잔고 검증 ────────────────────────────────────────────
+    // 계좌 잔고가 언제나 사실이다. 이 체결을 기록했을 때 앱의 보유수량이
+    // 실제 계좌 보유수량을 넘어서면 = 이미 기록된 체결을 또 기록하려는 것이므로 막는다.
+    // (잔고 조회에 실패했으면 검증하지 않고 통과 — 조회 장애로 정상 체결을 놓치면 안 되니까)
+    if (o.side === 'buy' && chk.ok && chk.recordedQty + fill.filledQty > chk.heldQty) {
+      // 주문은 종결 처리해 매 주기마다 다시 조회하지 않게 한다.
+      await supabase
+        .from('auto_orders')
+        .update({
+          status: 'filled',
+          error_message: `잔고 검증으로 중복 기록 차단 (계좌 ${chk.heldQty}주 / 기록 ${chk.recordedQty}주 + 이번 ${fill.filledQty}주)`,
+        })
+        .eq('id', o.id)
+        .eq('status', 'sent');
+      continue;
+    }
 
     // ── 주문을 '선점'한다 (중복 기록 방지) ──────────────────────────────
     // 이 동기화는 여러 화면(목록·포켓탭·상세)과 서버 러너에서 동시에 돌 수 있다.
@@ -189,6 +233,66 @@ async function reconcileOnce(account: BrokerAccount, projectId?: string): Promis
     changed = true;
   }
   return changed;
+}
+
+export interface HoldingMismatch {
+  symbol: string;
+  name: string;
+  recordedQty: number; // 앱 기록
+  heldQty: number; // 증권사 계좌
+}
+
+/**
+ * 앱에 기록된 보유수량과 증권사 계좌 보유수량을 종목별로 대조한다.
+ * 어긋나면 체결이 중복 기록됐거나(앱이 많음), 앱 밖에서 매매했거나(계좌가 많음) 둘 중 하나다.
+ * 화면에 경고로 띄워 사용자가 바로 알아챌 수 있게 한다.
+ */
+export async function findHoldingMismatches(account: BrokerAccount | null): Promise<HoldingMismatch[]> {
+  if (!account) return [];
+  const { data: projRows } = await supabase.from('projects').select('id,name,symbol,market').is('closed_at', null);
+  const projects = (projRows ?? []) as Pick<Project, 'id' | 'name' | 'symbol' | 'market'>[];
+  if (projects.length === 0) return [];
+
+  const { data: tradeRows } = await supabase.from('trades').select('*');
+  const trades = (tradeRows ?? []) as Trade[];
+
+  // 종목별로 묶어 (같은 종목의 여러 프로젝트를 합산)
+  const bySymbol = new Map<string, { name: string; market: string; projIds: string[] }>();
+  for (const p of projects) {
+    const e = bySymbol.get(p.symbol) ?? { name: p.name, market: p.market, projIds: [] };
+    e.projIds.push(p.id);
+    bySymbol.set(p.symbol, e);
+  }
+
+  // 잔고는 시장별로 한 번씩만 조회
+  const balCache = new Map<string, Map<string, number>>();
+  const loadBal = async (market: string): Promise<Map<string, number> | null> => {
+    if (balCache.has(market)) return balCache.get(market)!;
+    try {
+      const bal = market === 'US' ? await getOverseasBalance(account) : await getDomesticBalance(account);
+      const m = new Map<string, number>();
+      bal.holdings.forEach((h) => m.set(toKisSymbol(h.symbol).toUpperCase(), Math.floor(h.quantity)));
+      balCache.set(market, m);
+      return m;
+    } catch {
+      return null;
+    }
+  };
+
+  const out: HoldingMismatch[] = [];
+  for (const [symbol, e] of bySymbol) {
+    const recordedQty = Math.floor(
+      computePnL(
+        trades.filter((t) => t.project_id && e.projIds.includes(t.project_id)),
+        null
+      ).totalQtyOpen
+    );
+    const m = await loadBal(e.market);
+    if (!m) continue; // 잔고 조회 실패 → 판단 보류
+    const heldQty = m.get(toKisSymbol(symbol).toUpperCase()) ?? 0;
+    if (recordedQty !== heldQty) out.push({ symbol, name: e.name, recordedQty, heldQty });
+  }
+  return out;
 }
 
 /**
