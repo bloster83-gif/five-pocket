@@ -389,9 +389,15 @@ export default function ProjectsScreen() {
 
                   {/* 현재가 · 기준가 — 한 줄에 좌/우 정렬(세로 높이 통일) */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
+                    {/* 줄바꿈 없이 한 줄 유지 — 가격이 길면 글자가 줄어들며 맞춰진다 */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
                       <Text style={{ color: colors.textDim, fontSize: 12 }}>현재가</Text>
-                      <Text style={{ color: closed ? colors.textDim : num.live, fontWeight: '900', fontSize: 15 }}>
+                      <Text
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.7}
+                        style={{ color: closed ? colors.textDim : num.live, fontWeight: '900', fontSize: 15, flexShrink: 1 }}
+                      >
                         {m?.price != null ? formatPrice(m.price, m?.market ?? item.market) : '—'}
                       </Text>
                       {m?.changePct != null ? (
@@ -404,9 +410,10 @@ export default function ProjectsScreen() {
                             borderRadius: 6,
                             paddingHorizontal: 6,
                             paddingVertical: 1,
+                            flexShrink: 0,
                           }}
                         >
-                          <Text style={{ color: signColor(m.changePct), fontWeight: '900', fontSize: 12 }}>
+                          <Text numberOfLines={1} style={{ color: signColor(m.changePct), fontWeight: '900', fontSize: 12 }}>
                             {m.changePct > 0 ? '▲' : m.changePct < 0 ? '▼' : ''}
                             {m.changePct > 0 ? '+' : ''}
                             {formatChangePct(m.changePct)}%
@@ -416,9 +423,14 @@ export default function ProjectsScreen() {
                         m?.price != null && <Text style={{ color: colors.textDim, fontSize: 11 }}>등락률 —</Text>
                       )}
                     </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, minWidth: 0 }}>
                       <Text style={{ color: colors.textDim, fontSize: 12 }}>기준가</Text>
-                      <Text style={{ color: closed ? colors.textDim : num.base, fontWeight: '900', fontSize: 15 }}>
+                      <Text
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.7}
+                        style={{ color: closed ? colors.textDim : num.base, fontWeight: '900', fontSize: 15, flexShrink: 1 }}
+                      >
                         {formatPrice(item.base_price, m?.market ?? item.market)}
                       </Text>
                     </View>
