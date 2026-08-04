@@ -88,7 +88,7 @@ export async function checkHolding(
 function confirmByBalance(
   order: AutoOrder,
   chk: HoldingCheck
-): { avgPrice: number; filledQty: number } | null {
+): { avgPrice: number; filledQty: number; estimated: true } | null {
   if (!chk.ok) return null;
   const orderQty = Math.floor(Number(order.quantity));
   if (orderQty <= 0) return null;
@@ -98,16 +98,17 @@ function confirmByBalance(
   if (order.side === 'buy') {
     if (chk.heldQty <= 0) return null;
     if (chk.heldQty < chk.recordedQty + orderQty) return null;
-    // 지정가 매수는 지정가 이하로 체결 — 계좌 평단이 더 낮으면 그쪽이 실제에 가깝다
-    const price = chk.heldAvg > 0 && chk.heldAvg < limit ? chk.heldAvg : limit;
-    return { avgPrice: price, filledQty: orderQty };
+    // 체결가는 이 주문의 지정가를 쓴다.
+    // 계좌 평단(heldAvg)은 이전 매수들이 섞인 혼합값이라 개별 주문의 체결가가 될 수 없다.
+    // (실제로 $12.35 에 체결된 주문이 계좌 평단 $10.87 로 잘못 기록됐다)
+    return { avgPrice: limit, filledQty: orderQty, estimated: true };
   }
 
   // 매도: 앱에 기록된 보유분이 계좌에서 그만큼 빠져나갔으면 체결된 것
   if (chk.recordedQty <= 0) return null;
   if (chk.heldQty > chk.recordedQty - orderQty) return null;
   // 지정가 매도는 지정가 이상으로 체결 — 정확한 체결가는 알 수 없으므로 지정가로 기록(매매일지에서 수정 가능)
-  return { avgPrice: limit, filledQty: orderQty };
+  return { avgPrice: limit, filledQty: orderQty, estimated: true };
 }
 
 /**
@@ -151,7 +152,7 @@ async function reconcileOnce(account: BrokerAccount, projectId?: string): Promis
   for (const o of orders) {
     const p = o.project_id ? projMap[o.project_id] : null;
     if (!p) continue;
-    let fill: { avgPrice: number; filledQty: number } | null = null;
+    let fill: { avgPrice: number; filledQty: number; estimated?: boolean } | null = null;
     try {
       fill = await getOrderFill(account, p.market === 'US' ? 'US' : 'KRX', o.kis_order_no!, p.symbol);
     } catch {
@@ -226,7 +227,10 @@ async function reconcileOnce(account: BrokerAccount, projectId?: string): Promis
         price: fill.avgPrice,
         quantity: fill.filledQty,
         executed_at: new Date().toISOString(),
-        note: `자동주문(KIS ${o.kis_order_no}) ${o.side === 'sell' ? '매도' : '매수'}`,
+        note:
+          `자동주문(KIS ${o.kis_order_no}) ${o.side === 'sell' ? '매도' : '매수'}` +
+          // 잔고로 확인한 경우 체결가는 지정가 기준의 추정치 — 매매일지에서 확인·수정하도록 표시
+          (fill.estimated ? ' · 체결가 추정(지정가)' : ''),
       });
     }
 
