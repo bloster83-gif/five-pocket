@@ -9,8 +9,8 @@
 //   4) KIS 지정가 주문 (국내=국내주문 / 미국=해외주문) → auto_orders/trades 기록 + 포켓 갱신
 //   5) Expo 푸시 알림 (profiles.expo_push_token 이 있으면)
 //
-// 장 운영시간(국내 평일 09:00~15:30 KST / 미국 정규장 09:30~16:00 ET) 외에는
-// 해당 시장 프로젝트를 건너뜁니다. (?force=1 로 강제 실행)
+// 거래 시간 밖에는 주문을 보내지 않고 건너뜁니다 (?force=1 로 강제 실행).
+//   국내: KRX 정규장 09:00~15:30 KST + NXT 08:00~08:50·15:40~20:00(넥스트레이드 종목만)
 // ※ 미국은 정규장 + 주간거래(블루오션, ET 20:00~04:00, 실전만) + 프리/애프터마켓 모두 지원.
 //
 // 배포:
@@ -73,13 +73,53 @@ interface PocketRow {
 const baseUrl = (a: BrokerAccount) => (a.is_virtual ? VTS_BASE : REAL_BASE);
 const toKisSymbol = (s: string) => s.replace(/\.(KS|KQ)$/i, '').trim();
 
-// ----- 장 운영시간 (KST 평일 09:00 ~ 15:30) -----
-function isMarketOpen(): boolean {
+// ----- 국내 거래 시간 (앱 src/services/marketHours.ts 와 기준을 맞출 것) -----
+//   KRX 정규장     : 평일 09:00~15:30 KST — 모든 종목
+//   NXT 프리마켓   : 평일 08:00~08:50 KST — 넥스트레이드 종목만
+//   NXT 애프터마켓 : 평일 15:40~20:00 KST — 넥스트레이드 종목만
+type KrxSession = 'regular' | 'nxt' | 'closed';
+
+function krxSession(): KrxSession {
   const kst = new Date(Date.now() + 9 * 3600 * 1000);
   const day = kst.getUTCDay();
-  if (day === 0 || day === 6) return false;
+  if (day === 0 || day === 6) return 'closed';
   const mins = kst.getUTCHours() * 60 + kst.getUTCMinutes();
-  return mins >= 9 * 60 && mins <= 15 * 60 + 30;
+  if (mins >= 9 * 60 && mins <= 15 * 60 + 30) return 'regular';
+  if (mins >= 8 * 60 && mins < 8 * 60 + 50) return 'nxt';
+  if (mins >= 15 * 60 + 40 && mins < 20 * 60) return 'nxt';
+  return 'closed';
+}
+
+function isMarketOpen(): boolean {
+  return krxSession() !== 'closed';
+}
+
+// 넥스트레이드 거래 종목인지 (NX 시장구분으로 시세가 나오면 상장 종목). 실패 시 false = 정규장만.
+const nxtListedCache = new Map<string, boolean>();
+async function isNxtTradable(acc: BrokerAccount, token: string, symbol: string): Promise<boolean> {
+  const code = toKisSymbol(symbol);
+  const cached = nxtListedCache.get(code);
+  if (cached !== undefined) return cached;
+  try {
+    const u = new URL(`${baseUrl(acc)}/uapi/domestic-stock/v1/quotations/inquire-price`);
+    u.searchParams.set('FID_COND_MRKT_DIV_CODE', 'NX');
+    u.searchParams.set('FID_INPUT_ISCD', code);
+    const res = await fetch(u.toString(), {
+      headers: {
+        authorization: `Bearer ${token}`,
+        appkey: acc.app_key,
+        appsecret: acc.app_secret,
+        tr_id: PRICE_TR,
+        custtype: 'P',
+      },
+    });
+    const json = await res.json();
+    const ok = json?.rt_cd === '0' && Number(json?.output?.stck_prpr) > 0;
+    nxtListedCache.set(code, ok);
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 // ----- KIS 접근토큰 (broker_accounts 에 캐시) -----
@@ -659,6 +699,16 @@ Deno.serve(async (req: Request) => {
     const useDaytime = isUs && !acc.is_virtual && !usOpen && usDaytime;
     // 해당 시장이 열려 있을 때만 처리 (force 면 무시)
     if (!force && (isUs ? !usOpen && !useDaytime && !usExtended : !krxOpen)) continue;
+    // 국내 정규장 밖(NXT 시간대)에는 넥스트레이드 거래 종목만 주문한다.
+    // 미거래 종목은 주문해도 거부되므로 정규장이 열릴 때까지 기다린다.
+    if (!force && !isUs && krxSession() === 'nxt') {
+      try {
+        const t = await getToken(admin, acc);
+        if (!(await isNxtTradable(acc, t, proj.symbol))) continue;
+      } catch {
+        continue;
+      }
+    }
 
     const push = autoUsers.get(proj.user_id)?.expo_push_token as string | null | undefined;
     let token: string;

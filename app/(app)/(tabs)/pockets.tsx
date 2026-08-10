@@ -11,7 +11,8 @@ import { colors, formatChangePct, formatMoney, formatPrice, money, num, pocketCo
 import { alignToKrxTick, computePnL, estimatedShares, sellTargetFromFill } from '@/domain/pockets';
 import { getUnifiedQuote } from '@/services/prices/unified';
 import { getStoredQuotes } from '@/services/prices/quoteStore';
-import { getOrderFill, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
+import { getOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
+import { orderWindow } from '@/services/marketHours';
 import { cancelPendingOrder, findHoldingMismatches, healBoughtPockets, loadPendingOrders, reconcilePendingOrders, type HoldingMismatch } from '@/services/pendingOrders';
 import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
@@ -230,6 +231,9 @@ export default function PocketsScreen() {
     if (sellPrice <= 0) return { ok: false, msg: '현재가를 확인할 수 없어요' };
 
     if (tier === 'auto' && account && !kisOrderBlocked(proj.market)) {
+      const nxtTradable = proj.market === 'US' ? false : await isNxtTradable(account, proj.symbol);
+      const win = orderWindow(proj.market, { nxtTradable, isVirtual: account.is_virtual });
+      if (!win.canOrder) return { ok: false, msg: win.reason };
       try {
         const input = { side: 'sell' as const, symbol: proj.symbol, quantity: qty, price: sellPrice };
         const r = proj.market === 'US' ? await placeOverseasOrder(account, input) : await placeDomesticOrder(account, input);
@@ -301,6 +305,10 @@ export default function PocketsScreen() {
     const sellTgt = isKrx ? alignToKrxTick(rawSell, 'sell') : rawSell;
 
     if (tier === 'auto' && account && !kisOrderBlocked(proj.market)) {
+      // 거래 시간이 아니면 주문을 보내지 않는다 (증권사가 거부할 뿐이라 이유를 먼저 알려준다)
+      const nxtTradable = proj.market === 'US' ? false : await isNxtTradable(account, proj.symbol);
+      const win = orderWindow(proj.market, { nxtTradable, isVirtual: account.is_virtual });
+      if (!win.canOrder) return { ok: false, msg: win.reason };
       try {
         const input = { side: 'buy' as const, symbol: proj.symbol, quantity: qty, price: buyPrice };
         const r = proj.market === 'US' ? await placeOverseasOrder(account, input) : await placeDomesticOrder(account, input);

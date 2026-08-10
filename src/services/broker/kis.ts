@@ -505,6 +505,47 @@ async function getDomesticPriceRaw(account: BrokerAccount, symbol: string): Prom
   throw new Error('국내 시세를 불러오지 못했어요.');
 }
 
+// 종목코드 → 넥스트레이드(NXT) 거래 종목 여부 캐시
+const nxtListedCache = new Map<string, boolean>();
+
+/**
+ * 넥스트레이드에서 거래되는 종목인지 확인한다.
+ *
+ * NXT 시장구분('NX')으로 시세가 나오면 넥스트레이드 상장 종목이다.
+ * 이 종목만 KRX 정규장 밖(프리 08:00~08:50 / 애프터 15:40~20:00)에 주문할 수 있다.
+ * 조회에 실패하면 false — 안전하게 KRX 정규장에만 주문하도록 한다.
+ */
+export async function isNxtTradable(account: BrokerAccount, symbol: string): Promise<boolean> {
+  const code = toKisSymbol(symbol);
+  const cached = nxtListedCache.get(code);
+  if (cached !== undefined) return cached;
+  try {
+    const ok = await withKisSlot(() =>
+      retryOnRateLimit(async () => {
+        const token = await getValidToken(account);
+        const u = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/domestic-stock/v1/quotations/inquire-price`);
+        u.searchParams.set('FID_COND_MRKT_DIV_CODE', 'NX');
+        u.searchParams.set('FID_INPUT_ISCD', code);
+        const res = await fetch(u.toString(), {
+          headers: {
+            authorization: `Bearer ${token}`,
+            appkey: account.app_key,
+            appsecret: account.app_secret,
+            tr_id: 'FHKST01010100',
+            custtype: 'P',
+          },
+        });
+        const json = await res.json();
+        return json?.rt_cd === '0' && Number(json?.output?.stck_prpr) > 0;
+      })
+    );
+    nxtListedCache.set(code, ok);
+    return ok;
+  } catch {
+    return false; // 확인 실패 → 정규장에만 주문 (보수적)
+  }
+}
+
 /** 종목의 미국 거래소 코드(NAS/NYS/AMS)를 확정 (캐시에 없으면 시세 조회로 탐색) */
 export async function resolveUsExchange(account: BrokerAccount, symbol: string): Promise<string> {
   const sym = symbol.replace(/\.(KS|KQ)$/i, '').trim().toUpperCase();

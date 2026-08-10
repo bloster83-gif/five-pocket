@@ -16,7 +16,8 @@ import { useAuth } from '@/lib/auth';
 import { notifyNow } from '@/lib/notifications';
 import { alignToKrxTick, estimatedShares, sellTargetFromFill, type PriceSignal } from '@/domain/pockets';
 import { computePnL } from '@/domain/pockets';
-import { getOrderFill, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
+import { getOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
+import { orderWindow } from '@/services/marketHours';
 import type { BrokerAccount, Project, Trade } from '@/types/db';
 
 export interface AutoTradeEvent {
@@ -109,6 +110,14 @@ export function useAutoTrader(
           if (!account) {
             throw new Error('한국투자증권 계좌가 연결되지 않았어요. 계좌 연결 화면에서 설정하세요.');
           }
+
+          // ── 거래 가능 시간이 아니면 주문을 보내지 않는다 ──────────────────
+          // 장이 닫힌 시간(주말·야간)에 보내면 증권사가 거부할 뿐이라, 아예 보내지 않고
+          // 다음 신호(거래 시간이 되어 가격이 다시 조건을 만족할 때)를 기다린다.
+          // 국내는 넥스트레이드 미거래 종목이면 KRX 정규장까지 기다린다.
+          const nxtTradable = proj.market === 'US' ? false : await isNxtTradable(account, proj.symbol);
+          const win = orderWindow(proj.market, { nxtTradable, isVirtual: account.is_virtual });
+          if (!win.canOrder) return; // 조용히 대기 (알림 없음)
 
           // 주문가(지정가): 매수 = min(목표가, 현재가) — 더 싸게 / 매도 = max(목표가, 현재가) — 더 비싸게
           const limitPrice = sig.kind === 'buy' ? buyPrice : Math.max(sig.targetPrice, sig.currentPrice);
