@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, Text, TextInput, View } from 'react-native';
 import { colors, formatPrice, radius, rawNumeric, signColor, spacing } from '@/theme';
-import { alignToKrxTick } from '@/domain/pockets';
+import { alignToKrxTick, estimatedShares } from '@/domain/pockets';
 import { notify } from '@/lib/alert';
 import type { Pocket } from '@/types/db';
 
@@ -68,8 +68,21 @@ export function EditTargetsModal({
   const sellProfit = refBuy > 0 && sellVal > 0 ? Math.round((sellVal / refBuy - 1) * 1000) / 10 : null;
   const cur = isKrx ? '₩' : '$';
 
+  // 배분 예산으로 이 목표가에 몇 주를 살 수 있는지.
+  // 0주가 되면 목록에서 숨겨져 포켓이 사라진 것처럼 보이므로 저장 자체를 막는다.
+  // (보유중 포켓은 매수 목표가를 못 바꾸므로 검사 대상이 아니다)
+  const buyableQty = held ? null : estimatedShares(pocket.budget, buyVal);
+  const qtyBlocked = buyableQty != null && buyVal > 0 && buyableQty <= 0;
+
   const submit = async () => {
     if (buyVal <= 0) return notify('입력 확인', '매수 목표가를 올바르게 입력해 주세요.');
+    if (qtyBlocked) {
+      return notify(
+        '저장할 수 없어요',
+        `배분 예산 ${formatPrice(Number(pocket.budget ?? 0), market)}으로는 ${formatPrice(buyVal, market)}에 1주도 살 수 없어요.\n\n` +
+          '매수 목표가를 낮추거나, 프로젝트 예산을 늘려 주세요.'
+      );
+    }
     setSaving(true);
     try {
       await onSave(buyVal, sellVal > 0 ? sellVal : null);
@@ -184,6 +197,35 @@ export function EditTargetsModal({
             )}
           </View>
 
+          {/* 매수 가능 수량 — 0주가 되면 목록에서 사라지므로 미리 경고한다 */}
+          {buyableQty != null && buyVal > 0 && (
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: qtyBlocked ? colors.warn : colors.border,
+                backgroundColor: qtyBlocked ? 'rgba(251,191,36,0.10)' : colors.cardAlt,
+              }}
+            >
+              <Text style={{ color: colors.textDim, fontSize: 12 }}>
+                매수 가능 수량 (배분 예산 {formatPrice(Number(pocket.budget ?? 0), market)})
+              </Text>
+              <Text style={{ color: qtyBlocked ? colors.warn : colors.buy, fontSize: 14, fontWeight: '900' }}>
+                {buyableQty}주
+              </Text>
+            </View>
+          )}
+          {qtyBlocked && (
+            <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
+              ⚠️ 이 가격으로는 1주도 살 수 없어 저장할 수 없어요. 매수 목표가를 낮추거나 프로젝트 예산을 늘려 주세요.
+            </Text>
+          )}
+
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
             <Pressable
               onPress={onClose}
@@ -193,10 +235,19 @@ export function EditTargetsModal({
             </Pressable>
             <Pressable
               onPress={submit}
-              disabled={saving}
-              style={{ flex: 1, paddingVertical: 12, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: 'center', opacity: saving ? 0.6 : 1 }}
+              disabled={saving || qtyBlocked}
+              style={{
+                flex: 1,
+                paddingVertical: 12,
+                borderRadius: radius.md,
+                backgroundColor: qtyBlocked ? colors.border : colors.primary,
+                alignItems: 'center',
+                opacity: saving ? 0.6 : 1,
+              }}
             >
-              <Text style={{ color: '#04121A', fontWeight: '900' }}>{saving ? '저장 중…' : '저장'}</Text>
+              <Text style={{ color: qtyBlocked ? colors.textDim : '#04121A', fontWeight: '900' }}>
+                {saving ? '저장 중…' : '저장'}
+              </Text>
             </Pressable>
           </View>
         </Pressable>
