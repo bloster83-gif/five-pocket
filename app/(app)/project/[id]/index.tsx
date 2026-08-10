@@ -772,12 +772,11 @@ export default function ProjectDetailScreen() {
           </View>
         )}
         {pockets
-          // 매수 가능 수량이 0주인 대기 포켓은 숨김 (거래 이력이 있으면 표시)
+          // 배분 예산이 아예 없는 대기 포켓만 숨긴다 (거래 이력이 있으면 표시).
+          // 예산은 있는데 목표가가 높아 0주가 된 포켓은 '숨기지 않고' 경고와 함께 보여준다 —
+          // 숨겨버리면 사라진 것처럼 보이는데 정작 목표가를 고칠 방법이 없어진다.
           .filter(
-            (k) =>
-              k.status !== 'waiting' ||
-              (cyclesByPocket.get(k.id) ?? 0) > 0 ||
-              estimatedShares(k.budget, k.buy_target_price) > 0
+            (k) => k.status !== 'waiting' || (cyclesByPocket.get(k.id) ?? 0) > 0 || Number(k.budget ?? 0) > 0
           )
           .map((k) => {
           // 이 포켓의 현재 순환 순 보유(미매도) 포지션 — 여러 번 매수해도 합산해서 실제 수량/평단 계산
@@ -1424,7 +1423,30 @@ function PocketCard({
             <Row label={`배분 예산 (비중 ${k.weight}%)`} value={formatPrice(k.budget, market)} valueColor={num.budget} />
           )}
           {k.budget != null && (
-            <Row label="매수 가능 수량" value={`${money(buyableQty, 0)}주`} valueColor={num.position} />
+            <Row
+              label="매수 가능 수량"
+              value={`${money(buyableQty, 0)}주`}
+              valueColor={buyableQty <= 0 ? colors.warn : num.position}
+            />
+          )}
+          {/* 예산은 있는데 목표가가 높아 0주가 된 경우 — 고칠 수 있게 사유를 알려준다 */}
+          {k.status === 'waiting' && Number(k.budget ?? 0) > 0 && buyableQty <= 0 && (
+            <View
+              style={{
+                marginTop: spacing.xs,
+                padding: spacing.sm,
+                borderRadius: radius.sm,
+                borderWidth: 1,
+                borderColor: colors.warn,
+                backgroundColor: 'rgba(251,191,36,0.10)',
+              }}
+            >
+              <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 13 }}>⚠️ 매수 가능 수량이 0주예요</Text>
+              <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 2 }}>
+                배분 예산 {formatPrice(Number(k.budget), market)}으로는 매수 목표가{' '}
+                {formatPrice(buyTargetDisp, market)}에 1주도 살 수 없어요. 목표가를 낮추거나 프로젝트 예산을 늘려 주세요.
+              </Text>
+            </View>
           )}
           {(buyReady || buyFailMsg) && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
