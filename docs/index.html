@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>5 Pocket Diary — 5분할 매수·매도 일지</title>
+<meta name="description" content="5 Pocket Diary는 주식을 5~10회로 분할 매수·매도하는 계획을 세우고 기록하는 개인 매매일지 앱입니다." />
+<style>
+  :root {
+    --bg: #0B0E14;
+    --card: #151A24;
+    --border: #232A38;
+    --text: #E8ECF4;
+    --dim: #8B94A7;
+    --buy: #F5455C;
+    --sell: #3B82F6;
+    --accent: #A78BFA;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", Roboto, sans-serif;
+    line-height: 1.65;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 56px 20px 80px; }
+  header { text-align: center; margin-bottom: 48px; }
+  .logo {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 64px; height: 64px; border-radius: 18px;
+    background: linear-gradient(135deg, var(--buy), var(--accent));
+    font-size: 30px; font-weight: 900; color: #fff; margin-bottom: 16px;
+  }
+  h1 { font-size: 30px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .tagline { color: var(--dim); font-size: 16px; margin: 0; }
+  h2 { font-size: 19px; margin: 40px 0 14px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px 22px;
+  }
+  ul { margin: 0; padding-left: 20px; }
+  li { margin-bottom: 8px; }
+  li:last-child { margin-bottom: 0; }
+  .links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .links a {
+    display: inline-block; padding: 10px 16px; border-radius: 10px;
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--text); text-decoration: none; font-weight: 700; font-size: 14px;
+  }
+  .links a:hover { border-color: var(--accent); color: var(--accent); }
+  dl { margin: 0; display: grid; grid-template-columns: 108px 1fr; gap: 10px 16px; }
+  dt { color: var(--dim); font-size: 14px; }
+  dd { margin: 0; font-size: 14px; word-break: break-all; }
+  .notice {
+    margin-top: 40px; padding: 16px 18px; border-radius: 12px;
+    border: 1px solid var(--border); background: rgba(59,130,246,0.06);
+    color: var(--dim); font-size: 13px;
+  }
+  footer { margin-top: 44px; text-align: center; color: var(--dim); font-size: 13px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">5</div>
+      <h1>5 Pocket Diary</h1>
+      <p class="tagline">5분할 매수·매도 계획을 세우고 기록하는 개인 매매일지</p>
+    </header>
+
+    <h2>어떤 앱인가요</h2>
+    <div class="card">
+      <p style="margin:0 0 12px">
+        한 번에 몰아서 사지 않고, 목표가를 나눠 <strong>5~10개의 “포켓”</strong>으로 분할 매수·매도하는
+        계획을 세우고 그 결과를 기록하는 앱입니다. 계획한 대로 매매했는지, 실제로 얼마를 벌고 잃었는지를
+        한눈에 돌아볼 수 있게 만들었습니다.
+      </p>
+      <ul>
+        <li><strong>프로젝트·포켓</strong> — 기준가와 매수 간격·매도 목표 비율로 분할 계획 자동 생성</li>
+        <li><strong>매매일지</strong> — 체결 기록, 평가·실현 손익, 기간별 통계</li>
+        <li><strong>관심종목 레이더</strong> — 기준가 대비 등락 감시, 종목별 메모, 그룹 관리</li>
+        <li><strong>가치분석</strong> — 시가총액·PER·PBR·ROE 등 지표와 5년 실적 추이</li>
+        <li><strong>인생목표</strong> — 연도별 목표 자산과 실제 달성액 비교</li>
+      </ul>
+    </div>
+
+    <h2>증권사 연동에 대해</h2>
+    <div class="card">
+      <p style="margin:0">
+        저희는 금융기관이 아니며, 이용자의 <strong>자금을 보관하거나 이동하지 않습니다.</strong>
+        주문 기능은 선택 사항이고, 이용자가 <strong>본인 명의로 직접 발급한</strong> 한국투자증권 OpenAPI
+        키를 입력해야만 동작하며 주문은 <strong>이용자 본인 계좌로만</strong> 전송됩니다.
+        모의투자 모드를 제공하므로 실제 자금 없이 먼저 확인할 수 있습니다.
+        투자 자문·종목 추천·수익 보장은 일절 제공하지 않으며, 모든 목표가는 이용자가 입력한
+        비율로만 계산됩니다.
+      </p>
+    </div>
+
+    <h2>문서</h2>
+    <div class="links">
+      <a href="./privacy-policy.html">개인정보처리방침</a>
+      <a href="./support.html">고객지원</a>
+      <a href="./account-deletion.html">계정 삭제 안내</a>
+    </div>
+
+    <h2>사업자 정보</h2>
+    <div class="card">
+      <dl>
+        <dt>상호</dt><dd>READYFIT</dd>
+        <dt>대표</dt><dd>이지훈</dd>
+        <dt>사업자등록번호</dt><dd>110-11-19103</dd>
+        <dt>소재지</dt><dd>경기도 고양시 덕양구 독곶이길 191, B-1</dd>
+        <dt>문의</dt><dd><a href="mailto:bloster83@gmail.com">bloster83@gmail.com</a></dd>
+      </dl>
+    </div>
+
+    <p class="notice">
+      본 앱과 이 사이트가 제공하는 모든 정보는 기록·참고용이며 투자 권유가 아닙니다.
+      투자 판단과 그 결과에 대한 책임은 이용자 본인에게 있습니다.
+      시세는 지연될 수 있으며 실제 체결 가격과 다를 수 있습니다.
+    </p>
+
+    <footer>© READYFIT · 5 Pocket Diary</footer>
+  </div>
+</body>
+</html>
