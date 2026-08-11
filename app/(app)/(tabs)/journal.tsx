@@ -534,53 +534,62 @@ export default function JournalScreen() {
         </Card>
       )}
 
-      {/* 💰 손익 요약: 실현(기간) + 평가(현재 보유) 합산 (시장별). 이 기간에 현금흐름이 있으면 함께 표시 */}
+      {/* 요약: ① 거래 금액 ② 실현손익 ③ 현금흐름 — 각각 독립 카드 */}
       {!flowTypeQuery && (summaryMarkets.length > 0 || hasFlow) && (
-        <Card style={{ borderColor: colors.buy }}>
-          <Text style={{ color: colors.text, fontWeight: '800' }}>
-            💰 손익 요약 · {periodLabel}
-            {q.trim() ? ` · ${q.trim()}` : ''}
-          </Text>
-          {/* 거래 기준 요약 — 검색한 기간·종목의 매수·매도·실현손익.
-              맨 아래 '올해 손익'만 기간과 무관하게 현재 연도 기준으로 고정 표시한다. */}
+        <>
+          {/* ① 거래 금액 — 검색한 기간·종목에 실제로 오간 금액 */}
           {summaryMarkets.length > 0 && (
             <SummaryTable
-              title="💰 손익"
-              accent={colors.buy}
+              title="💵 거래"
+              accent={colors.accent}
               markets={summaryMarkets}
               rows={[
                 {
                   label: '총 매도금액',
                   values: summaryMarkets.map((m) => tradeTotals.sell[m] ?? 0),
                   color: colors.sell,
+                  strong: true,
                 },
                 {
                   label: '총 매수금액',
                   values: summaryMarkets.map((m) => tradeTotals.buy[m] ?? 0),
                   color: colors.buy,
+                  strong: true,
                 },
+              ]}
+              subtitle={`${periodLabel} 기준 · 체결 ${filteredTrades.length}건`}
+            />
+          )}
+
+          {/* ② 실현손익 — 검색 기간 기준과 올해 전체를 나눠서 */}
+          {summaryMarkets.length > 0 && (
+            <SummaryTable
+              title="📈 실현손익"
+              accent={colors.buy}
+              markets={summaryMarkets}
+              rows={[
                 {
-                  label: '실현손익',
+                  label: `${periodLabel}`,
                   values: summaryMarkets.map((m) => realizedTotals.byMarket[m] ?? 0),
                   sign: true,
                   strong: true,
                 },
                 {
-                  label: `${thisYear}년 손익`,
+                  label: `${thisYear}년`,
                   values: summaryMarkets.map((m) => yearRealized[m] ?? 0),
                   sign: true,
                   strong: true,
                   divider: true,
                 },
               ]}
-              subtitle={`매수·매도·실현손익은 ${periodLabel} 기준 · 매도 ${realizedTotals.count}건`}
-              footnote={`${thisYear}년 손익은 검색 기간과 무관하게 올해 전체 실현손익이에요.`}
+              subtitle={`${periodLabel} 매도 ${realizedTotals.count}건`}
+              footnote={`${thisYear}년 실현손익은 검색 기간과 무관하게 올해 전체 기준이에요.`}
             />
           )}
 
-          {/* 이 기간에 입금/출금/배당이 있으면 따로 표시 (없으면 숨김) */}
+          {/* ③ 이 기간에 입금/출금/배당이 있으면 따로 표시 (없으면 숨김) */}
           {hasFlow && (
-            <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 6 }}>
+            <Card style={{ borderColor: colors.primary }}>
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>💵 현금 흐름 ({periodLabel})</Text>
               {(['deposit', 'withdrawal', 'dividend'] as CashFlowType[])
                 .filter((k) => flowSums[k] !== 0)
@@ -593,9 +602,9 @@ export default function JournalScreen() {
                     </Text>
                   </View>
                 ))}
-            </View>
+            </Card>
           )}
-        </Card>
+        </>
       )}
 
       {trades.length > 0 && Object.keys(byDate).length === 0 && (
