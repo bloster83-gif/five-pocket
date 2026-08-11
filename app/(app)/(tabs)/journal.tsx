@@ -266,6 +266,8 @@ export default function JournalScreen() {
   // (평가손익은 현재 보유분 실시간 평가라 과거 기간으로 되돌릴 수 없어 항상 최신 기준)
   const periodScoped = !!(from || to);
   const periodLabel = preset ?? (periodScoped ? `${from || '처음'}~${to || '오늘'}` : '전체');
+  // 표의 라벨 열은 좁아서 긴 날짜 범위는 '검색기간'으로 줄여 표시
+  const periodShort = preset ?? (periodScoped ? '검색기간' : '전체');
 
   // 기간 내 현금흐름 종류별 합산
   const flowSums = useMemo(() => {
@@ -537,14 +539,15 @@ export default function JournalScreen() {
       {/* 요약: ① 거래 금액 ② 실현손익 ③ 현금흐름 — 각각 독립 카드 */}
       {!flowTypeQuery && (summaryMarkets.length > 0 || hasFlow) && (
         <>
-          {/* ① 거래 금액 — 검색한 기간·종목에 실제로 오간 금액 */}
+          {/* 한 카드 안에서 '거래 금액'과 '실현손익'을 구획으로 나눠 보여준다 */}
           {summaryMarkets.length > 0 && (
             <SummaryTable
-              title="💵 거래"
-              accent={colors.accent}
+              title="💰 손익"
+              accent={colors.buy}
               markets={summaryMarkets}
               rows={[
                 {
+                  section: `💵 거래 금액 · ${periodLabel}`,
                   label: '총 매도금액',
                   values: summaryMarkets.map((m) => tradeTotals.sell[m] ?? 0),
                   color: colors.sell,
@@ -556,33 +559,22 @@ export default function JournalScreen() {
                   color: colors.buy,
                   strong: true,
                 },
-              ]}
-              subtitle={`${periodLabel} 기준 · 체결 ${filteredTrades.length}건`}
-            />
-          )}
-
-          {/* ② 실현손익 — 검색 기간 기준과 올해 전체를 나눠서 */}
-          {summaryMarkets.length > 0 && (
-            <SummaryTable
-              title="📈 실현손익"
-              accent={colors.buy}
-              markets={summaryMarkets}
-              rows={[
                 {
-                  label: `${periodLabel}`,
+                  section: '📈 실현손익',
+                  label: periodShort,
                   values: summaryMarkets.map((m) => realizedTotals.byMarket[m] ?? 0),
                   sign: true,
                   strong: true,
+                  divider: true,
                 },
                 {
                   label: `${thisYear}년`,
                   values: summaryMarkets.map((m) => yearRealized[m] ?? 0),
                   sign: true,
                   strong: true,
-                  divider: true,
                 },
               ]}
-              subtitle={`${periodLabel} 매도 ${realizedTotals.count}건`}
+              subtitle={`체결 ${filteredTrades.length}건 · 매도 ${realizedTotals.count}건 (${periodLabel})`}
               footnote={`${thisYear}년 실현손익은 검색 기간과 무관하게 올해 전체 기준이에요.`}
             />
           )}

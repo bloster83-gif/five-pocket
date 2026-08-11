@@ -85,6 +85,8 @@ export function computeMarketSummaries(
 }
 
 export interface SummaryRow {
+  /** 이 행 위에 붙일 구획 소제목 (한 카드 안에서 성격이 다른 묶음을 나눌 때) */
+  section?: string;
   label: string;
   values: (number | null)[];
   color?: string;
@@ -100,6 +102,7 @@ function fmtCell(v: number | null, market: string, sign?: boolean): string {
 }
 
 function Row({
+  section,
   label,
   values,
   markets,
@@ -110,12 +113,27 @@ function Row({
   size,
 }: SummaryRow & { markets: string[]; size: number }) {
   return (
+    <>
+      {section && (
+        <Text
+          style={{
+            color: colors.textDim,
+            fontSize: 11,
+            fontWeight: '800',
+            marginTop: divider ? 0 : 6,
+            paddingTop: divider ? 10 : 0,
+            ...(divider ? { borderTopWidth: 1, borderTopColor: colors.border, marginTop: 6 } : null),
+          }}
+        >
+          {section}
+        </Text>
+      )}
     <View
       style={{
         flexDirection: 'row',
         alignItems: 'center',
         paddingVertical: 6,
-        ...(divider ? { borderTopWidth: 1, borderTopColor: colors.border, marginTop: 4, paddingTop: 10 } : null),
+        ...(divider && !section ? { borderTopWidth: 1, borderTopColor: colors.border, marginTop: 4, paddingTop: 10 } : null),
       }}
     >
       <View style={{ width: 66 }}>
@@ -140,6 +158,7 @@ function Row({
         </View>
       ))}
     </View>
+    </>
   );
 }
 
