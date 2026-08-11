@@ -7,7 +7,6 @@ import { confirmAction, notify } from '@/lib/alert';
 import { SummaryTable } from '@/components/PortfolioSummary';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { alignToKrxTick, computePnL, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
-import { getUnifiedQuote, loadBrokerAccount } from '@/services/prices/unified';
 import { colors, formatKRW, formatMoney, formatPrice, money, num, radius, signColor, spacing } from '@/theme';
 import type { CashFlow, CashFlowType, Market, Project, Trade } from '@/types/db';
 
@@ -38,7 +37,6 @@ export default function JournalScreen() {
   const [preset, setPreset] = useState<string | null>('올해'); // 기간 빠른 버튼
   const [sideFilter, setSideFilter] = useState<'buy' | 'sell' | null>(null); // 매수/매도만 보기
   const [detail, setDetail] = useState<Trade | null>(null); // 체결 상세보기
-  const [prices, setPrices] = useState<Record<string, number>>({}); // 평가손익용 현재가 (yahoo 심볼→가격)
 
   // 기간 빠른 버튼: 한 번 탭으로 from/to 설정
   const applyPreset = (key: string) => {
@@ -223,115 +221,45 @@ export default function JournalScreen() {
     return { byMarket, count: filteredRealized.length };
   }, [filteredRealized, marketOfTrade]);
 
-  // 체결의 시세 심볼(야후 형식) — 프로젝트면 프로젝트 심볼, 직접입력이면 trade.symbol
-  const symbolOfTrade = useCallback(
-    (t: Trade) => (t.project_id ? projMap[t.project_id]?.symbol : undefined) ?? t.symbol ?? null,
-    [projMap]
-  );
-
-  // 현재 보유중(미매도) 포지션을 종목별로 집계 (평가손익 계산용)
-  // 포켓 순환을 고려해 pocket_id(없으면 종목) 단위로 잔여 수량·원가를 구한 뒤 종목별로 합산.
-  const openPositions = useMemo(() => {
-    const groups = new Map<string, Trade[]>();
-    for (const t of trades) {
-      const key = t.pocket_id ?? (symbolOfTrade(t) ? `sym-${symbolOfTrade(t)}` : `solo-${t.id}`);
-      const arr = groups.get(key);
-      if (arr) arr.push(t);
-      else groups.set(key, [t]);
+  // 검색 조건(종목·기간·매매구분) 안의 총 매수·매도 금액 (시장별)
+  // 매매일지는 '실제로 체결된 거래' 기록이므로, 요약도 보유 평가가 아니라 거래 금액으로 본다.
+  const tradeTotals = useMemo(() => {
+    const buy: Record<string, number> = {};
+    const sell: Record<string, number> = {};
+    for (const t of filteredTrades) {
+      const mkt = marketOfTrade(t);
+      const amt = Number(t.price) * Number(t.quantity);
+      if (t.side === 'buy') buy[mkt] = (buy[mkt] ?? 0) + amt;
+      else sell[mkt] = (sell[mkt] ?? 0) + amt;
     }
-    const bySym = new Map<string, { symbol: string; market: Market; qty: number; cost: number }>();
-    for (const g of groups.values()) {
-      g.sort((a, b) => (a.executed_at < b.executed_at ? -1 : a.executed_at > b.executed_at ? 1 : 0));
-      let pos = 0;
-      let cost = 0;
-      for (const t of g) {
-        if (t.side === 'buy') {
-          pos += t.quantity;
-          cost += t.quantity * t.price;
-        } else if (pos > 0) {
-          const avg = cost / pos;
-          const q = Math.min(t.quantity, pos);
-          pos -= q;
-          cost -= avg * q;
-          if (pos <= 1e-9) {
-            pos = 0;
-            cost = 0;
-          }
-        }
-      }
-      if (pos > 1e-9) {
-        const sym = symbolOfTrade(g[0]);
-        if (!sym) continue;
-        const mkt = marketOfTrade(g[0]);
-        const cur = bySym.get(sym) ?? { symbol: sym, market: mkt, qty: 0, cost: 0 };
-        cur.qty += pos;
-        cur.cost += cost;
-        bySym.set(sym, cur);
-      }
-    }
-    return Array.from(bySym.values());
-  }, [trades, symbolOfTrade, marketOfTrade]);
+    return { buy, sell };
+  }, [filteredTrades, marketOfTrade]);
 
-  // 보유 종목의 현재가를 불러와 평가손익 계산 (심볼 목록이 바뀔 때만)
-  const openSymbolsKey = useMemo(() => openPositions.map((p) => p.symbol).sort().join(','), [openPositions]);
-  useEffect(() => {
-    const syms = openSymbolsKey ? openSymbolsKey.split(',') : [];
-    if (syms.length === 0) {
-      setPrices({});
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      // KIS 우선(국내 NXT 통합·미국 주간거래) → Yahoo 폴백 — 앱 공통 기준
-      const account = await loadBrokerAccount();
-      const rows = await Promise.all(
-        syms.map((s) =>
-          getUnifiedQuote(account, s)
-            .then((qq) => [s, qq.price] as const)
-            .catch(() => null)
-        )
-      );
-      if (cancelled) return;
-      const m: Record<string, number> = {};
-      rows.forEach((r) => {
-        if (r) m[r[0]] = r[1];
-      });
-      setPrices(m);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [openSymbolsKey]);
-
-  // 현재 보유분 평가총액·평가손익 (시장별) — 시세를 못 받은 종목은 제외
-  const unrealizedTotals = useMemo(() => {
+  // 올해 실현손익 (시장별) — 검색 기간과 무관하게 항상 '현재 연도' 기준.
+  // 해가 바뀌면 자동으로 그 해 기준이 된다 (2027년이 되면 2027-01-01~).
+  const thisYear = new Date().getFullYear();
+  const yearRealized = useMemo(() => {
     const byMarket: Record<string, number> = {};
-    const evalByMarket: Record<string, number> = {};
-    let priced = 0;
-    for (const p of openPositions) {
-      const price = prices[p.symbol];
-      if (price == null || p.qty <= 0) continue;
-      const avg = p.cost / p.qty;
-      byMarket[p.market] = (byMarket[p.market] ?? 0) + (price - avg) * p.qty;
-      evalByMarket[p.market] = (evalByMarket[p.market] ?? 0) + price * p.qty;
-      priced++;
+    for (const ev of realizedEvents(trades)) {
+      if (Number(ev.at.slice(0, 4)) !== thisYear) continue;
+      const mkt = marketOfTrade(ev.trade);
+      byMarket[mkt] = (byMarket[mkt] ?? 0) + ev.amount;
     }
-    return { byMarket, evalByMarket, count: openPositions.length, priced };
-  }, [openPositions, prices]);
+    return byMarket;
+  }, [trades, marketOfTrade, thisYear]);
 
-  // 실현(기간) + 평가(현재 보유) 합산 — 시장별로 한 카드에 모아서 표시
-  const pnlSummary = useMemo(() => {
-    const markets = new Set<string>([
+  // (매매일지는 거래 기준 요약만 쓰므로 보유 평가·시세 조회는 필요하지 않다 — 프로젝트/포켓탭에서 확인)
+
+  // 요약 표에 넣을 시장 목록 — 거래·실현·올해 손익 중 하나라도 있으면 표시
+  const summaryMarkets = useMemo(() => {
+    const set = new Set<string>([
+      ...Object.keys(tradeTotals.buy),
+      ...Object.keys(tradeTotals.sell),
       ...Object.keys(realizedTotals.byMarket),
-      ...Object.keys(unrealizedTotals.byMarket),
+      ...Object.keys(yearRealized),
     ]);
-    return Array.from(markets).map((mkt) => {
-      const realized = realizedTotals.byMarket[mkt] ?? 0;
-      const unrealized = unrealizedTotals.byMarket[mkt] ?? 0;
-      const evalTotal = unrealizedTotals.evalByMarket[mkt] ?? 0;
-      return { market: mkt, realized, unrealized, evalTotal, total: realized + unrealized };
-    });
-  }, [realizedTotals, unrealizedTotals]);
+    return Array.from(set).sort((a, b) => (a === 'KRX' ? -1 : b === 'KRX' ? 1 : 0));
+  }, [tradeTotals, realizedTotals, yearRealized]);
 
   // 검색이 특정 기간(오늘/1주/1개월/…)이면 손익 요약의 헤드라인을 '그 기간의 실현손익'으로,
   // '전체'(from·to 둘 다 비어있음)면 '실현(전체)+평가(현재 보유) 합계'로 보여준다.
@@ -607,46 +535,46 @@ export default function JournalScreen() {
       )}
 
       {/* 💰 손익 요약: 실현(기간) + 평가(현재 보유) 합산 (시장별). 이 기간에 현금흐름이 있으면 함께 표시 */}
-      {!flowTypeQuery && (pnlSummary.length > 0 || hasFlow) && (
+      {!flowTypeQuery && (summaryMarkets.length > 0 || hasFlow) && (
         <Card style={{ borderColor: colors.buy }}>
           <Text style={{ color: colors.text, fontWeight: '800' }}>
             💰 손익 요약 · {periodLabel}
             {q.trim() ? ` · ${q.trim()}` : ''}
           </Text>
-          {/* 시장별 2열 표 — 프로젝트·포켓탭과 같은 서식 (긴 금액도 서식을 벗어나지 않게 축소) */}
-          {pnlSummary.length > 0 && (
+          {/* 거래 기준 요약 — 검색한 기간·종목의 매수·매도·실현손익.
+              맨 아래 '올해 손익'만 기간과 무관하게 현재 연도 기준으로 고정 표시한다. */}
+          {summaryMarkets.length > 0 && (
             <SummaryTable
               title="💰 손익"
               accent={colors.buy}
-              markets={pnlSummary.map((s) => s.market)}
+              markets={summaryMarkets}
               rows={[
                 {
-                  label: '평가금액',
-                  values: pnlSummary.map((s) => s.evalTotal),
-                  color: num.evalTotal,
-                  strong: true,
+                  label: '총 매도금액',
+                  values: summaryMarkets.map((m) => tradeTotals.sell[m] ?? 0),
+                  color: colors.sell,
                 },
                 {
-                  label: '매입원가',
-                  values: pnlSummary.map((s) => s.evalTotal - s.unrealized),
-                  color: num.position,
+                  label: '총 매수금액',
+                  values: summaryMarkets.map((m) => tradeTotals.buy[m] ?? 0),
+                  color: colors.buy,
                 },
-                { label: '평가손익', values: pnlSummary.map((s) => s.unrealized), sign: true },
                 {
                   label: '실현손익',
-                  values: pnlSummary.map((s) => s.realized),
-                  sign: true,
-                  divider: true,
-                },
-                {
-                  label: periodScoped ? `${periodLabel} 손익` : '손익 합계',
-                  values: pnlSummary.map((s) => (periodScoped ? s.realized : s.total)),
+                  values: summaryMarkets.map((m) => realizedTotals.byMarket[m] ?? 0),
                   sign: true,
                   strong: true,
                 },
+                {
+                  label: `${thisYear}년 손익`,
+                  values: summaryMarkets.map((m) => yearRealized[m] ?? 0),
+                  sign: true,
+                  strong: true,
+                  divider: true,
+                },
               ]}
-              subtitle={`실현 ${from || '처음'}~${to || '오늘'} · 매도 ${realizedTotals.count}건`}
-              footnote="평가금액·평가손익은 현재 보유분을 실시간 시세로 평가한 값이라 기간과 무관합니다."
+              subtitle={`매수·매도·실현손익은 ${periodLabel} 기준 · 매도 ${realizedTotals.count}건`}
+              footnote={`${thisYear}년 손익은 검색 기간과 무관하게 올해 전체 실현손익이에요.`}
             />
           )}
 
@@ -666,11 +594,6 @@ export default function JournalScreen() {
                   </View>
                 ))}
             </View>
-          )}
-          {unrealizedTotals.count > 0 && unrealizedTotals.priced < unrealizedTotals.count && (
-            <Text style={{ color: colors.textDim, fontSize: 11 }}>
-              * 보유 {unrealizedTotals.count}종목 중 {unrealizedTotals.priced}종목 시세 반영 (웹은 시세 제한 · 폰에서 정확)
-            </Text>
           )}
         </Card>
       )}
