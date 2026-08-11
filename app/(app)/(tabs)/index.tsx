@@ -19,6 +19,7 @@ import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatChangePct, formatMoney, formatPrice, num, radius, signColor, spacing } from '@/theme';
 import { computePnL, findBudgetMismatches } from '@/domain/pockets';
+import { PortfolioSummary, computeMarketSummaries } from '@/components/PortfolioSummary';
 import { getUnifiedQuote } from '@/services/prices/unified';
 import { reconcilePendingOrders } from '@/services/pendingOrders';
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
@@ -42,6 +43,8 @@ export default function ProjectsScreen() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [metrics, setMetrics] = useState<Record<string, Metric>>({});
   const [pocketsByProject, setPocketsByProject] = useState<Record<string, Pocket[]>>({});
+  const [allPockets, setAllPockets] = useState<Pocket[]>([]);
+  const [allTrades, setAllTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
 
   // 미국주식 주간가 반영용 계좌 (연결돼 있으면 KIS 시세 우선)
@@ -78,6 +81,8 @@ export default function ProjectsScreen() {
       (pk[p.project_id] ??= []).push(p);
     });
     setPocketsByProject(pk);
+    setAllPockets((pocketData as Pocket[]) ?? []);
+    setAllTrades((tradeData as Trade[]) ?? []);
     setLoading(false);
 
     // 프로젝트 총예산이 포켓 배분액 합과 어긋나면 조용히 바로잡는다.
@@ -164,6 +169,15 @@ export default function ProjectsScreen() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account, hasPendingPocket]);
+
+  // 전체 요약 (한국/미국 열) — 진행중 프로젝트 기준
+  const summaries = useMemo(
+    () => computeMarketSummaries(projects, allPockets, allTrades, (sym) => {
+      const hit = projects.find((p) => p.symbol === sym);
+      return hit ? (metrics[hit.id]?.price ?? null) : null;
+    }),
+    [projects, allPockets, allTrades, metrics]
+  );
 
   // 목록에서 바로 자동매매 on/off (AUTO 등급 전용)
   const toggleAuto = async (p: Project, val: boolean) => {
@@ -296,6 +310,7 @@ export default function ProjectsScreen() {
           keyboardDismissMode="interactive"
           automaticallyAdjustKeyboardInsets
           refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.buy} />}
+          ListHeaderComponent={<PortfolioSummary summaries={summaries} />}
           ListEmptyComponent={
             <Card>
               <Text style={{ color: colors.text, fontWeight: '700' }}>표시할 프로젝트가 없어요</Text>

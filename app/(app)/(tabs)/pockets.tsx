@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
+import { PortfolioSummary, computeMarketSummaries } from '@/components/PortfolioSummary';
 import { colors, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { alignToKrxTick, computePnL, estimatedShares, sellTargetFromFill } from '@/domain/pockets';
 import { getUnifiedQuote } from '@/services/prices/unified';
@@ -136,6 +137,12 @@ export default function PocketsScreen() {
       alive = false;
     };
   }, [account, loading, trades]);
+
+  // 전체 요약 (한국/미국 열) — 프로젝트탭과 같은 표
+  const summaries = useMemo(
+    () => computeMarketSummaries(projects, pockets, trades, (sym) => prices[sym]?.price ?? null),
+    [projects, pockets, trades, prices]
+  );
 
   const projMap = useMemo(() => {
     const m: Record<string, Project> = {};
@@ -526,49 +533,7 @@ export default function PocketsScreen() {
         keyboardDismissMode="interactive"
         automaticallyAdjustKeyboardInsets
       >
-      {/* 예산 합산 — 강조 카드 (민트 테두리) */}
-      <Card style={{ borderColor: colors.primary, borderWidth: 1.5, backgroundColor: 'rgba(34,211,166,0.06)' }}>
-        <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 15 }}>
-          💰 프로젝트 예산 합계 (진행중)
-        </Text>
-        {Object.keys(budgetByMarket).length === 0 ? (
-          <Text style={{ color: colors.textDim }}>예산이 설정된 프로젝트가 없어요.</Text>
-        ) : (
-          Object.entries(budgetByMarket).map(([mkt, v]) => (
-            <View key={mkt} style={{ gap: 4 }}>
-              {/* 총 예산 금액 */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: colors.textDim }}>{mkt === 'KRX' ? '한국 (원화)' : '미국 (달러)'} · 총 예산</Text>
-                <Text style={{ color: num.budget, fontWeight: '900', fontSize: 22 }}>{formatMoney(v, mkt)}</Text>
-              </View>
-              {/* 매수 대기 예수금 = 아직 보유하지 않은 대기중 포켓 예산 합 */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: colors.textDim, fontSize: 12 }}>매수 대기 예수금 (대기중 포켓)</Text>
-                <Text style={{ color: num.budget, fontWeight: '800', fontSize: 15 }}>
-                  {formatMoney(waitingBudgetByMarket[mkt] ?? 0, mkt)}
-                </Text>
-              </View>
-            </View>
-          ))
-        )}
-        {Object.keys(budgetByMarket).length > 0 && (
-          <View
-            style={{
-              borderTopWidth: 1,
-              borderTopColor: colors.border,
-              paddingTop: spacing.sm,
-              gap: 3,
-            }}
-          >
-            <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
-              🤖 자동주문을 쓰는 경우, 증권사 계좌에 위 예산(최소한 매수 대기 예수금)과 동일한 금액을 미리 넣어두세요.
-            </Text>
-            <Text style={{ color: colors.textDim, fontSize: 11 }}>
-              계좌 잔고가 매수 대기 예수금보다 부족하면 목표가에 도달해도 프로젝트 설계대로 매수가 안 될 수 있어요.
-            </Text>
-          </View>
-        )}
-      </Card>
+      <PortfolioSummary summaries={summaries} />
 
       {/* 앱 기록 ↔ 증권사 계좌 대조 결과 — 어긋나면 바로 알 수 있게 경고 */}
       {mismatches.length > 0 && (

@@ -4,6 +4,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { confirmAction, notify } from '@/lib/alert';
+import { SummaryTable } from '@/components/PortfolioSummary';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { alignToKrxTick, computePnL, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
 import { getUnifiedQuote, loadBrokerAccount } from '@/services/prices/unified';
@@ -608,77 +609,47 @@ export default function JournalScreen() {
       {/* 💰 손익 요약: 실현(기간) + 평가(현재 보유) 합산 (시장별). 이 기간에 현금흐름이 있으면 함께 표시 */}
       {!flowTypeQuery && (pnlSummary.length > 0 || hasFlow) && (
         <Card style={{ borderColor: colors.buy }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={{ color: colors.text, fontWeight: '800' }}>
-              💰 손익 요약 · {periodLabel}{q.trim() ? ` · ${q.trim()}` : ''}
-            </Text>
-            <Text style={{ color: colors.textDim, fontSize: 11 }}>
-              실현 {from || '처음'}~{to || '오늘'} · 매도 {realizedTotals.count}건
-            </Text>
-          </View>
-          {pnlSummary.map((s) => {
-            // 특정 기간이면 헤드라인 = 그 기간 실현손익, 전체면 = 실현(전체)+평가(현재) 합계
-            const headline = periodScoped ? s.realized : s.total;
-            return (
-              <View
-                key={s.market}
-                style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 6 }}
-              >
-                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
-                  {s.market === 'KRX' ? '🇰🇷 한국 (원화)' : '🇺🇸 미국 (달러)'}
-                </Text>
-                {/* 현재 보유 평가 (실시간·기간과 무관) */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: colors.textDim, fontSize: 13 }}>평가총액 (현재 보유·실시간)</Text>
-                  <Text style={{ color: num.evalTotal, fontWeight: '800', fontSize: 15 }}>
-                    {formatMoney(s.evalTotal, s.market)}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: colors.textDim, fontSize: 13 }}>평가손익 (현재 보유·실시간)</Text>
-                  <Text style={{ color: signColor(s.unrealized), fontWeight: '800', fontSize: 15 }}>
-                    {s.unrealized > 0 ? '+' : ''}
-                    {formatMoney(s.unrealized, s.market)}
-                    {s.evalTotal - s.unrealized > 0
-                      ? (() => {
-                          const r = Math.round((s.unrealized / (s.evalTotal - s.unrealized)) * 1000) / 10;
-                          return ` (${r > 0 ? '+' : ''}${r}%)`;
-                        })()
-                      : ''}
-                  </Text>
-                </View>
-                {/* 전체일 때만 실현(전체)을 별도 줄로 (기간이면 아래 헤드라인이 곧 실현이라 생략) */}
-                {!periodScoped && (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: colors.textDim, fontSize: 13 }}>실현손익 (전체)</Text>
-                    <Text style={{ color: signColor(s.realized), fontWeight: '800', fontSize: 15 }}>
-                      {s.realized > 0 ? '+' : ''}
-                      {formatMoney(s.realized, s.market)}
-                    </Text>
-                  </View>
-                )}
-                {/* 헤드라인: 기간이면 'OO 실현손익', 전체면 '손익 합계(실현+평가)' */}
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    borderTopWidth: 1,
-                    borderTopColor: colors.border,
-                    paddingTop: 6,
-                  }}
-                >
-                  <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14 }}>
-                    {periodScoped ? `${periodLabel} 실현손익` : '손익 합계'}
-                  </Text>
-                  <Text style={{ color: signColor(headline), fontWeight: '900', fontSize: 18 }}>
-                    {headline > 0 ? '+' : ''}
-                    {formatMoney(headline, s.market)}
-                  </Text>
-                </View>
-              </View>
-            );
-          })}
+          <Text style={{ color: colors.text, fontWeight: '800' }}>
+            💰 손익 요약 · {periodLabel}
+            {q.trim() ? ` · ${q.trim()}` : ''}
+          </Text>
+          {/* 시장별 2열 표 — 프로젝트·포켓탭과 같은 서식 (긴 금액도 서식을 벗어나지 않게 축소) */}
+          {pnlSummary.length > 0 && (
+            <SummaryTable
+              title="💰 손익"
+              accent={colors.buy}
+              markets={pnlSummary.map((s) => s.market)}
+              rows={[
+                {
+                  label: '평가금액',
+                  values: pnlSummary.map((s) => s.evalTotal),
+                  color: num.evalTotal,
+                  strong: true,
+                },
+                {
+                  label: '매입원가',
+                  values: pnlSummary.map((s) => s.evalTotal - s.unrealized),
+                  color: num.position,
+                },
+                { label: '평가손익', values: pnlSummary.map((s) => s.unrealized), sign: true },
+                {
+                  label: '실현손익',
+                  values: pnlSummary.map((s) => s.realized),
+                  sign: true,
+                  divider: true,
+                },
+                {
+                  label: periodScoped ? `${periodLabel} 손익` : '손익 합계',
+                  values: pnlSummary.map((s) => (periodScoped ? s.realized : s.total)),
+                  sign: true,
+                  strong: true,
+                },
+              ]}
+              subtitle={`실현 ${from || '처음'}~${to || '오늘'} · 매도 ${realizedTotals.count}건`}
+              footnote="평가금액·평가손익은 현재 보유분을 실시간 시세로 평가한 값이라 기간과 무관합니다."
+            />
+          )}
+
           {/* 이 기간에 입금/출금/배당이 있으면 따로 표시 (없으면 숨김) */}
           {hasFlow && (
             <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 6 }}>
@@ -699,11 +670,6 @@ export default function JournalScreen() {
           {unrealizedTotals.count > 0 && unrealizedTotals.priced < unrealizedTotals.count && (
             <Text style={{ color: colors.textDim, fontSize: 11 }}>
               * 보유 {unrealizedTotals.count}종목 중 {unrealizedTotals.priced}종목 시세 반영 (웹은 시세 제한 · 폰에서 정확)
-            </Text>
-          )}
-          {pnlSummary.length > 0 && (
-            <Text style={{ color: colors.textDim, fontSize: 11 }}>
-              평가손익은 현재 보유분을 실시간 시세로 평가한 값이라 기간과 무관하게 최신 기준입니다.
             </Text>
           )}
         </Card>
