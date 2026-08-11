@@ -93,6 +93,12 @@ export interface SummaryRow {
   divider?: boolean; // 위에 구분선
 }
 
+/** 표에 쓸 금액 문자열 (부호 포함) */
+function fmtCell(v: number | null, market: string, sign?: boolean): string {
+  if (v == null) return '—';
+  return `${sign && v > 0 ? '+' : ''}${formatMoney(v, market)}`;
+}
+
 function Row({
   label,
   values,
@@ -101,15 +107,8 @@ function Row({
   sign,
   strong,
   divider,
-}: {
-  label: string;
-  values: (number | null)[];
-  markets: string[];
-  color?: string;
-  sign?: boolean; // 값 부호에 따라 빨강/파랑
-  strong?: boolean;
-  divider?: boolean;
-}) {
+  size,
+}: SummaryRow & { markets: string[]; size: number }) {
   return (
     <View
       style={{
@@ -119,22 +118,24 @@ function Row({
         ...(divider ? { borderTopWidth: 1, borderTopColor: colors.border, marginTop: 4, paddingTop: 10 } : null),
       }}
     >
-      <View style={{ width: 74 }}>
-        <Text style={{ color: colors.textDim, fontSize: 12 }}>{label}</Text>
+      <View style={{ width: 66 }}>
+        <Text numberOfLines={1} style={{ color: colors.textDim, fontSize: 12 }}>
+          {label}
+        </Text>
       </View>
       {values.map((v, i) => (
-        <View key={markets[i] ?? i} style={{ flex: 1, alignItems: 'flex-end', paddingLeft: 6 }}>
+        <View key={markets[i] ?? i} style={{ flex: 1, alignItems: 'flex-end', paddingLeft: 4 }}>
           <Text
             numberOfLines={1}
             adjustsFontSizeToFit
-            minimumFontScale={0.7}
+            minimumFontScale={0.55}
             style={{
               color: v == null ? colors.textDim : sign ? signColor(v) : (color ?? colors.text),
-              fontSize: strong ? 15 : 14,
+              fontSize: strong ? size + 1 : size,
               fontWeight: strong ? '900' : '800',
             }}
           >
-            {v == null ? '—' : `${sign && v > 0 ? '+' : ''}${formatMoney(v, markets[i])}`}
+            {fmtCell(v, markets[i], sign)}
           </Text>
         </View>
       ))}
@@ -164,6 +165,19 @@ export function SummaryTable({
   if (markets.length === 0) return null;
   const label = (m: string) => (m === 'KRX' ? '🇰🇷 한국주식' : '🇺🇸 미국주식');
 
+  // 억 단위(₩1,234,567,890 = 14자)까지 한 줄에 들어가도록,
+  // 표 안에서 가장 긴 금액 길이에 맞춰 모든 행의 글자 크기를 함께 낮춘다.
+  // (행마다 제각각 줄어들면 표가 지저분해지므로 한 값으로 통일)
+  let maxLen = 0;
+  for (const r of rows) {
+    r.values.forEach((v, i) => {
+      maxLen = Math.max(maxLen, fmtCell(v, markets[i], r.sign).length);
+    });
+  }
+  const size = markets.length >= 2
+    ? maxLen <= 10 ? 14 : maxLen <= 12 ? 13 : maxLen <= 14 ? 12 : maxLen <= 16 ? 11 : 10
+    : maxLen <= 14 ? 15 : maxLen <= 17 ? 14 : 13; // 한 시장만 있으면 폭이 넉넉
+
   return (
     <Card style={{ borderColor: accent, borderWidth: 1.5, backgroundColor: 'rgba(34,211,166,0.06)', gap: 0 }}>
       <View
@@ -175,14 +189,14 @@ export function SummaryTable({
           borderBottomColor: colors.border,
         }}
       >
-        <View style={{ width: 78 }}>
+        <View style={{ width: 66 }}>
           <Text numberOfLines={1} style={{ color: accent, fontWeight: '900', fontSize: 13 }}>
             {title}
           </Text>
         </View>
         {markets.map((m) => (
-          <View key={m} style={{ flex: 1, alignItems: 'flex-end', paddingLeft: 6 }}>
-            <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+          <View key={m} style={{ flex: 1, alignItems: 'flex-end', paddingLeft: 4 }}>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
               {label(m)}
             </Text>
           </View>
@@ -190,7 +204,7 @@ export function SummaryTable({
       </View>
 
       {rows.map((r) => (
-        <Row key={r.label} {...r} markets={markets} />
+        <Row key={r.label} {...r} markets={markets} size={size} />
       ))}
 
       {(subtitle || footnote) && (
