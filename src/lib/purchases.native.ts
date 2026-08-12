@@ -17,7 +17,8 @@ function apiKey(): string | null {
   const k =
     Platform.OS === 'ios'
       ? process.env.EXPO_PUBLIC_RC_IOS_KEY || (Constants.expoConfig?.extra?.rcIosKey as string | undefined)
-      : process.env.EXPO_PUBLIC_RC_ANDROID_KEY;
+      : process.env.EXPO_PUBLIC_RC_ANDROID_KEY ||
+        (Constants.expoConfig?.extra?.rcAndroidKey as string | undefined);
   return k && k.length > 0 ? k : null;
 }
 
