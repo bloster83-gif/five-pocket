@@ -118,11 +118,11 @@ function Row({
         <Text
           style={{
             color: colors.textDim,
-            fontSize: 11,
+            fontSize: 10,
             fontWeight: '800',
-            marginTop: divider ? 0 : 6,
-            paddingTop: divider ? 10 : 0,
-            ...(divider ? { borderTopWidth: 1, borderTopColor: colors.border, marginTop: 6 } : null),
+            marginTop: divider ? 0 : 4,
+            paddingTop: divider ? 7 : 0,
+            ...(divider ? { borderTopWidth: 1, borderTopColor: colors.border, marginTop: 4 } : null),
           }}
         >
           {section}
@@ -132,12 +132,12 @@ function Row({
       style={{
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 6,
-        ...(divider && !section ? { borderTopWidth: 1, borderTopColor: colors.border, marginTop: 4, paddingTop: 10 } : null),
+        paddingVertical: 3,
+        ...(divider && !section ? { borderTopWidth: 1, borderTopColor: colors.border, marginTop: 3, paddingTop: 7 } : null),
       }}
     >
-      <View style={{ width: 66 }}>
-        <Text numberOfLines={1} style={{ color: colors.textDim, fontSize: 12 }}>
+      <View style={{ width: 60 }}>
+        <Text numberOfLines={1} style={{ color: colors.textDim, fontSize: 11 }}>
           {label}
         </Text>
       </View>
@@ -194,28 +194,28 @@ export function SummaryTable({
     });
   }
   const size = markets.length >= 2
-    ? maxLen <= 10 ? 14 : maxLen <= 12 ? 13 : maxLen <= 14 ? 12 : maxLen <= 16 ? 11 : 10
-    : maxLen <= 14 ? 15 : maxLen <= 17 ? 14 : 13; // 한 시장만 있으면 폭이 넉넉
+    ? maxLen <= 10 ? 13 : maxLen <= 12 ? 12 : maxLen <= 14 ? 11 : maxLen <= 16 ? 10 : 9
+    : maxLen <= 14 ? 14 : maxLen <= 17 ? 13 : 12; // 한 시장만 있으면 폭이 넉넉
 
   return (
-    <Card style={{ borderColor: accent, borderWidth: 1.5, backgroundColor: 'rgba(34,211,166,0.06)', gap: 0 }}>
+    <Card style={{ borderColor: accent, borderWidth: 1.5, backgroundColor: 'rgba(34,211,166,0.06)', gap: 0, padding: 10 }}>
       <View
         style={{
           flexDirection: 'row',
           alignItems: 'center',
-          paddingBottom: 8,
+          paddingBottom: 5,
           borderBottomWidth: 1,
           borderBottomColor: colors.border,
         }}
       >
-        <View style={{ width: 66 }}>
-          <Text numberOfLines={1} style={{ color: accent, fontWeight: '900', fontSize: 13 }}>
+        <View style={{ width: 60 }}>
+          <Text numberOfLines={1} style={{ color: accent, fontWeight: '900', fontSize: 12 }}>
             {title}
           </Text>
         </View>
         {markets.map((m) => (
           <View key={m} style={{ flex: 1, alignItems: 'flex-end', paddingLeft: 4 }}>
-            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ color: colors.text, fontWeight: '900', fontSize: 12 }}>
               {label(m)}
             </Text>
           </View>
@@ -227,9 +227,9 @@ export function SummaryTable({
       ))}
 
       {(subtitle || footnote) && (
-        <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 6, marginTop: 8, gap: 2 }}>
-          {subtitle && <Text style={{ color: colors.textDim, fontSize: 10 }}>{subtitle}</Text>}
-          {footnote && <Text style={{ color: colors.textDim, fontSize: 10 }}>{footnote}</Text>}
+        <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 5, marginTop: 6, gap: 1 }}>
+          {subtitle && <Text style={{ color: colors.textDim, fontSize: 9 }}>{subtitle}</Text>}
+          {footnote && <Text style={{ color: colors.textDim, fontSize: 9 }}>{footnote}</Text>}
         </View>
       )}
     </Card>

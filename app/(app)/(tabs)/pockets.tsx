@@ -442,68 +442,70 @@ export default function PocketsScreen() {
   return (
     <View style={{ flex: 1 }}>
       {/* 상단 고정 헤더 — 포켓필터·검색은 스크롤 위치와 상관없이 항상 보이게 틀고정 */}
-      <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md, gap: spacing.md }}>
-      {/* 🧺 포켓 번호 선택 — 맨 위, 화면 폭에 딱 맞는 균등 분할 버튼 (포켓탭 전용 서식) */}
+      <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.sm }}>
+      {/* 🧺 포켓 번호 선택 + 검색 아이콘 — 한 줄에 모아 높이를 줄인다.
+          라벨 줄을 없애고 돋보기를 같은 줄 왼쪽으로 올렸다(누르면 아래에 검색창). */}
       <View
         style={{
           backgroundColor: colors.card,
-          borderRadius: radius.lg,
+          borderRadius: radius.md,
           borderWidth: 1,
           borderColor: colors.buy,
-          padding: spacing.sm,
-          gap: spacing.xs,
+          padding: 6,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 4,
         }}
       >
-        <Text style={{ color: colors.buy, fontSize: 12, fontWeight: '800' }}>🧺 포켓 번호로 보기</Text>
-        <View style={{ flexDirection: 'row', gap: 5 }}>
-          {(() => {
-            const hasPlus = pockets.some((k) => k.idx >= 5); // 6번 이상 포켓 존재 여부
-            // 전체, 1~5, (6+) — 한 줄 유지 (늘어나지 않게)
-            return [null, 0, 1, 2, 3, 4, ...(hasPlus ? (['plus'] as const) : [])] as (number | 'plus' | null)[];
-          })().map((i) => {
-            const on = pocketFilter === i;
-            const isPlus = i === 'plus';
-            const c = i == null ? colors.buy : isPlus ? colors.buy : pocketColor(i as number); // 포켓마다 고유 색
-            return (
-              <Pressable
-                key={String(i)}
-                onPress={() => setPocketFilter(i)}
-                style={{
-                  flexGrow: 1,
-                  flexBasis: 30,
-                  minWidth: 30,
-                  alignItems: 'center',
-                  paddingVertical: 12,
-                  borderRadius: radius.md,
-                  backgroundColor: on ? c : colors.cardAlt,
-                  borderBottomWidth: 3,
-                  borderBottomColor: i == null || isPlus ? (on ? colors.buy : 'transparent') : pocketColor(i as number),
-                }}
-              >
-                <Text style={{ color: on ? '#FFFFFF' : colors.textDim, fontWeight: '900', fontSize: 14 }}>
-                  {i == null ? '전체' : isPlus ? '6+' : (i as number) + 1}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      {/* 종목 검색 + 시장/상태 필터 (아이콘 칩) */}
-      <FilterBar style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Pressable
-          onPress={() => setShowSearch((s) => !s)}
+          onPress={() => setShowSearch((v) => !v)}
+          hitSlop={4}
           style={{
-            width: 40,
-            height: 36,
-            borderRadius: 10,
+            width: 30,
+            height: 30,
+            borderRadius: radius.sm,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: showSearch ? colors.buy : colors.card,
+            backgroundColor: showSearch ? colors.buy : colors.cardAlt,
           }}
         >
-          <Text style={{ fontSize: 16 }}>🔍</Text>
+          <Text style={{ fontSize: 13 }}>🔍</Text>
         </Pressable>
+        <View style={{ width: 1, height: 18, backgroundColor: colors.border, marginHorizontal: 2 }} />
+        {(() => {
+          const hasPlus = pockets.some((k) => k.idx >= 5); // 6번 이상 포켓 존재 여부
+          // 전체, 1~5, (6+) — 한 줄 유지 (늘어나지 않게)
+          return [null, 0, 1, 2, 3, 4, ...(hasPlus ? (['plus'] as const) : [])] as (number | 'plus' | null)[];
+        })().map((i) => {
+          const on = pocketFilter === i;
+          const isPlus = i === 'plus';
+          const c = i == null ? colors.buy : isPlus ? colors.buy : pocketColor(i as number); // 포켓마다 고유 색
+          return (
+            <Pressable
+              key={String(i)}
+              onPress={() => setPocketFilter(i)}
+              style={{
+                flexGrow: 1,
+                flexBasis: 26,
+                minWidth: 26,
+                alignItems: 'center',
+                paddingVertical: 7,
+                borderRadius: radius.sm,
+                backgroundColor: on ? c : colors.cardAlt,
+                borderBottomWidth: 2,
+                borderBottomColor: i == null || isPlus ? (on ? colors.buy : 'transparent') : pocketColor(i as number),
+              }}
+            >
+              <Text style={{ color: on ? '#FFFFFF' : colors.textDim, fontWeight: '900', fontSize: 12 }}>
+                {i == null ? '전체' : isPlus ? '6+' : (i as number) + 1}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* 시장/상태 필터 (아이콘 칩) — 돋보기는 위 줄로 옮겨졌다 */}
+      <FilterBar style={{ flexDirection: 'row', alignItems: 'center' }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, alignItems: 'center' }}>
           <Chip label="한국" icon="🇰🇷" active={market === 'KRX'} onPress={() => setMarket(market === 'KRX' ? null : 'KRX')} />
           <Chip label="미국" icon="🇺🇸" active={market === 'US'} onPress={() => setMarket(market === 'US' ? null : 'US')} activeColor={colors.accent} />
