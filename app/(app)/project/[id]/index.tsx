@@ -216,14 +216,14 @@ export default function ProjectDetailScreen() {
   //    (체결 확인되면 '보유완료→매도완료(sold)', 미체결이면 '매도 주문완료(sell_ordered)' 상태.
   //     서버 러너/재조회가 나중에 실제 체결가로 자동 동기화)
   //  - 그 외(다이어리 수동): 현재가로 매도 체결만 기록('익절'/'손절')
-  const stopLossPocket = async (k: Pocket): Promise<{ ok: boolean; msg?: string }> => {
+  const stopLossPocket = async (k: Pocket): Promise<{ ok: boolean; msg?: string; word?: '익절' | '손절'; ordered?: boolean }> => {
     if (!project || !session?.user?.id) return { ok: false };
     const pocketTrades = trades.filter((t) => t.pocket_id === k.id);
     const qty = Math.floor(computePnL(pocketTrades, null).totalQtyOpen);
     if (qty <= 0) return { ok: false, msg: '보유 수량 없음' };
     const sellPrice = price ?? k.sell_target_price ?? buyByPocket.get(k.id)?.price ?? 0;
     if (sellPrice <= 0) return { ok: false, msg: '현재가를 확인할 수 없어요' };
-    const word = sellPrice >= computePnL(pocketTrades, null).avgOpenPrice ? '익절' : '손절';
+    const word: '익절' | '손절' = sellPrice >= computePnL(pocketTrades, null).avgOpenPrice ? '익절' : '손절';
 
     // AUTO 등급 + 계좌 + 네이티브면 실제 매도 주문 전송 (자동주문 흐름과 동일)
     if (tier === 'auto' && account && !kisOrderBlocked(project.market)) {
@@ -277,7 +277,7 @@ export default function ProjectDetailScreen() {
           });
         }
         await supabase.from('pockets').update({ status: filled ? 'sold' : 'sell_ordered' }).eq('id', k.id);
-        return { ok: true };
+        return { ok: true, word, ordered: !filled };
       } catch (e: any) {
         return { ok: false, msg: e?.message ?? '주문 실패' };
       }
@@ -295,7 +295,7 @@ export default function ProjectDetailScreen() {
       note: word,
     });
     await supabase.from('pockets').update({ status: 'sold' }).eq('id', k.id);
-    return { ok: true };
+    return { ok: true, word };
   };
 
   // 포켓 익절/손절 확인(스와이프에서 호출)
@@ -477,14 +477,28 @@ export default function ProjectDetailScreen() {
           style: 'destructive',
           onPress: async () => {
             let done = 0;
+            let win = 0; // 익절 건수
+            let lose = 0; // 손절 건수
+            let ordered = 0; // 매도 주문만 들어가고 아직 미체결
             let failMsg = '';
             for (const k of held) {
               const r = await stopLossPocket(k);
-              if (r.ok) done++;
-              else failMsg = r.msg ?? failMsg;
+              if (r.ok) {
+                done++;
+                if (r.word === '익절') win++;
+                else if (r.word === '손절') lose++;
+                if (r.ordered) ordered++;
+              } else failMsg = r.msg ?? failMsg;
             }
             await setClosed(true);
-            notify('종료 완료', `${held.length}개 중 ${done}개 손절 처리했어요.${failMsg ? ` (일부 실패: ${failMsg})` : ''}`);
+            // 이익이면 '익절', 손실이면 '손절' — 섞여 있으면 둘 다 표기
+            const detail = [win ? `익절 ${win}개` : '', lose ? `손절 ${lose}개` : ''].filter(Boolean).join(' · ');
+            notify(
+              '종료 완료',
+              `${held.length}개 중 ${done}개 매도 처리했어요.${detail ? `\n${detail}` : ''}` +
+                (ordered ? `\n${ordered}개는 아직 체결 대기(매도 주문완료)예요.` : '') +
+                (failMsg ? `\n일부 실패: ${failMsg}` : '')
+            );
           },
         },
         { text: '그냥 종료', onPress: () => setClosed(true) },
