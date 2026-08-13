@@ -8,6 +8,7 @@ import { colors, formatPrice, money, spacing } from '@/theme';
 import { buildPocketSeeds, normalizeWeights, POCKET_COUNT } from '@/domain/pockets';
 import type { Pocket, Project } from '@/types/db';
 import { BackHeader } from '@/components/BackHeader';
+import { WeightInput } from '@/components/WeightInput';
 
 // 프로젝트 수정 — 종목/시장/이름은 고정(이름=종목명).
 //  - 거래가 하나도 없으면: 전략·예산·포켓비중 수정 가능
@@ -193,7 +194,8 @@ export default function EditProjectScreen() {
           editable={!locked}
           placeholder="예: 1,000,000"
         />
-        <Text style={{ color: colors.textDim }}>
+        {/* 한 줄 고정 — 입력 중 '(자동 정규화됨)'이 붙으며 줄바꿈되면 아래 입력칸이 밀린다 */}
+        <Text numberOfLines={1} style={{ color: colors.textDim }}>
           포켓별 비중 합계: {money(weightSum, 1)}%{' '}
           {Math.abs(weightSum - 100) > 0.1 && <Text style={{ color: colors.warn }}>(자동 정규화됨)</Text>}
         </Text>
@@ -203,9 +205,9 @@ export default function EditProjectScreen() {
             <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
               <Text style={{ color: colors.text, width: 56 }}>포켓 {i + 1}</Text>
               <View style={{ width: 90 }}>
-                <Field label="" value={w} onChangeText={(v) => setWeight(i, v)} keyboardType="decimal-pad" editable={!locked} />
+                <WeightInput value={w} onChange={(v) => setWeight(i, v)} editable={!locked} />
               </View>
-              <Text style={{ color: colors.textDim, flex: 1 }}>
+              <Text numberOfLines={1} style={{ color: colors.textDim, flex: 1 }}>
                 {normalized[i]}% {alloc != null ? `· ${formatPrice(alloc, market)}` : ''}
               </Text>
             </View>

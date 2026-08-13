@@ -12,6 +12,7 @@ import { getUnifiedQuote, loadBrokerAccount } from '@/services/prices/unified';
 import { getDomesticBalance, getOverseasBalance, kisOrderBlocked } from '@/services/broker/kis';
 import type { BrokerAccount, SymbolResult } from '@/types/db';
 import { BackHeader } from '@/components/BackHeader';
+import { WeightInput } from '@/components/WeightInput';
 
 export default function NewProjectScreen() {
   const router = useRouter();
@@ -395,8 +396,10 @@ export default function NewProjectScreen() {
           </View>
         </View>
 
+        {/* 합계 안내는 한 줄로 고정 — 입력 중 '(자동 정규화됨)'이 붙으며 줄바꿈되면
+            아래 입력칸들이 밀려 키보드에 가려진다 */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ color: colors.textDim }}>
+          <Text numberOfLines={1} style={{ color: colors.textDim, flex: 1, marginRight: spacing.sm }}>
             포켓별 비중 합계: {money(weightSum, 1)}%{' '}
             {Math.abs(weightSum - 100) > 0.1 && <Text style={{ color: colors.warn }}>(자동 정규화됨)</Text>}
           </Text>
@@ -416,9 +419,10 @@ export default function NewProjectScreen() {
             <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, opacity: excluded ? 0.5 : 1 }}>
               <Text style={{ color: colors.text, width: 56 }}>포켓 {i + 1}</Text>
               <View style={{ width: 90 }}>
-                <Field label="" value={w} onChangeText={(v) => setWeight(i, v)} keyboardType="decimal-pad" />
+                <WeightInput value={w} onChange={(v) => setWeight(i, v)} />
               </View>
-              <Text style={{ color: colors.textDim, flex: 1 }}>
+              {/* 이 줄도 한 줄 고정 — 값이 길어져 줄바꿈되면 입력 중 레이아웃이 흔들린다 */}
+              <Text numberOfLines={1} style={{ color: colors.textDim, flex: 1 }}>
                 {normalized[i]}% {alloc != null ? `· ${formatPrice(alloc, market)}` : ''}
                 {excluded && <Text style={{ color: colors.warn, fontWeight: '800' }}>  · 생성 안 함</Text>}
               </Text>
