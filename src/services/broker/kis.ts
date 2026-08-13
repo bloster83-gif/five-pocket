@@ -186,8 +186,12 @@ export function alignToKrxTick(price: number, side?: TradeSide): number {
 
 // 국내주식 주문 정정/취소 TR
 const CANCEL_TR = { real: 'TTTC0803U', virtual: 'VTTC0803U' } as const;
-// 정정취소가능주문조회 — 취소에 필요한 '주문채번지점번호·주문구분·거래소'를 증권사에서 그대로 받아온다
-const RVSECNCL_PSBL_TR = { real: 'TTTC0084R', virtual: 'VTTC0084R' } as const;
+// 정정취소가능주문조회 — 취소에 필요한 '주문채번지점번호·주문구분·거래소'를 증권사에서 그대로 받아온다.
+// KIS 가 TR ID 를 개편하면서 신·구 두 가지가 통용된다 → 둘 다 시도한다.
+const RVSECNCL_PSBL_TRS = {
+  real: ['TTTC0084R', 'TTTC8036R'],
+  virtual: ['VTTC0084R', 'VTTC8036R'],
+} as const;
 
 /** 정정·취소가 가능한 미체결 주문 1건 (취소 요청에 그대로 넣을 값들) */
 interface CancelableOrder {
@@ -198,6 +202,15 @@ interface CancelableOrder {
   excgId?: string; // 원주문의 거래소구분 (SOR/KRX/NXT)
 }
 
+/** 정정취소가능주문조회 결과 — 실패 원인을 그대로 사용자에게 보여줄 수 있도록 진단 정보를 함께 담는다 */
+export interface CancelableLookup {
+  ok: boolean; // KIS 호출 자체가 성공했는지
+  rows: number; // 조회된 미체결 주문 수
+  sampleOdnos: string[]; // 조회된 주문번호 (불일치 원인 확인용)
+  message: string; // KIS 응답 메시지
+  hit: CancelableOrder | null; // 이 주문번호와 일치한 행
+}
+
 /**
  * 미체결 주문 목록에서 이 주문번호에 해당하는 행을 찾는다.
  *
@@ -205,43 +218,53 @@ interface CancelableOrder {
  * 빈 값으로 보내면 KIS 가 "원주문번호가 존재하지 않습니다"로 거절한다.
  * (특히 SOR/넥스트레이드로 나간 주문은 거래소구분까지 원주문과 같아야 한다)
  */
-async function findCancelableOrder(account: BrokerAccount, orderNo: string): Promise<CancelableOrder | null> {
-  try {
-    const token = await getValidToken(account);
-    const u = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl`);
-    const params: Record<string, string> = {
-      CANO: account.account_no,
-      ACNT_PRDT_CD: account.account_product_code,
-      CTX_AREA_FK100: '',
-      CTX_AREA_NK100: '',
-      INQR_DVSN_1: '0', // 조회순
-      INQR_DVSN_2: '0', // 전체(매도+매수)
-    };
-    Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
-    const res = await fetch(u.toString(), {
-      headers: {
-        authorization: `Bearer ${token}`,
-        appkey: account.app_key,
-        appsecret: account.app_secret,
-        tr_id: RVSECNCL_PSBL_TR[account.is_virtual ? 'virtual' : 'real'],
-        custtype: 'P',
-      },
-    });
-    const json = await res.json();
-    if (!res.ok || json.rt_cd !== '0') return null;
-    const rows = (json.output ?? []) as any[];
-    const hit = rows.find((r) => sameOrderNo(r.odno, orderNo) || sameOrderNo(r.orgn_odno, orderNo));
-    if (!hit) return null;
-    return {
-      odno: String(hit.odno ?? orderNo),
-      branchNo: String(hit.ord_gno_brno ?? ''),
-      ordDvsn: String(hit.ord_dvsn_cd ?? '00'),
-      qty: Math.floor(Number(hit.psbl_qty ?? hit.ord_qty ?? 0)),
-      excgId: hit.excg_id_dvsn_cd ? String(hit.excg_id_dvsn_cd) : undefined,
-    };
-  } catch {
-    return null; // 조회 실패 → 아래에서 기존 방식으로 시도
+export async function findCancelableOrder(account: BrokerAccount, orderNo: string): Promise<CancelableLookup> {
+  const out: CancelableLookup = { ok: false, rows: 0, sampleOdnos: [], message: '', hit: null };
+  const token = await getValidToken(account);
+  for (const trId of RVSECNCL_PSBL_TRS[account.is_virtual ? 'virtual' : 'real']) {
+    try {
+      const u = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl`);
+      const params: Record<string, string> = {
+        CANO: account.account_no,
+        ACNT_PRDT_CD: account.account_product_code,
+        CTX_AREA_FK100: '',
+        CTX_AREA_NK100: '',
+        INQR_DVSN_1: '0', // 조회순
+        INQR_DVSN_2: '0', // 전체(매도+매수)
+      };
+      Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+      const res = await fetch(u.toString(), {
+        headers: {
+          authorization: `Bearer ${token}`,
+          appkey: account.app_key,
+          appsecret: account.app_secret,
+          tr_id: trId,
+          custtype: 'P',
+        },
+      });
+      const json = await res.json();
+      out.message = json.msg1 ?? `HTTP ${res.status}`;
+      if (!res.ok || json.rt_cd !== '0') continue; // 다음 TR ID 로 재시도
+      out.ok = true;
+      const rows = (json.output ?? []) as any[];
+      out.rows = rows.length;
+      out.sampleOdnos = rows.slice(0, 8).map((r) => String(r.odno ?? ''));
+      const hit = rows.find((r) => sameOrderNo(r.odno, orderNo) || sameOrderNo(r.orgn_odno, orderNo));
+      if (hit) {
+        out.hit = {
+          odno: String(hit.odno ?? orderNo),
+          branchNo: String(hit.ord_gno_brno ?? ''),
+          ordDvsn: String(hit.ord_dvsn_cd ?? '00'),
+          qty: Math.floor(Number(hit.psbl_qty ?? hit.ord_qty ?? 0)),
+          excgId: hit.excg_id_dvsn_cd ? String(hit.excg_id_dvsn_cd) : undefined,
+        };
+      }
+      return out;
+    } catch (e: any) {
+      out.message = e?.message ?? '조회 실패';
+    }
   }
+  return out;
 }
 
 /**
@@ -284,14 +307,15 @@ export async function cancelDomesticOrder(
 
   // 시도 순서: ① 조회로 받은 정확한 값 ② 주문번호 10자리 0패딩 ③ 원본 그대로
   const attempts: Record<string, string>[] = [];
-  if (found) {
+  if (found.hit) {
+    const h = found.hit;
     attempts.push({
       ...base,
-      KRX_FWDG_ORD_ORGNO: found.branchNo,
-      ORGN_ODNO: found.odno,
-      ORD_DVSN: found.ordDvsn,
-      ORD_QTY: String(found.qty > 0 ? found.qty : Math.floor(quantity)),
-      ...(found.excgId ? { EXCG_ID_DVSN_CD: found.excgId } : null),
+      KRX_FWDG_ORD_ORGNO: h.branchNo,
+      ORGN_ODNO: h.odno,
+      ORD_DVSN: h.ordDvsn,
+      ORD_QTY: String(h.qty > 0 ? h.qty : Math.floor(quantity)),
+      ...(h.excgId ? { EXCG_ID_DVSN_CD: h.excgId } : null),
     });
   }
   const padded = String(orderNo).trim().padStart(10, '0');
@@ -310,10 +334,16 @@ export async function cancelDomesticOrder(
     if (r.ok) return { message: r.msg ?? '주문이 취소됐어요.' };
     lastMsg = r.msg ?? `주문 취소 실패 (HTTP ${r.status})`;
   }
-  // 미체결 목록에도 없었다면 이미 체결·취소됐을 가능성이 높다 — 사용자에게 그 사실을 알려준다
-  throw new Error(
-    found ? lastMsg : `${lastMsg}\n(증권사 미체결 목록에서 이 주문을 찾지 못했어요. 이미 체결·취소됐을 수 있어요)`
-  );
+
+  // 왜 못 찾았는지를 그대로 보여준다 — 주문번호가 어긋난 건지, 조회 자체가 막힌 건지 구분되어야 한다.
+  const diag = found.ok
+    ? found.hit
+      ? ''
+      : `\n\n[진단] 증권사 미체결 ${found.rows}건 · 우리 주문번호 ${orderNo}` +
+        (found.sampleOdnos.length ? `\n증권사 주문번호: ${found.sampleOdnos.join(', ')}` : '') +
+        `\n→ 목록에 없으면 이미 체결·취소됐거나 전일 주문이에요.`
+    : `\n\n[진단] 미체결 주문 조회 실패: ${found.message || '알 수 없음'}`;
+  throw new Error(`${lastMsg}${diag}`);
 }
 
 // 해외주식(미국) 정정취소 TR — 정규장 / 주간거래(블루오션, 실전만)
