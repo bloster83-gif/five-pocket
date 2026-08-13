@@ -224,7 +224,7 @@ export default function ProjectsScreen() {
   };
 
   const filtered = useMemo(() => {
-    return projects.filter((p) => {
+    const rows = projects.filter((p) => {
       if (status === 'open' && p.closed_at) return false;
       if (status === 'closed' && !p.closed_at) return false;
       if (market && p.market !== market) return false;
@@ -237,6 +237,19 @@ export default function ProjectsScreen() {
       if (to && created > to) return false;
       return true;
     });
+
+    // 종료된 프로젝트가 섞여 있으면 '최근에 종료한 것'이 위로 오는 게 자연스럽다.
+    // (기본 정렬은 생성일 최신순 — 진행중만 볼 때는 그대로 둔다)
+    if (status !== 'open') {
+      return [...rows].sort((a, b) => {
+        // 진행중(종료일 없음)을 먼저, 그다음 종료일 최신순
+        if (!a.closed_at && !b.closed_at) return 0;
+        if (!a.closed_at) return -1;
+        if (!b.closed_at) return 1;
+        return b.closed_at.localeCompare(a.closed_at);
+      });
+    }
+    return rows;
   }, [projects, status, market, q, from, to]);
 
   return (

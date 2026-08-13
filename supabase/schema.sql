@@ -126,6 +126,7 @@ create table if not exists public.projects (
   is_active          boolean not null default true, -- 실시간 추적/알림 on/off
   auto_trade_enabled boolean not null default false, -- 자동매매 on/off (AUTO 등급 전용)
   closed_at          timestamptz,                   -- null = 진행중, 값 = 종료됨
+  close_after_sell   boolean not null default false, -- 매도 전량 체결되면 자동 종료(매도 후 종료 예약)
   created_at         timestamptz not null default now()
 );
 

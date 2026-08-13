@@ -14,6 +14,7 @@ import { usePriceTracker } from '@/services/priceTracker';
 import { useAutoTrader } from '@/services/autoTrader';
 import { getOrderFill, inspectOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import { orderWindow } from '@/services/marketHours';
+import { getUnifiedQuote } from '@/services/prices/unified';
 import { cancelPendingOrder, loadPendingOrders, reconcilePendingOrders } from '@/services/pendingOrders';
 import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
@@ -221,7 +222,21 @@ export default function ProjectDetailScreen() {
     const pocketTrades = trades.filter((t) => t.pocket_id === k.id);
     const qty = Math.floor(computePnL(pocketTrades, null).totalQtyOpen);
     if (qty <= 0) return { ok: false, msg: '보유 수량 없음' };
-    const sellPrice = price ?? k.sell_target_price ?? buyByPocket.get(k.id)?.price ?? 0;
+    // 익절/손절은 '지금 정리한다'는 뜻이므로 반드시 현재가로 주문한다.
+    // (매도 목표가로 넣으면 현재가보다 훨씬 높아 영영 체결되지 않는다 —
+    //  실시간 추적이 꺼져 price 가 null 인 경우 목표가로 새어 나가던 버그)
+    let live = price;
+    if (live == null || live <= 0) {
+      try {
+        live = (await getUnifiedQuote(account ?? null, project.symbol, project.market)).price;
+      } catch {
+        live = null;
+      }
+    }
+    if (live == null || live <= 0) {
+      return { ok: false, msg: '현재가를 확인할 수 없어 매도 주문을 넣지 않았어요' };
+    }
+    const sellPrice = project.market === 'KRX' ? alignToKrxTick(live, 'sell') : live;
     if (sellPrice <= 0) return { ok: false, msg: '현재가를 확인할 수 없어요' };
     const word: '익절' | '손절' = sellPrice >= computePnL(pocketTrades, null).avgOpenPrice ? '익절' : '손절';
 
@@ -460,10 +475,16 @@ export default function ProjectDetailScreen() {
   const promptClose = () => {
     if (!project) return;
     const held = pockets.filter((k) => k.status === 'bought');
+    // 아직 체결을 기다리는 주문이 있으면 종료해도 되는지 먼저 알려준다.
+    // (종료하면 목록에서 사라져 '주문완료 → 보유중/매도완료' 전환을 놓치기 쉽다)
+    const waitingFill = pockets.filter((k) => k.status === 'buy_ordered' || k.status === 'sell_ordered');
     if (held.length === 0) {
       return confirmAction(
         '프로젝트 종료',
-        `"${project.name}"을(를) 종료할까요? 종료하면 목록에서 숨겨지고, “지난 프로젝트 보기”로 다시 찾을 수 있어요.`,
+        `"${project.name}"을(를) 종료할까요? 종료하면 목록에서 숨겨지고, “지난 프로젝트 보기”로 다시 찾을 수 있어요.` +
+          (waitingFill.length > 0
+            ? `\n\n⚠️ 아직 체결을 기다리는 주문이 ${waitingFill.length}건 있어요. 체결되면 자동으로 반영되지만, 종료하면 목록에서 보이지 않아요.`
+            : ''),
         () => setClosed(true),
         '종료'
       );
@@ -490,15 +511,38 @@ export default function ProjectDetailScreen() {
                 if (r.ordered) ordered++;
               } else failMsg = r.msg ?? failMsg;
             }
-            await setClosed(true);
             // 이익이면 '익절', 손실이면 '손절' — 섞여 있으면 둘 다 표기
             const detail = [win ? `익절 ${win}개` : '', lose ? `손절 ${lose}개` : ''].filter(Boolean).join(' · ');
-            notify(
-              '종료 완료',
-              `${held.length}개 중 ${done}개 매도 처리했어요.${detail ? `\n${detail}` : ''}` +
-                (ordered ? `\n${ordered}개는 아직 체결 대기(매도 주문완료)예요.` : '') +
-                (failMsg ? `\n일부 실패: ${failMsg}` : '')
-            );
+
+            // 아직 체결되지 않은 매도가 남아 있으면 지금 종료하지 않는다.
+            // 종료해 버리면 목록에서 사라져 '매도 주문완료 → 매도 완료' 전환을 볼 수 없다.
+            // 대신 '체결되면 종료'를 예약해 두고, 체결 감지(reconcile)가 전량 체결을 확인하는
+            // 순간 프로젝트를 자동으로 종료한다.
+            if (ordered > 0 || failMsg) {
+              let reserved = false;
+              if (ordered > 0) {
+                const { error } = await supabase
+                  .from('projects')
+                  .update({ close_after_sell: true })
+                  .eq('id', project.id);
+                reserved = !error; // 컬럼이 없으면(마이그레이션 미실행) 예약 없이 안내만
+              }
+              await load();
+              return notify(
+                '매도 주문 전송됨',
+                `${held.length}개 중 ${done}개 매도 주문을 넣었어요.${detail ? `\n${detail}` : ''}` +
+                  (ordered
+                    ? `\n\n${ordered}개는 아직 체결 대기예요(매도 주문완료).` +
+                      (reserved
+                        ? `\n전량 체결되면 '매도 완료'로 바뀌고 프로젝트도 자동으로 종료됩니다.`
+                        : `\n체결되면 '매도 완료'로 바뀝니다. 전부 체결된 뒤 다시 종료해 주세요.\n(자동 종료는 마이그레이션 20260813a 실행 후 동작해요)`)
+                    : '') +
+                  (failMsg ? `\n\n일부 실패: ${failMsg}` : '')
+              );
+            }
+
+            await setClosed(true);
+            notify('종료 완료', `${held.length}개 중 ${done}개 매도 처리했어요.${detail ? `\n${detail}` : ''}`);
           },
         },
         { text: '그냥 종료', onPress: () => setClosed(true) },
@@ -675,6 +719,28 @@ export default function ProjectDetailScreen() {
           <Text style={{ fontSize: 16 }}>🔒</Text>
           <Text style={{ color: colors.textDim, fontWeight: '800', fontSize: 13, flex: 1 }}>
             종료된 프로젝트 · {project.closed_at.slice(0, 10)} · 아래 ‘재개’ 후 편집 가능
+          </Text>
+        </View>
+      )}
+
+      {/* '매도 후 종료'를 눌렀지만 아직 체결 대기 — 전량 체결되면 자동으로 종료된다 */}
+      {!project.closed_at && project.close_after_sell && (
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+            backgroundColor: 'rgba(59,130,246,0.10)',
+            borderWidth: 1,
+            borderColor: colors.sell,
+            borderRadius: radius.md,
+            paddingHorizontal: spacing.md,
+            paddingVertical: spacing.sm,
+          }}
+        >
+          <Text style={{ fontSize: 16 }}>⏳</Text>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }}>
+            매도 체결 후 자동 종료 예약됨 · 전량 체결되면 프로젝트가 자동으로 종료돼요
           </Text>
         </View>
       )}

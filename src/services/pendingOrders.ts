@@ -246,11 +246,38 @@ async function reconcileOnce(account: BrokerAccount, projectId?: string): Promis
           .eq('id', o.pocket_id);
       } else {
         await supabase.from('pockets').update({ status: 'sold' }).eq('id', o.pocket_id);
+        // '매도 후 종료'를 예약해 둔 프로젝트라면, 남은 매도가 전부 끝났는지 보고 자동 종료
+        await maybeAutoCloseProject(o.project_id!);
       }
     }
     changed = true;
   }
   return changed;
+}
+
+/**
+ * '매도 후 종료'를 예약한 프로젝트(close_after_sell=true)를 마무리한다.
+ * 보유·주문 중인 포켓이 하나도 남지 않았을 때만 실제로 종료한다.
+ *
+ * 마이그레이션(20260813a) 미실행이면 close_after_sell 이 없으므로 아무것도 하지 않는다.
+ */
+export async function maybeAutoCloseProject(projectId: string): Promise<boolean> {
+  if (!projectId) return false;
+  const { data: proj } = await supabase.from('projects').select('*').eq('id', projectId).maybeSingle();
+  const p = proj as (Project & { close_after_sell?: boolean }) | null;
+  if (!p || p.closed_at || !p.close_after_sell) return false;
+
+  const { data: pocketRows } = await supabase.from('pockets').select('status').eq('project_id', projectId);
+  const busy = ((pocketRows ?? []) as { status: string }[]).some(
+    (k) => k.status === 'bought' || k.status === 'buy_ordered' || k.status === 'sell_ordered'
+  );
+  if (busy) return false; // 아직 정리 안 된 포켓이 남아 있다
+
+  await supabase
+    .from('projects')
+    .update({ closed_at: new Date().toISOString(), is_active: false, close_after_sell: false })
+    .eq('id', projectId);
+  return true;
 }
 
 export interface HoldingMismatch {
@@ -348,5 +375,9 @@ export async function cancelPendingOrder(
       .from('pockets')
       .update(order.side === 'buy' ? { status: 'waiting', sell_target_price: null } : { status: 'bought' })
       .eq('id', order.pocket_id);
+  }
+  // 매도 주문을 취소했다면 '체결되면 종료' 예약도 해제한다 (의도가 바뀐 것)
+  if (order.side === 'sell' && order.project_id) {
+    await supabase.from('projects').update({ close_after_sell: false }).eq('id', order.project_id);
   }
 }

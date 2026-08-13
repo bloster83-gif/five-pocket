@@ -236,7 +236,20 @@ export default function PocketsScreen() {
     const openPnl = computePnL(pocketTrades, null);
     const qty = Math.floor(openPnl.totalQtyOpen);
     if (qty <= 0) return { ok: false, msg: '보유 수량 없음' };
-    const sellPrice = prices[proj.symbol]?.price ?? k.sell_target_price ?? openPnl.avgOpenPrice ?? 0;
+    // 익절/손절은 '지금 정리한다'는 뜻이므로 반드시 현재가로 주문한다.
+    // 매도 목표가로 넣으면 현재가보다 훨씬 높아 영영 체결되지 않는다.
+    let live: number | null = prices[proj.symbol]?.price ?? null;
+    if (live == null || live <= 0) {
+      try {
+        live = (await getUnifiedQuote(account ?? null, proj.symbol, proj.market)).price;
+      } catch {
+        live = null;
+      }
+    }
+    if (live == null || live <= 0) {
+      return { ok: false, msg: '현재가를 확인할 수 없어 매도 주문을 넣지 않았어요' };
+    }
+    const sellPrice = proj.market === 'KRX' ? alignToKrxTick(live, 'sell') : live;
     if (sellPrice <= 0) return { ok: false, msg: '현재가를 확인할 수 없어요' };
 
     if (tier === 'auto' && account && !kisOrderBlocked(proj.market)) {
