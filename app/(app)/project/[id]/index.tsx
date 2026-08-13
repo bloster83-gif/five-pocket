@@ -21,7 +21,7 @@ import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/d
 export default function ProjectDetailScreen() {
   const { id, close: closeParam } = useLocalSearchParams<{ id: string; close?: string }>();
   const router = useRouter();
-  const { tier, session } = useAuth();
+  const { tier, session, isAdmin } = useAuth();
 
   const [project, setProject] = useState<Project | null>(null);
   const [pockets, setPockets] = useState<Pocket[]>([]);
@@ -922,6 +922,7 @@ export default function ProjectDetailScreen() {
               }}
               onCancelSellOrder={() => cancelSellOrder(k)}
               onDiagnose={() => diagnoseFill(k)}
+              showDiagnose={isAdmin}
               projectClosed={!!project.closed_at}
               onUpdateTargets={async (buyP, sellP) => {
                 await supabase
@@ -1384,6 +1385,7 @@ function PocketCard({
   pendingOrder,
   onChangeOrderPrice,
   onCancelSellOrder,
+  showDiagnose,
   onDiagnose,
   projectClosed,
   onUpdateTargets,
@@ -1408,6 +1410,7 @@ function PocketCard({
   pendingOrder: AutoOrder | null; // 미체결(주문완료) 주문 — 주문가·수량 표시용
   onChangeOrderPrice: () => void; // 미체결 매수 주문가 변경 (취소 후 재주문)
   onCancelSellOrder: () => void; // 미체결 매도 주문 취소 (→ 보유중 복귀)
+  showDiagnose: boolean; // '체결 조회 진단'(개발용) 노출 — 관리자만
   onDiagnose: () => void; // 증권사 체결조회 결과를 그대로 보여주는 진단
   projectClosed: boolean; // 프로젝트 종료 시 재시작 버튼 숨김
   onUpdateTargets: (buyPrice: number, sellPrice: number | null) => Promise<void>; // 목표 매수·매도가 직접 수정
@@ -1718,8 +1721,10 @@ function PocketCard({
                     <Text style={{ color: colors.sell, fontSize: 12, fontWeight: '800' }}>🚫 매도 주문 취소</Text>
                   </Pressable>
                 )}
-                {/* 체결이 됐는데 앱이 못 잡을 때, 증권사가 실제로 뭐라고 답하는지 바로 확인 */}
-                {pendingOrder && (
+                {/* 체결 조회 진단 — 증권사 원문 응답(주문번호·체결 건수)을 그대로 보여주는 개발용 도구.
+                    체결 감지가 잔고 대조까지 이중으로 돌고 '＋ 체결 직접 입력'이라는 복구 수단도 있으므로
+                    일반 사용자에게는 감추고 관리자만 쓴다. */}
+                {pendingOrder && showDiagnose && (
                   <Pressable onPress={onDiagnose} hitSlop={6}>
                     <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '800' }}>🔍 체결 조회 진단</Text>
                   </Pressable>
