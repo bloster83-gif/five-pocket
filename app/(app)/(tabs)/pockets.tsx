@@ -307,6 +307,29 @@ export default function PocketsScreen() {
     );
   };
 
+  // 미체결 매도 주문 취소 → 포켓을 '보유중'으로 되돌린다.
+  // (엉뚱한 가격에 걸려 영영 체결되지 않는 주문을 풀고 현재가로 다시 익절/손절하기 위함)
+  const cancelSellOrder = (k: Pocket, proj: Project, po: AutoOrder) => {
+    confirmAction(
+      '매도 주문 취소',
+      `포켓 ${k.idx + 1}의 미체결 매도 주문(${formatPrice(Number(po.order_price), proj.market)} · ${money(
+        Math.floor(Number(po.quantity)),
+        0
+      )}주)을 취소할까요?\n취소하면 다시 ‘보유중’으로 돌아가요.`,
+      async () => {
+        try {
+          await cancelPendingOrder(po, proj.market, account);
+        } catch (e: any) {
+          await load();
+          return notify('주문 취소 실패', e?.message ?? '이미 체결됐을 수 있어요. 잠시 후 다시 확인해 주세요.');
+        }
+        await load();
+        notify('매도 주문 취소됨', `포켓 ${k.idx + 1}이(가) 보유중으로 돌아갔어요.`);
+      },
+      '주문 취소'
+    );
+  };
+
   // 대기중 포켓 매수 주문 — 매수 목표가(또는 직접 입력가) 기준. 손절과 대칭.
   // 현재가가 목표가보다 낮으면 현재가로 주문해 더 싸게 체결.
   const buyPocket = async (k: Pocket, proj: Project, customPrice?: number): Promise<{ ok: boolean; msg?: string }> => {
@@ -759,6 +782,12 @@ export default function PocketsScreen() {
                         {isBuy && po && (
                           <Pressable onPress={() => setAutoOrder({ pocket: k, proj, pending: po })} hitSlop={6}>
                             <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>✏️ 주문가 변경</Text>
+                          </Pressable>
+                        )}
+                        {/* 매도 미체결 — 취소하면 '보유중'으로 돌아가 현재가로 다시 익절/손절할 수 있다 */}
+                        {!isBuy && po && (
+                          <Pressable onPress={() => cancelSellOrder(k, proj, po)} hitSlop={6}>
+                            <Text style={{ color: colors.sell, fontSize: 12, fontWeight: '800' }}>🚫 매도 주문 취소</Text>
                           </Pressable>
                         )}
                       </View>

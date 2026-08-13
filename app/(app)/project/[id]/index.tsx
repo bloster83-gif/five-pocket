@@ -328,6 +328,32 @@ export default function ProjectDetailScreen() {
     );
   };
 
+  // 미체결 매도 주문 취소 → 포켓을 '보유중'으로 되돌린다.
+  // (엉뚱한 가격에 걸려 영영 체결되지 않는 주문을 풀고 현재가로 다시 익절/손절하기 위함)
+  const cancelSellOrder = (k: Pocket) => {
+    const po = pendingOrders[k.id];
+    if (!po || !project) return;
+    confirmAction(
+      '매도 주문 취소',
+      `포켓 ${k.idx + 1}의 미체결 매도 주문(${formatPrice(Number(po.order_price), project.market)} · ${money(
+        Math.floor(Number(po.quantity)),
+        0
+      )}주)을 취소할까요?\n취소하면 다시 ‘보유중’으로 돌아가요.` +
+        (project.close_after_sell ? '\n예약해 둔 ‘매도 후 자동 종료’도 함께 해제돼요.' : ''),
+      async () => {
+        try {
+          await cancelPendingOrder(po, project.market, account);
+        } catch (e: any) {
+          await load();
+          return notify('주문 취소 실패', e?.message ?? '이미 체결됐을 수 있어요. 잠시 후 다시 확인해 주세요.');
+        }
+        await load();
+        notify('매도 주문 취소됨', `포켓 ${k.idx + 1}이(가) 보유중으로 돌아갔어요.`);
+      },
+      '주문 취소'
+    );
+  };
+
   // 대기중 포켓 매수 주문 — 매수 목표가(지정가) 기준. 손절과 대칭.
   //  AUTO+계좌: 실제 매수 주문 전송, Diary: 매수 목표가로 체결 기록.
   const buyPocket = async (k: Pocket, customPrice?: number): Promise<{ ok: boolean; msg?: string }> => {
@@ -894,6 +920,7 @@ export default function ProjectDetailScreen() {
                 setOrderChange(po);
                 setAutoOrderPocket(k);
               }}
+              onCancelSellOrder={() => cancelSellOrder(k)}
               onDiagnose={() => diagnoseFill(k)}
               projectClosed={!!project.closed_at}
               onUpdateTargets={async (buyP, sellP) => {
@@ -1356,6 +1383,7 @@ function PocketCard({
   onRestart,
   pendingOrder,
   onChangeOrderPrice,
+  onCancelSellOrder,
   onDiagnose,
   projectClosed,
   onUpdateTargets,
@@ -1379,6 +1407,7 @@ function PocketCard({
   onRestart: () => void;
   pendingOrder: AutoOrder | null; // 미체결(주문완료) 주문 — 주문가·수량 표시용
   onChangeOrderPrice: () => void; // 미체결 매수 주문가 변경 (취소 후 재주문)
+  onCancelSellOrder: () => void; // 미체결 매도 주문 취소 (→ 보유중 복귀)
   onDiagnose: () => void; // 증권사 체결조회 결과를 그대로 보여주는 진단
   projectClosed: boolean; // 프로젝트 종료 시 재시작 버튼 숨김
   onUpdateTargets: (buyPrice: number, sellPrice: number | null) => Promise<void>; // 목표 매수·매도가 직접 수정
@@ -1681,6 +1710,12 @@ function PocketCard({
                 {pendingWord === '매수' && pendingOrder && !projectClosed && (
                   <Pressable onPress={onChangeOrderPrice} hitSlop={6}>
                     <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>✏️ 주문 취소하고 매수가 변경</Text>
+                  </Pressable>
+                )}
+                {/* 매도 미체결 — 취소하면 '보유중'으로 돌아가 현재가로 다시 익절/손절할 수 있다 */}
+                {pendingWord === '매도' && pendingOrder && !projectClosed && (
+                  <Pressable onPress={onCancelSellOrder} hitSlop={6}>
+                    <Text style={{ color: colors.sell, fontSize: 12, fontWeight: '800' }}>🚫 매도 주문 취소</Text>
                   </Pressable>
                 )}
                 {/* 체결이 됐는데 앱이 못 잡을 때, 증권사가 실제로 뭐라고 답하는지 바로 확인 */}
