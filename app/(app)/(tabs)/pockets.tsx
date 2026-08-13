@@ -4,7 +4,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import { confirmAction, notify } from '@/lib/alert';
+import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
 import { PortfolioSummary, computeMarketSummaries } from '@/components/PortfolioSummary';
@@ -14,7 +14,7 @@ import { getUnifiedQuote } from '@/services/prices/unified';
 import { getStoredQuotes } from '@/services/prices/quoteStore';
 import { getOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import { orderWindow } from '@/services/marketHours';
-import { cancelPendingOrder, findHoldingMismatches, healBoughtPockets, loadPendingOrders, reconcilePendingOrders, type HoldingMismatch } from '@/services/pendingOrders';
+import { cancelPendingOrder, findHoldingMismatches, healBoughtPockets, loadPendingOrders, reconcilePendingOrders, releasePendingOrderLocally, type HoldingMismatch } from '@/services/pendingOrders';
 import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 export default function PocketsScreen() {
@@ -321,7 +321,23 @@ export default function PocketsScreen() {
           await cancelPendingOrder(po, proj.market, account);
         } catch (e: any) {
           await load();
-          return notify('주문 취소 실패', e?.message ?? '이미 체결됐을 수 있어요. 잠시 후 다시 확인해 주세요.');
+          // 증권사 취소가 실패해도 사용자가 증권사 앱에서 직접 취소할 수 있다 → 기록만 정리하는 길
+          return chooseAction(
+            '주문 취소 실패',
+            `${e?.message ?? '취소하지 못했어요.'}\n\n증권사 앱에서 직접 취소하셨다면 앱 기록만 정리할 수 있어요.\n(주문이 아직 살아 있는데 정리하면 이중 매도가 될 수 있으니 증권사 앱에서 먼저 확인해 주세요)`,
+            [
+              {
+                text: '증권사에서 이미 취소했어요',
+                style: 'destructive',
+                onPress: async () => {
+                  await releasePendingOrderLocally(po);
+                  await load();
+                  notify('기록 정리 완료', `포켓 ${k.idx + 1}이(가) 보유중으로 돌아갔어요.`);
+                },
+              },
+              { text: '닫기', style: 'cancel' },
+            ]
+          );
         }
         await load();
         notify('매도 주문 취소됨', `포켓 ${k.idx + 1}이(가) 보유중으로 돌아갔어요.`);

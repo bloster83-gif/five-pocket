@@ -381,3 +381,26 @@ export async function cancelPendingOrder(
     await supabase.from('projects').update({ close_after_sell: false }).eq('id', order.project_id);
   }
 }
+
+/**
+ * 증권사에는 손대지 않고 앱 기록만 정리한다.
+ *
+ * 증권사 앱에서 사용자가 직접 취소했는데 우리 쪽 주문번호로는 취소 API 가 실패하는 경우
+ * ('원주문번호가 존재하지 않습니다' 등) 포켓이 영영 '주문완료'에 갇히지 않도록 하는 탈출구.
+ * 실제 주문이 살아 있는데 이걸 쓰면 이중 주문이 될 수 있으므로 호출측에서 반드시 확인을 받는다.
+ */
+export async function releasePendingOrderLocally(order: AutoOrder): Promise<void> {
+  await supabase
+    .from('auto_orders')
+    .update({ status: 'failed', error_message: '증권사에서 직접 취소 (앱 기록만 정리)' })
+    .eq('id', order.id);
+  if (order.pocket_id) {
+    await supabase
+      .from('pockets')
+      .update(order.side === 'buy' ? { status: 'waiting', sell_target_price: null } : { status: 'bought' })
+      .eq('id', order.pocket_id);
+  }
+  if (order.side === 'sell' && order.project_id) {
+    await supabase.from('projects').update({ close_after_sell: false }).eq('id', order.project_id);
+  }
+}

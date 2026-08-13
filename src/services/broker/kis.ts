@@ -186,6 +186,63 @@ export function alignToKrxTick(price: number, side?: TradeSide): number {
 
 // 국내주식 주문 정정/취소 TR
 const CANCEL_TR = { real: 'TTTC0803U', virtual: 'VTTC0803U' } as const;
+// 정정취소가능주문조회 — 취소에 필요한 '주문채번지점번호·주문구분·거래소'를 증권사에서 그대로 받아온다
+const RVSECNCL_PSBL_TR = { real: 'TTTC0084R', virtual: 'VTTC0084R' } as const;
+
+/** 정정·취소가 가능한 미체결 주문 1건 (취소 요청에 그대로 넣을 값들) */
+interface CancelableOrder {
+  odno: string; // 주문번호 (증권사 표기 그대로 — 앞자리 0 포함)
+  branchNo: string; // ORD_GNO_BRNO → KRX_FWDG_ORD_ORGNO
+  ordDvsn: string; // 원주문의 주문구분 (지정가 00 등)
+  qty: number; // 취소 가능 수량
+  excgId?: string; // 원주문의 거래소구분 (SOR/KRX/NXT)
+}
+
+/**
+ * 미체결 주문 목록에서 이 주문번호에 해당하는 행을 찾는다.
+ *
+ * 취소 요청은 주문번호만으로는 부족하고 '주문채번지점번호(KRX_FWDG_ORD_ORGNO)'가 함께 있어야 한다.
+ * 빈 값으로 보내면 KIS 가 "원주문번호가 존재하지 않습니다"로 거절한다.
+ * (특히 SOR/넥스트레이드로 나간 주문은 거래소구분까지 원주문과 같아야 한다)
+ */
+async function findCancelableOrder(account: BrokerAccount, orderNo: string): Promise<CancelableOrder | null> {
+  try {
+    const token = await getValidToken(account);
+    const u = new URL(`${kisBaseUrl(account.is_virtual)}/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl`);
+    const params: Record<string, string> = {
+      CANO: account.account_no,
+      ACNT_PRDT_CD: account.account_product_code,
+      CTX_AREA_FK100: '',
+      CTX_AREA_NK100: '',
+      INQR_DVSN_1: '0', // 조회순
+      INQR_DVSN_2: '0', // 전체(매도+매수)
+    };
+    Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+    const res = await fetch(u.toString(), {
+      headers: {
+        authorization: `Bearer ${token}`,
+        appkey: account.app_key,
+        appsecret: account.app_secret,
+        tr_id: RVSECNCL_PSBL_TR[account.is_virtual ? 'virtual' : 'real'],
+        custtype: 'P',
+      },
+    });
+    const json = await res.json();
+    if (!res.ok || json.rt_cd !== '0') return null;
+    const rows = (json.output ?? []) as any[];
+    const hit = rows.find((r) => sameOrderNo(r.odno, orderNo) || sameOrderNo(r.orgn_odno, orderNo));
+    if (!hit) return null;
+    return {
+      odno: String(hit.odno ?? orderNo),
+      branchNo: String(hit.ord_gno_brno ?? ''),
+      ordDvsn: String(hit.ord_dvsn_cd ?? '00'),
+      qty: Math.floor(Number(hit.psbl_qty ?? hit.ord_qty ?? 0)),
+      excgId: hit.excg_id_dvsn_cd ? String(hit.excg_id_dvsn_cd) : undefined,
+    };
+  } catch {
+    return null; // 조회 실패 → 아래에서 기존 방식으로 시도
+  }
+}
 
 /**
  * 국내주식 미체결 주문 취소.
@@ -197,33 +254,66 @@ export async function cancelDomesticOrder(
   quantity: number
 ): Promise<{ message: string }> {
   const token = await getValidToken(account);
-  const res = await fetch(`${kisBaseUrl(account.is_virtual)}/uapi/domestic-stock/v1/trading/order-rvsecncl`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      authorization: `Bearer ${token}`,
-      appkey: account.app_key,
-      appsecret: account.app_secret,
-      tr_id: CANCEL_TR[account.is_virtual ? 'virtual' : 'real'],
-      custtype: 'P',
-    },
-    body: JSON.stringify({
-      CANO: account.account_no,
-      ACNT_PRDT_CD: account.account_product_code,
-      KRX_FWDG_ORD_ORGNO: '',
-      ORGN_ODNO: orderNo, // 원주문번호
-      ORD_DVSN: '00', // 지정가
-      RVSE_CNCL_DVSN_CD: '02', // 01 정정 / 02 취소
-      ORD_QTY: String(Math.floor(quantity)),
-      ORD_UNPR: '0',
-      QTY_ALL_ORD_YN: 'Y', // 잔량 전부 취소
-    }),
-  });
-  const json = await res.json();
-  if (!res.ok || json.rt_cd !== '0') {
-    throw new Error(json.msg1 ?? `주문 취소 실패 (HTTP ${res.status})`);
+  // 증권사가 알고 있는 원주문 정보를 먼저 받아온다 (지점번호·거래소가 맞아야 취소가 된다)
+  const found = await findCancelableOrder(account, orderNo);
+
+  const send = async (body: Record<string, string>) => {
+    const res = await fetch(`${kisBaseUrl(account.is_virtual)}/uapi/domestic-stock/v1/trading/order-rvsecncl`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        authorization: `Bearer ${token}`,
+        appkey: account.app_key,
+        appsecret: account.app_secret,
+        tr_id: CANCEL_TR[account.is_virtual ? 'virtual' : 'real'],
+        custtype: 'P',
+      },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json();
+    return { ok: res.ok && json.rt_cd === '0', msg: json.msg1 as string | undefined, status: res.status };
+  };
+
+  const base = {
+    CANO: account.account_no,
+    ACNT_PRDT_CD: account.account_product_code,
+    RVSE_CNCL_DVSN_CD: '02', // 01 정정 / 02 취소
+    ORD_UNPR: '0',
+    QTY_ALL_ORD_YN: 'Y', // 잔량 전부 취소
+  };
+
+  // 시도 순서: ① 조회로 받은 정확한 값 ② 주문번호 10자리 0패딩 ③ 원본 그대로
+  const attempts: Record<string, string>[] = [];
+  if (found) {
+    attempts.push({
+      ...base,
+      KRX_FWDG_ORD_ORGNO: found.branchNo,
+      ORGN_ODNO: found.odno,
+      ORD_DVSN: found.ordDvsn,
+      ORD_QTY: String(found.qty > 0 ? found.qty : Math.floor(quantity)),
+      ...(found.excgId ? { EXCG_ID_DVSN_CD: found.excgId } : null),
+    });
   }
-  return { message: json.msg1 ?? '주문이 취소됐어요.' };
+  const padded = String(orderNo).trim().padStart(10, '0');
+  const fallback = {
+    ...base,
+    KRX_FWDG_ORD_ORGNO: '',
+    ORD_DVSN: '00',
+    ORD_QTY: String(Math.floor(quantity)),
+  };
+  attempts.push({ ...fallback, ORGN_ODNO: padded });
+  if (padded !== String(orderNo).trim()) attempts.push({ ...fallback, ORGN_ODNO: String(orderNo).trim() });
+
+  let lastMsg = '주문 취소 실패';
+  for (const body of attempts) {
+    const r = await send(body);
+    if (r.ok) return { message: r.msg ?? '주문이 취소됐어요.' };
+    lastMsg = r.msg ?? `주문 취소 실패 (HTTP ${r.status})`;
+  }
+  // 미체결 목록에도 없었다면 이미 체결·취소됐을 가능성이 높다 — 사용자에게 그 사실을 알려준다
+  throw new Error(
+    found ? lastMsg : `${lastMsg}\n(증권사 미체결 목록에서 이 주문을 찾지 못했어요. 이미 체결·취소됐을 수 있어요)`
+  );
 }
 
 // 해외주식(미국) 정정취소 TR — 정규장 / 주간거래(블루오션, 실전만)
@@ -251,33 +341,39 @@ export async function cancelOverseasOrder(
     : '/uapi/overseas-stock/v1/trading/order-rvsecncl';
   const trId = useDaytime ? OVERSEAS_DAYTIME_CANCEL_TR : OVERSEAS_CANCEL_TR[account.is_virtual ? 'virtual' : 'real'];
 
-  const res = await fetch(`${kisBaseUrl(account.is_virtual)}${path}`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      authorization: `Bearer ${token}`,
-      appkey: account.app_key,
-      appsecret: account.app_secret,
-      tr_id: trId,
-      custtype: 'P',
-    },
-    body: JSON.stringify({
-      CANO: account.account_no,
-      ACNT_PRDT_CD: account.account_product_code,
-      OVRS_EXCG_CD: ovrsExcg,
-      PDNO: sym,
-      ORGN_ODNO: orderNo, // 원주문번호
-      RVSE_CNCL_DVSN_CD: '02', // 01 정정 / 02 취소
-      ORD_QTY: String(Math.floor(quantity)),
-      OVRS_ORD_UNPR: '0',
-      ORD_SVR_DVSN_CD: '0',
-    }),
-  });
-  const json = await res.json();
-  if (!res.ok || json.rt_cd !== '0') {
-    throw new Error(json.msg1 ?? `해외 주문 취소 실패 (HTTP ${res.status})`);
+  // 원주문번호는 증권사 표기가 10자리 0패딩이라 그대로 보내면 못 찾는 경우가 있다 → 패딩본 먼저 시도
+  const raw = String(orderNo).trim();
+  const candidates = Array.from(new Set([raw.padStart(10, '0'), raw]));
+
+  let lastMsg = '해외 주문 취소 실패';
+  for (const odno of candidates) {
+    const res = await fetch(`${kisBaseUrl(account.is_virtual)}${path}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        authorization: `Bearer ${token}`,
+        appkey: account.app_key,
+        appsecret: account.app_secret,
+        tr_id: trId,
+        custtype: 'P',
+      },
+      body: JSON.stringify({
+        CANO: account.account_no,
+        ACNT_PRDT_CD: account.account_product_code,
+        OVRS_EXCG_CD: ovrsExcg,
+        PDNO: sym,
+        ORGN_ODNO: odno, // 원주문번호
+        RVSE_CNCL_DVSN_CD: '02', // 01 정정 / 02 취소
+        ORD_QTY: String(Math.floor(quantity)),
+        OVRS_ORD_UNPR: '0',
+        ORD_SVR_DVSN_CD: '0',
+      }),
+    });
+    const json = await res.json();
+    if (res.ok && json.rt_cd === '0') return { message: json.msg1 ?? '주문이 취소됐어요.' };
+    lastMsg = json.msg1 ?? `해외 주문 취소 실패 (HTTP ${res.status})`;
   }
-  return { message: json.msg1 ?? '주문이 취소됐어요.' };
+  throw new Error(lastMsg);
 }
 
 /** 시장에 맞는 미체결 주문 취소 (국내/미국 공통 진입점) */
