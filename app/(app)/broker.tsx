@@ -64,6 +64,16 @@ export default function BrokerScreen() {
       notify('입력 필요', 'AppKey와 AppSecret을 입력하세요.');
       return null;
     }
+    // 자동완성이 이메일·아이디를 채워 넣은 경우를 먼저 잡아준다
+    // (증권사에 물어보면 '유효하지 않은 AppKey'로만 나와서 원인을 알기 어렵다)
+    if (appKey.includes('@') || appSecret.includes('@')) {
+      notify(
+        '입력 확인',
+        'AppKey / AppSecret 자리에 이메일 주소가 들어가 있어요.\n' +
+          '자동완성이 채운 값일 수 있어요. 칸을 지우고 한국투자증권에서 발급받은 키를 붙여넣어 주세요.'
+      );
+      return null;
+    }
     const cano = accountNo.replace(/[^0-9]/g, '');
     if (cano.length !== 8) {
       notify('입력 필요', '종합계좌번호 앞 8자리를 입력하세요. (하이픈 앞부분)');
@@ -196,12 +206,30 @@ export default function BrokerScreen() {
           처음에는 반드시 모의투자로 테스트한 뒤 실전으로 전환하세요.
         </Text>
 
-        <Field label="AppKey" value={appKey} onChangeText={setAppKey} autoCapitalize="none" placeholder="PSxxxxxxxx..." />
+        {/* 증권사 키·계좌번호는 OS 자동완성이 이메일·비밀번호를 멋대로 채워 넣으면 안 된다.
+            (실제로 AppKey 칸에 로그인 이메일이 들어가 '유효하지 않은 AppKey'가 났다) */}
+        <Field
+          label="AppKey"
+          value={appKey}
+          onChangeText={setAppKey}
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="off"
+          textContentType="none"
+          importantForAutofill="no"
+          spellCheck={false}
+          placeholder="PSxxxxxxxx..."
+        />
         <Field
           label="AppSecret"
           value={appSecret}
           onChangeText={setAppSecret}
           autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="off"
+          textContentType="none"
+          importantForAutofill="no"
+          spellCheck={false}
           secureTextEntry
           placeholder="••••••••"
         />
@@ -210,6 +238,9 @@ export default function BrokerScreen() {
           value={accountNo}
           onChangeText={setAccountNo}
           keyboardType="number-pad"
+          autoComplete="off"
+          textContentType="none"
+          importantForAutofill="no"
           placeholder="예: 12345678"
         />
         <Field
@@ -217,6 +248,9 @@ export default function BrokerScreen() {
           value={productCode}
           onChangeText={setProductCode}
           keyboardType="number-pad"
+          autoComplete="off"
+          textContentType="none"
+          importantForAutofill="no"
           placeholder="01"
         />
 
