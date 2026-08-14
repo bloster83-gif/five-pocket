@@ -309,6 +309,41 @@ drop policy if exists "profiles admin update" on public.profiles;
 create policy "profiles admin update" on public.profiles
   for update using (public.is_admin()) with check (public.is_admin());
 
+-- 등급 자가 변경 차단 — RLS 는 본인 행 전체 수정을 허용하므로, 결제 없이 tier='auto' 로
+-- 바꾸는 걸 트리거로 막는다. service_role(웹훅·검증 함수)·pg_cron·관리자만 등급을 바꿀 수 있고,
+-- 본인이 스스로 diary 로 내리는 것만 예외로 허용한다. (마이그레이션 20260813c)
+create or replace function public.guard_profile_tier()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.tier is not distinct from old.tier
+     and new.tier_expires_at is not distinct from old.tier_expires_at
+     and new.is_admin is not distinct from old.is_admin then
+    return new;
+  end if;
+  if current_user in ('service_role', 'postgres', 'supabase_admin') then
+    return new;
+  end if;
+  if public.is_admin() then
+    return new;
+  end if;
+  if auth.uid() = new.id and new.tier = 'diary' and new.is_admin is not distinct from old.is_admin then
+    return new;
+  end if;
+  raise exception '등급은 직접 변경할 수 없습니다. 결제 또는 관리자를 통해서만 변경됩니다.'
+    using errcode = '42501';
+end;
+$$;
+
+drop trigger if exists profiles_tier_guard on public.profiles;
+create trigger profiles_tier_guard
+  before update on public.profiles
+  for each row
+  execute function public.guard_profile_tier();
+
 -- projects : 소유자만
 drop policy if exists "projects owner" on public.projects;
 create policy "projects owner" on public.projects

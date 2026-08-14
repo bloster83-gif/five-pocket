@@ -13,6 +13,7 @@ import {
   type PurchasePackageInfo,
 } from '@/lib/purchases';
 import { BackHeader } from '@/components/BackHeader';
+import { verifyEntitlement } from '@/services/entitlement';
 
 const PRIVACY_URL = 'https://bloster83-gif.github.io/five-pocket/privacy-policy.html';
 // 별도 EULA 가 없으면 Apple 표준 사용약관을 사용해도 됩니다.
@@ -64,11 +65,16 @@ export default function UpgradeScreen() {
     load();
   }, [load]);
 
-  // 결제 후 웹훅이 등급을 반영하는 데 몇 초 걸릴 수 있어 잠깐 폴링
-  const pollUntilAuto = useCallback(async () => {
+  // 결제 후 등급 반영.
+  //  ① 서버에 구독을 직접 검증시켜 즉시 반영 (웹훅이 실패해도 여기서 살아난다)
+  //  ② 그래도 아직이면 웹훅이 도착할 시간을 두고 잠깐 폴링
+  const syncTier = useCallback(async () => {
+    const r = await verifyEntitlement();
+    await refreshProfile();
+    if (r.changed) return; // 검증으로 바로 반영됨
     for (let i = 0; i < 6; i++) {
-      await refreshProfile();
       await sleep(2500);
+      await refreshProfile();
     }
   }, [refreshProfile]);
 
@@ -79,10 +85,10 @@ export default function UpgradeScreen() {
       const ent = await purchaseAuto(pkg.id);
       if (ent.active) {
         notify('결제 완료', 'AUTO 등급이 활성화되었어요! 반영까지 잠시 걸릴 수 있어요.');
-        pollUntilAuto();
+        syncTier();
       } else {
         notify('결제 확인 중', '결제는 접수됐어요. 등급 반영까지 잠시만 기다려 주세요.');
-        pollUntilAuto();
+        syncTier();
       }
     } catch (e: any) {
       if (e?.userCancelled) {
@@ -102,7 +108,7 @@ export default function UpgradeScreen() {
       const ent = await restoreAuto();
       if (ent.active) {
         notify('복원 완료', '구매 내역을 확인했어요. 등급을 반영합니다.');
-        pollUntilAuto();
+        syncTier();
       } else {
         notify('복원할 구매 없음', '이 계정에서 복원할 AUTO 구매 내역이 없어요.');
       }

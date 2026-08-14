@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
-import { initPurchases, setPurchasesUser } from './purchases';
+import { getAutoEntitlement, initPurchases, setPurchasesUser } from './purchases';
+import { verifyEntitlement } from '@/services/entitlement';
 import type { MemberTier, Profile } from '@/types/db';
 
 interface AuthState {
@@ -73,6 +74,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProfileLoaded(true);
   };
 
+  /**
+   * 결제는 살아 있는데 등급이 안 올라간 경우를 앱 시작 시 스스로 복구한다.
+   * (웹훅이 실패했거나, 결제 직후 앱을 껐거나 하는 상황)
+   * 서버가 RevenueCat 에 직접 물어 확인하므로 사용자가 조작할 수 없다.
+   */
+  const syncTierIfEntitled = async (userId?: string) => {
+    if (!userId) return;
+    try {
+      const ent = await getAutoEntitlement();
+      if (!ent.active) return; // 구독 없음 → 서버 호출도 하지 않는다
+      const r = await verifyEntitlement();
+      if (r.changed) await loadProfile(userId);
+    } catch {
+      /* 검증 실패는 무시 — 웹훅 경로가 여전히 살아 있다 */
+    }
+  };
+
   useEffect(() => {
     // RevenueCat 초기화 (네이티브에서만 동작, 웹/Expo Go 에서는 no-op)
     initPurchases();
@@ -81,13 +99,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       loadProfile(data.session?.user?.id);
       // 결제 시스템에 현재 로그인 사용자 연결 (웹훅이 이 id 로 등급을 갱신)
-      setPurchasesUser(data.session?.user?.id ?? null);
+      setPurchasesUser(data.session?.user?.id ?? null).then(() =>
+        syncTierIfEntitled(data.session?.user?.id)
+      );
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       setProfileLoaded(false);
       loadProfile(s?.user?.id);
-      setPurchasesUser(s?.user?.id ?? null);
+      setPurchasesUser(s?.user?.id ?? null).then(() => syncTierIfEntitled(s?.user?.id));
     });
     return () => sub.subscription.unsubscribe();
   }, []);
