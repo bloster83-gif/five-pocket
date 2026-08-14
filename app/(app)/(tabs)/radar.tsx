@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -219,14 +219,17 @@ export default function RadarScreen() {
     await supabase.from('watchlist_items').delete().eq('id', it.id);
   };
 
-  const updateBase = async (it: WatchlistItem, base: number) => {
-    if (base <= 0) return;
+  /** 기준가 변경. 저장 성공 여부를 돌려줘 버튼이 '변경됨 ✓' 피드백을 보여줄 수 있게 한다. */
+  const updateBase = async (it: WatchlistItem, base: number): Promise<boolean> => {
+    if (base <= 0) return false;
     setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, base_price: base } : x)));
     const { error } = await supabase.from('watchlist_items').update({ base_price: base }).eq('id', it.id);
     if (error) {
       notify('기준가 변경 실패', error.message);
       load();
+      return false;
     }
+    return true;
   };
 
   const addMemo = async (itemId: string, note: string) => {
@@ -234,7 +237,11 @@ export default function RadarScreen() {
     const { error } = await supabase
       .from('watchlist_memos')
       .insert({ item_id: itemId, user_id: session.user.id, note: note.trim() });
-    if (error) return notify('메모 저장 실패', error.message);
+    // 실패를 던져서 호출측이 입력값을 지우지 않고 그대로 두게 한다 (쓴 글 날아가면 안 됨)
+    if (error) {
+      notify('메모 저장 실패', error.message);
+      throw new Error(error.message);
+    }
     await load();
   };
 
@@ -577,21 +584,27 @@ function WatchRow({
   onSetGroup: (groupId: string | null) => void;
   open: boolean;
   onToggle: () => void;
-  onAddMemo: (note: string) => void;
+  onAddMemo: (note: string) => Promise<void>;
   onDeleteMemo: (m: WatchlistMemo) => void;
-  onUpdateBase: (base: number) => void;
+  onUpdateBase: (base: number) => Promise<boolean>;
   onDelete: () => void;
   onCreateProject: () => void;
   onDetail: () => void;
 }) {
   const [note, setNote] = useState('');
+  const [memoSaving, setMemoSaving] = useState(false);
   const mkt = item.market;
   const isKr = mkt === 'KRX';
   const [baseRaw, setBaseRaw] = useState(String(item.base_price));
+  const [baseSaving, setBaseSaving] = useState(false);
+  const [baseSaved, setBaseSaved] = useState(false); // 저장 직후 '변경됨 ✓' 표시
   // 다른 곳에서 기준가가 바뀌면 편집값도 동기화
   useEffect(() => {
     setBaseRaw(String(item.base_price));
   }, [item.base_price]);
+  // 입력값이 저장된 기준가와 다를 때만 '변경' 버튼을 활성화 (안 바꿨는데 누르는 헛동작 방지)
+  const baseInput = Number(rawNumeric(baseRaw, !isKr)) || 0;
+  const baseDirty = baseInput > 0 && baseInput !== Number(item.base_price);
   // 기준가 대비: 100% 이상=현재가가 기준가 위(빨강), 미만=아래(파랑)
   const ratioColor = ratio == null ? colors.textDim : ratio >= 100 ? colors.buy : colors.sell;
   // 형광펜 음영: 기준가 이하로 내려갈수록(=ratio가 100 미만으로 낮을수록) 파란 음영이 진해짐
@@ -787,14 +800,42 @@ function WatchRow({
                   borderColor: colors.border,
                 }}
               />
+              {/* 눌렀는지 알 수 있게: 눌림 표시 + 저장 중 + '변경됨 ✓' 확인 + 값이 그대로면 비활성 */}
               <Pressable
-                onPress={() => {
+                onPress={async () => {
                   const b = Number(rawNumeric(baseRaw, !isKr)) || 0;
-                  if (b > 0) onUpdateBase(b);
+                  if (b <= 0 || baseSaving || !baseDirty) return;
+                  setBaseSaving(true);
+                  const ok = await onUpdateBase(b);
+                  setBaseSaving(false);
+                  if (ok) {
+                    setBaseSaved(true);
+                    Keyboard.dismiss();
+                    setTimeout(() => setBaseSaved(false), 1600);
+                  }
                 }}
-                style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 9 }}
+                disabled={baseSaving || !baseDirty}
+                style={({ pressed }) => ({
+                  backgroundColor: baseSaved ? colors.buy : !baseDirty ? colors.cardAlt : colors.primary,
+                  borderWidth: 1,
+                  borderColor: baseSaved ? colors.buy : !baseDirty ? colors.border : colors.primary,
+                  borderRadius: radius.md,
+                  paddingHorizontal: 14,
+                  paddingVertical: 9,
+                  minWidth: 74,
+                  alignItems: 'center',
+                  opacity: pressed ? 0.6 : 1,
+                  transform: [{ scale: pressed ? 0.96 : 1 }],
+                })}
               >
-                <Text style={{ color: '#04121A', fontWeight: '800' }}>변경</Text>
+                <Text
+                  style={{
+                    color: baseSaved ? '#fff' : !baseDirty ? colors.textDim : '#04121A',
+                    fontWeight: '800',
+                  }}
+                >
+                  {baseSaving ? '저장 중…' : baseSaved ? '변경됨 ✓' : '변경'}
+                </Text>
               </Pressable>
             </View>
             <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end' }}>
@@ -817,15 +858,39 @@ function WatchRow({
                   }}
                 />
               </View>
+              {/* 기준가 변경과 같은 피드백: 눌림 표시 + 저장 중 + 빈 메모면 비활성.
+                  저장이 실패하면 입력값을 지우지 않는다 (쓴 글이 날아가면 안 됨) */}
               <Pressable
-                onPress={() => {
-                  if (!note.trim()) return;
-                  onAddMemo(note);
-                  setNote('');
+                onPress={async () => {
+                  if (!note.trim() || memoSaving) return;
+                  setMemoSaving(true);
+                  try {
+                    await onAddMemo(note);
+                    setNote('');
+                    Keyboard.dismiss();
+                  } catch {
+                    /* 실패 안내는 상위에서 이미 띄웠다 — 입력값은 남겨둔다 */
+                  } finally {
+                    setMemoSaving(false);
+                  }
                 }}
-                style={{ backgroundColor: colors.buy, borderRadius: radius.md, paddingHorizontal: 16, paddingVertical: 11 }}
+                disabled={!note.trim() || memoSaving}
+                style={({ pressed }) => ({
+                  backgroundColor: !note.trim() ? colors.cardAlt : colors.buy,
+                  borderWidth: 1,
+                  borderColor: !note.trim() ? colors.border : colors.buy,
+                  borderRadius: radius.md,
+                  paddingHorizontal: 16,
+                  paddingVertical: 11,
+                  minWidth: 74,
+                  alignItems: 'center',
+                  opacity: pressed ? 0.6 : 1,
+                  transform: [{ scale: pressed ? 0.96 : 1 }],
+                })}
               >
-                <Text style={{ color: '#fff', fontWeight: '800' }}>저장</Text>
+                <Text style={{ color: !note.trim() ? colors.textDim : '#fff', fontWeight: '800' }}>
+                  {memoSaving ? '저장 중…' : '저장'}
+                </Text>
               </Pressable>
             </View>
             {memos.length === 0 ? (
