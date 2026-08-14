@@ -1683,19 +1683,16 @@ function PocketCard({
             </Text>
           </View>
 
-          {/* 마지노선(손절) — 설정돼 있을 때만. 여기까지 떨어지면 무조건 매도 */}
+          {/* 마지노선(손절) — 가격을 가로지르는 선으로 그려 '여기가 하한선'이 한눈에 보이게 한다.
+              ──────── 🛑 마지노선 ₩69,000 (+9.7%) ──────── */}
           {stopDisp != null && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-              <Text style={{ color: colors.textDim, fontSize: 12 }}>🛑 마지노선</Text>
-              <Text style={{ color: colors.warn, fontSize: 15, fontWeight: '900' }}>
-                {formatPrice(stopDisp, market)}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+              <View style={{ flex: 1, height: 1.5, backgroundColor: colors.warn, opacity: 0.55 }} />
+              <Text numberOfLines={1} style={{ color: colors.warn, fontSize: 13, fontWeight: '900' }}>
+                🛑 마지노선 {formatPrice(stopDisp, market)}
+                {stopPct != null ? ` (${stopPct > 0 ? '+' : ''}${stopPct}%)` : ''}
               </Text>
-              {stopPct != null && (
-                <Text style={{ color: signColor(stopPct), fontSize: 12, fontWeight: '800' }}>
-                  ({stopPct > 0 ? '+' : ''}
-                  {stopPct}%)
-                </Text>
-              )}
+              <View style={{ flex: 1, height: 1.5, backgroundColor: colors.warn, opacity: 0.55 }} />
             </View>
           )}
           {(sellReady || sellFailMsg) && (

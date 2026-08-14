@@ -733,25 +733,23 @@ export default function PocketsScreen() {
                   )}
                 </View>
               )}
-              {/* 마지노선(손절) — 설정돼 있을 때만. 여기까지 떨어지면 무조건 매도 */}
-              {effStatus === 'bought' && stopDisp != null && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Text style={{ color: colors.textDim, fontSize: 11 }}>🛑 마지노선</Text>
-                  <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 13 }}>
-                    {formatPrice(stopDisp, proj.market)}
-                  </Text>
-                  {pnl.avgOpenPrice > 0 &&
-                    (() => {
-                      const p = Math.round(((stopDisp - pnl.avgOpenPrice) / pnl.avgOpenPrice) * 10000) / 100;
-                      return (
-                        <Text style={{ color: signColor(p), fontWeight: '700', fontSize: 12 }}>
-                          ({p > 0 ? '+' : ''}
-                          {p}%)
-                        </Text>
-                      );
-                    })()}
-                </View>
-              )}
+              {/* 마지노선(손절) — 프로젝트 상세와 같이 선으로 가로질러 하한선처럼 보이게 */}
+              {effStatus === 'bought' && stopDisp != null && (() => {
+                const p =
+                  pnl.avgOpenPrice > 0
+                    ? Math.round(((stopDisp - pnl.avgOpenPrice) / pnl.avgOpenPrice) * 10000) / 100
+                    : null;
+                return (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                    <View style={{ flex: 1, height: 1, backgroundColor: colors.warn, opacity: 0.5 }} />
+                    <Text numberOfLines={1} style={{ color: colors.warn, fontWeight: '800', fontSize: 11 }}>
+                      🛑 마지노선 {formatPrice(stopDisp, proj.market)}
+                      {p != null ? ` (${p > 0 ? '+' : ''}${p}%)` : ''}
+                    </Text>
+                    <View style={{ flex: 1, height: 1, backgroundColor: colors.warn, opacity: 0.5 }} />
+                  </View>
+                );
+              })()}
 
               {/* 목표 매수·매도가 직접 수정 (시장 상황 보며 조정) */}
               {k.status !== 'sold' && (
