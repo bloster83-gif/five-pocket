@@ -21,7 +21,8 @@ Expo(React Native) + Supabase 기반 **5분할 매수·매도 일지** 앱. 멀�
 - **네이버 로그인**: `supabase/functions/naver-auth/`(Edge Function, Deno — tsconfig에서 제외됨) + `src/lib/oauth.ts`의 signInWithNaver/completeNaverWebLogin.
 - **회원가입 휴대폰 인증**: 이메일 가입은 실명·이메일·비밀번호·휴대폰 필수 + SMS OTP(알리고). `supabase/functions/send-phone-otp`·`verify-phone-otp`(--no-verify-jwt) + `src/lib/phoneAuth.ts` + phone_otps 테이블. 알리고 시크릿 없으면 devMode로 코드 반환(테스트). 가입 트리거가 phone_verified 저장.
 - **SNS 가입 후 번호 게이트**: 로그인했는데 phone_verified=false면 `app/(app)/verify-phone.tsx`로 강제 이동(RootNavigator 게이트). verify-phone-otp가 Authorization 토큰 있으면 그 사용자 프로필의 phone/phone_verified를 직접 갱신. useAuth().phoneVerified/profileLoaded 사용.
-- `src/domain/pockets.ts` — 핵심 순수함수: 포켓 목표가, `computePnL`(포켓 순환 대응: 포지션 0이면 원가 리셋), `realizedEvents`(매도 1건별 실현손익).
+- `src/domain/pockets.ts` — 핵심 순수함수: 포켓 목표가, `computePnL`(포켓 순환 대응: 포지션 0이면 원가 리셋), `realizedEvents`(매도 1건별 실현손익), `evaluateSignals`(buy/sell/stop 신호 판정).
+- **마지노선(손절)**: 보유중 포켓에 `pockets.stop_price`(마이그레이션 20260813b)를 두면 현재가가 그 아래로 내려갈 때 `stop` 신호 → **현재가로** 전량 매도(마지노선 가격으로 걸면 더 떨어졌을 때 영영 안 팔림). 목표가 수정 모달에서 입력(매도 목표가보다 높으면 저장 차단). 컬럼 없으면 마지노선만 빼고 저장(`src/services/pocketTargets.ts`). 클라이언트 `autoTrader`와 서버 러너 양쪽에 동일 규칙.
 - `src/domain/goals.ts` — 인생목표 CAGR. 실제달성액 = 이월 ± 입출금 + 배당금 + 실현손익 (매매일지 자동 연동, 수동입력 없음).
 - `src/services/prices/` — 시세 추상화. 기본 Yahoo(키 불필요, 15분 지연, 웹은 CORS 막힘→실기기에서만 라이브). `EXPO_PUBLIC_USE_MOCK=1`로 목업. 한글 종목검색은 Naver(`src/services/symbols.ts`) — Yahoo는 한글 쿼리 400 에러.
 - **미국주식 실시간 시세**: priceTracker가 US 프로젝트 + KIS 계좌 연결 + 네이티브면 `getOverseasPrice`(kis.ts, tr HHDFS00000300, 거래소 NAS/NYS/AMS 자동탐색)로 실시간에 가까운 시세를 우선 사용, 실패 시 Yahoo 폴백. 자동 주문은 여전히 KRX만(해외 주문 미구현).

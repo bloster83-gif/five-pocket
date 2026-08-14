@@ -67,6 +67,8 @@ export interface Pocket {
   idx: number;
   buy_target_price: number;
   sell_target_price: number | null;
+  /** 마지노선(손절) 가격 — 이 값 이하로 떨어지면 전량 매도. 마이그레이션 20260813b 미실행 시 undefined */
+  stop_price?: number | null;
   weight: number;
   budget: number | null;
   status: PocketStatus;

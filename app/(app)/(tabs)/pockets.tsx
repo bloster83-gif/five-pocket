@@ -9,11 +9,12 @@ import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
 import { PortfolioSummary, computeMarketSummaries } from '@/components/PortfolioSummary';
 import { colors, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
-import { alignToKrxTick, computePnL, estimatedShares, sellTargetFromFill } from '@/domain/pockets';
+import { alignToKrxTick, computePnL, estimatedShares, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
 import { getUnifiedQuote } from '@/services/prices/unified';
 import { getStoredQuotes } from '@/services/prices/quoteStore';
 import { getOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import { orderWindow } from '@/services/marketHours';
+import { savePocketTargets, STOP_PRICE_MIGRATION_HINT } from '@/services/pocketTargets';
 import { cancelPendingOrder, findHoldingMismatches, healBoughtPockets, loadPendingOrders, reconcilePendingOrders, releasePendingOrderLocally, type HoldingMismatch } from '@/services/pendingOrders';
 import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
@@ -630,6 +631,8 @@ export default function PocketsScreen() {
         const buyTargetDisp = isKrx ? alignToKrxTick(k.buy_target_price, 'buy') : k.buy_target_price;
         const sellTargetDisp =
           k.sell_target_price != null ? (isKrx ? alignToKrxTick(k.sell_target_price, 'sell') : k.sell_target_price) : null;
+        const stopRaw = stopPriceOf(k);
+        const stopDisp = stopRaw != null ? (isKrx ? alignToKrxTick(stopRaw, 'sell') : stopRaw) : null;
         const open = expanded === k.id;
         // 상태 판정: 주문완료(미체결) 상태는 그대로 존중하고,
         // 그 외에는 실제 보유수량으로 보정한다(체결 감지 지연 방어).
@@ -728,6 +731,25 @@ export default function PocketsScreen() {
                       (예상 +{Math.round(((sellTargetDisp - pnl.avgOpenPrice) / pnl.avgOpenPrice) * 10000) / 100}%)
                     </Text>
                   )}
+                </View>
+              )}
+              {/* 마지노선(손절) — 설정돼 있을 때만. 여기까지 떨어지면 무조건 매도 */}
+              {effStatus === 'bought' && stopDisp != null && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text style={{ color: colors.textDim, fontSize: 11 }}>🛑 마지노선</Text>
+                  <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 13 }}>
+                    {formatPrice(stopDisp, proj.market)}
+                  </Text>
+                  {pnl.avgOpenPrice > 0 &&
+                    (() => {
+                      const p = Math.round(((stopDisp - pnl.avgOpenPrice) / pnl.avgOpenPrice) * 10000) / 100;
+                      return (
+                        <Text style={{ color: signColor(p), fontWeight: '700', fontSize: 12 }}>
+                          ({p > 0 ? '+' : ''}
+                          {p}%)
+                        </Text>
+                      );
+                    })()}
                 </View>
               )}
 
@@ -988,10 +1010,11 @@ export default function PocketsScreen() {
             market={proj.market}
             price={prices[proj.symbol]?.price ?? null}
             avgBuy={pnl.totalQtyOpen > 0 ? pnl.avgOpenPrice : 0}
-            onSave={async (b, s) => {
-              await supabase.from('pockets').update({ buy_target_price: b, sell_target_price: s }).eq('id', editPocket.id);
+            onSave={async (b, s, stop) => {
+              const r = await savePocketTargets(editPocket.id, b, s, stop);
               await load();
               setEditPocket(null);
+              if (!r.stopSaved && stop != null) notify('DB 준비 필요', STOP_PRICE_MIGRATION_HINT);
             }}
           />
         );

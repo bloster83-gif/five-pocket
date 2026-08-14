@@ -8,13 +8,14 @@ import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { BottomTabsBar } from '@/components/BottomTabsBar';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
 import { colors, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
-import { alignToKrxTick, computePnL, estimatedShares, findBudgetMismatches, pnlPct, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
+import { alignToKrxTick, computePnL, estimatedShares, findBudgetMismatches, pnlPct, realizedEvents, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
 import { useAutoTrader } from '@/services/autoTrader';
 import { getOrderFill, inspectOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import { orderWindow } from '@/services/marketHours';
 import { getUnifiedQuote } from '@/services/prices/unified';
+import { savePocketTargets, STOP_PRICE_MIGRATION_HINT } from '@/services/pocketTargets';
 import { cancelPendingOrder, loadPendingOrders, reconcilePendingOrders, releasePendingOrderLocally } from '@/services/pendingOrders';
 import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
@@ -941,12 +942,10 @@ export default function ProjectDetailScreen() {
               onDiagnose={() => diagnoseFill(k)}
               showDiagnose={isAdmin}
               projectClosed={!!project.closed_at}
-              onUpdateTargets={async (buyP, sellP) => {
-                await supabase
-                  .from('pockets')
-                  .update({ buy_target_price: buyP, sell_target_price: sellP })
-                  .eq('id', k.id);
+              onUpdateTargets={async (buyP, sellP, stopP) => {
+                const r = await savePocketTargets(k.id, buyP, sellP, stopP);
                 await load();
+                if (!r.stopSaved && stopP != null) notify('DB 준비 필요', STOP_PRICE_MIGRATION_HINT);
               }}
               onTrade={(side, sqty, sprice, budget) =>
                 router.push(
@@ -1430,7 +1429,7 @@ function PocketCard({
   showDiagnose: boolean; // '체결 조회 진단'(개발용) 노출 — 관리자만
   onDiagnose: () => void; // 증권사 체결조회 결과를 그대로 보여주는 진단
   projectClosed: boolean; // 프로젝트 종료 시 재시작 버튼 숨김
-  onUpdateTargets: (buyPrice: number, sellPrice: number | null) => Promise<void>; // 목표 매수·매도가 직접 수정
+  onUpdateTargets: (buyPrice: number, sellPrice: number | null, stopPrice: number | null) => Promise<void>; // 목표 매수·매도가·마지노선 직접 수정
   onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number, budget?: number) => void;
 }) {
   // 종료된 프로젝트는 본문이 터치 비활성(pointerEvents=none)이라 토글을 못 누름
@@ -1446,6 +1445,11 @@ function PocketCard({
   const buyTargetDisp = isKrx ? alignToKrxTick(k.buy_target_price, 'buy') : k.buy_target_price;
   const sellTargetDisp =
     k.sell_target_price != null ? (isKrx ? alignToKrxTick(k.sell_target_price, 'sell') : k.sell_target_price) : null;
+  // 마지노선(손절) — 설정돼 있을 때만 표시. 평균매수가 대비 손익률을 함께 보여준다.
+  const stopRaw = stopPriceOf(k);
+  const stopDisp = stopRaw != null ? (isKrx ? alignToKrxTick(stopRaw, 'sell') : stopRaw) : null;
+  const stopPct =
+    stopDisp != null && openAvg > 0 ? Math.round((stopDisp / openAvg - 1) * 1000) / 10 : null;
   const buyReady = k.status === 'waiting' && price != null && price <= buyTargetDisp;
   const sellReady =
     k.status === 'bought' && sellTargetDisp != null && price != null && price >= sellTargetDisp;
@@ -1526,8 +1530,8 @@ function PocketCard({
         market={market}
         price={price}
         avgBuy={heldLike && openQty > 0 ? openAvg : 0}
-        onSave={async (b, s) => {
-          await onUpdateTargets(b, s);
+        onSave={async (b, s, stop) => {
+          await onUpdateTargets(b, s, stop);
           setEditOpen(false);
         }}
       />
@@ -1678,6 +1682,22 @@ function PocketCard({
               {sellTargetDisp != null ? formatPrice(sellTargetDisp, market) : '-'}
             </Text>
           </View>
+
+          {/* 마지노선(손절) — 설정돼 있을 때만. 여기까지 떨어지면 무조건 매도 */}
+          {stopDisp != null && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+              <Text style={{ color: colors.textDim, fontSize: 12 }}>🛑 마지노선</Text>
+              <Text style={{ color: colors.warn, fontSize: 15, fontWeight: '900' }}>
+                {formatPrice(stopDisp, market)}
+              </Text>
+              {stopPct != null && (
+                <Text style={{ color: signColor(stopPct), fontSize: 12, fontWeight: '800' }}>
+                  ({stopPct > 0 ? '+' : ''}
+                  {stopPct}%)
+                </Text>
+              )}
+            </View>
+          )}
           {(sellReady || sellFailMsg) && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
               <Blink active={sellReady}>

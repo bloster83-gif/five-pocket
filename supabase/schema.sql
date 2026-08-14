@@ -141,6 +141,7 @@ create table if not exists public.pockets (
   idx                int  not null,                    -- 0 .. pocket_count-1
   buy_target_price   numeric(20,4) not null,           -- 이 가격 도달 시 매수 알림
   sell_target_price  numeric(20,4),                    -- 체결 후 이 가격 도달 시 매도 알림
+  stop_price         numeric(20,4),                    -- 마지노선(손절) — 이 가격 이하면 전량 매도. null = 사용 안 함
   weight             numeric(6,3) not null default 20, -- 포켓 예산 비중(%)
   budget             numeric(20,4),                    -- 자동 배분된 금액(= total_budget * weight/100)
   status             text not null default 'waiting'   -- waiting|buy_ordered|bought|sell_ordered|sold
@@ -182,7 +183,7 @@ create table if not exists public.price_alerts (
   user_id         uuid not null references auth.users (id) on delete cascade,
   project_id      uuid not null references public.projects (id) on delete cascade,
   pocket_id       uuid references public.pockets (id) on delete cascade,
-  kind            text not null check (kind in ('buy','sell')),
+  kind            text not null check (kind in ('buy','sell','stop')),
   target_price    numeric(20,4) not null,
   triggered_price numeric(20,4) not null,
   triggered_at    timestamptz not null default now(),

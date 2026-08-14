@@ -22,7 +22,7 @@ import type { BrokerAccount, Project, Trade } from '@/types/db';
 
 export interface AutoTradeEvent {
   at: number;
-  kind: 'buy' | 'sell';
+  kind: 'buy' | 'sell' | 'stop';
   pocketIdx: number;
   ok: boolean;
   message: string;
@@ -92,7 +92,10 @@ export function useAutoTrader(
         if (inFlightRef.current.has(key)) return;
         inFlightRef.current.add(key);
 
-        const label = sig.kind === 'buy' ? '매수' : '매도';
+        // 'stop'(마지노선)은 주문 방향으로는 매도지만, 표시·가격 결정은 다르게 한다.
+        const isSell = sig.kind !== 'buy';
+        const side: 'buy' | 'sell' = isSell ? 'sell' : 'buy';
+        const label = sig.kind === 'buy' ? '매수' : sig.kind === 'stop' ? '마지노선 매도' : '매도';
         try {
           const blocked = kisOrderBlocked(proj.market);
           if (blocked) throw new Error(blocked);
@@ -119,8 +122,19 @@ export function useAutoTrader(
           const win = orderWindow(proj.market, { nxtTradable, isVirtual: account.is_virtual });
           if (!win.canOrder) return; // 조용히 대기 (알림 없음)
 
-          // 주문가(지정가): 매수 = min(목표가, 현재가) — 더 싸게 / 매도 = max(목표가, 현재가) — 더 비싸게
-          const limitPrice = sig.kind === 'buy' ? buyPrice : Math.max(sig.targetPrice, sig.currentPrice);
+          // 주문가(지정가)
+          //  매수      : min(목표가, 현재가)        — 더 싸게
+          //  매도      : max(목표가, 현재가)        — 더 비싸게
+          //  마지노선  : 현재가                      — '무조건 판다'가 목적이라 체결이 우선.
+          //              (마지노선 가격으로 걸면 더 떨어졌을 때 영영 안 팔린다)
+          const rawLimit =
+            sig.kind === 'buy'
+              ? buyPrice
+              : sig.kind === 'stop'
+                ? sig.currentPrice
+                : Math.max(sig.targetPrice, sig.currentPrice);
+          const limitPrice =
+            proj.market === 'KRX' ? alignToKrxTick(rawLimit, side) : rawLimit;
           let qty: number;
           if (sig.kind === 'buy') {
             qty = estimatedShares(sig.pocket.budget, limitPrice);
@@ -132,7 +146,7 @@ export function useAutoTrader(
           }
 
           // KIS 주문 전송 (한국=국내주문, 미국=해외주문)
-          const orderInput = { side: sig.kind, symbol: proj.symbol, quantity: qty, price: limitPrice };
+          const orderInput = { side, symbol: proj.symbol, quantity: qty, price: limitPrice };
           const result =
             proj.market === 'US'
               ? await placeOverseasOrder(account, orderInput)
@@ -143,7 +157,7 @@ export function useAutoTrader(
             user_id: uid,
             project_id: proj.id,
             pocket_id: sig.pocket.id,
-            side: sig.kind,
+            side,
             symbol: proj.symbol,
             order_price: limitPrice,
             quantity: qty,
@@ -176,11 +190,11 @@ export function useAutoTrader(
               user_id: uid,
               project_id: proj.id,
               pocket_id: sig.pocket.id,
-              side: sig.kind,
+              side,
               price: fillPrice,
               quantity: fillQty,
               executed_at: new Date().toISOString(),
-              note: `자동주문(KIS ${result.orderNo || '-'})`,
+              note: `자동주문(KIS ${result.orderNo || '-'})${sig.kind === 'stop' ? ' 마지노선' : ''}`,
             });
           }
           if (sig.kind === 'buy') {
@@ -220,7 +234,7 @@ export function useAutoTrader(
               user_id: uid,
               project_id: proj.id,
               pocket_id: sig.pocket.id,
-              side: sig.kind,
+              side: sig.kind === 'buy' ? 'buy' : 'sell',
               symbol: proj.symbol,
               order_price: sig.targetPrice,
               quantity: 0,

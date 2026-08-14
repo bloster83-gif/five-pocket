@@ -140,16 +140,27 @@ export function sellTargetFromFill(fillPrice: number, sellTargetPct: number): nu
 // --------------------------- 알림 판정 ---------------------------
 
 export interface PriceSignal {
-  kind: 'buy' | 'sell';
+  /** buy = 매수 포인트 / sell = 매도 목표가 / stop = 마지노선(손절) 하한 도달 */
+  kind: 'buy' | 'sell' | 'stop';
   pocket: Pocket;
   targetPrice: number;
   currentPrice: number;
+}
+
+/** 마지노선(손절)이 설정된 포켓인지 — 0 이하나 null 은 '사용 안 함'으로 본다 */
+export function stopPriceOf(p: Pocket): number | null {
+  const v = p.stop_price == null ? null : Number(p.stop_price);
+  return v != null && v > 0 ? v : null;
 }
 
 /**
  * 현재가를 받아 어떤 알림을 울려야 하는지 판정한다.
  *  - 매수 신호: 아직 'waiting' 인 포켓 중, 현재가 <= 매수 목표가
  *  - 매도 신호: 'bought' 인 포켓 중, 현재가 >= 매도 목표가
+ *  - 손절 신호: 'bought' 인 포켓 중, 마지노선이 설정되어 있고 현재가 <= 마지노선
+ *
+ * 손절을 매도보다 먼저 본다. 둘이 동시에 성립할 수는 없지만(마지노선 < 매도목표),
+ * 사용자가 마지노선을 매도목표 위로 잘못 넣었을 때 '무조건 판다'는 쪽이 안전하다.
  * (실제 발송 중복 방지는 price_alerts 이력으로 별도 처리)
  */
 export function evaluateSignals(pockets: Pocket[], currentPrice: number): PriceSignal[] {
@@ -157,11 +168,14 @@ export function evaluateSignals(pockets: Pocket[], currentPrice: number): PriceS
   for (const p of pockets) {
     if (p.status === 'waiting' && currentPrice <= p.buy_target_price) {
       signals.push({ kind: 'buy', pocket: p, targetPrice: p.buy_target_price, currentPrice });
-    } else if (
-      p.status === 'bought' &&
-      p.sell_target_price != null &&
-      currentPrice >= p.sell_target_price
-    ) {
+      continue;
+    }
+    if (p.status !== 'bought') continue;
+
+    const stop = stopPriceOf(p);
+    if (stop != null && currentPrice <= stop) {
+      signals.push({ kind: 'stop', pocket: p, targetPrice: stop, currentPrice });
+    } else if (p.sell_target_price != null && currentPrice >= p.sell_target_price) {
       signals.push({ kind: 'sell', pocket: p, targetPrice: p.sell_target_price, currentPrice });
     }
   }

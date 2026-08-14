@@ -66,6 +66,8 @@ interface PocketRow {
   idx: number;
   buy_target_price: number;
   sell_target_price: number | null;
+  /** 마지노선(손절) — 현재가가 이 값 이하면 전량 매도. 마이그레이션 20260813b */
+  stop_price: number | null;
   budget: number | null;
   status: 'waiting' | 'bought' | 'sold';
 }
@@ -668,7 +670,7 @@ Deno.serve(async (req: Request) => {
   const projIds = targets.map((p) => p.id);
   const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
   const [{ data: pockets }, { data: trades }, { data: recentOrders }] = await Promise.all([
-    admin.from('pockets').select('id,project_id,idx,buy_target_price,sell_target_price,budget,status').in('project_id', projIds),
+    admin.from('pockets').select('id,project_id,idx,buy_target_price,sell_target_price,stop_price,budget,status').in('project_id', projIds),
     admin.from('trades').select('pocket_id,side,quantity').in('project_id', projIds),
     admin.from('auto_orders').select('pocket_id,side').gte('created_at', since),
   ]);
@@ -736,13 +738,21 @@ Deno.serve(async (req: Request) => {
     }
 
     for (const k of pocketsByProject.get(proj.id) ?? []) {
-      // 신호 판정
+      // 신호 판정 (클라이언트 evaluateSignals 와 동일한 규칙으로 유지할 것)
       let side: 'buy' | 'sell' | null = null;
       let limitPrice = 0;
+      let isStop = false; // 마지노선(손절)으로 나가는 매도인지
+      const stop = k.stop_price != null && Number(k.stop_price) > 0 ? Number(k.stop_price) : null;
       if (k.status === 'waiting' && price <= Number(k.buy_target_price)) {
         side = 'buy';
         // 현재가가 목표매수가보다 낮으면 현재가로 지정가 주문 (더 싸게 체결)
         limitPrice = Math.min(Number(k.buy_target_price), price);
+      } else if (k.status === 'bought' && stop != null && price <= stop) {
+        // 마지노선 도달 — '무조건 판다'가 목적이라 현재가로 주문해 체결을 우선한다.
+        // (마지노선 가격으로 걸면 더 떨어졌을 때 영영 안 팔린다)
+        side = 'sell';
+        isStop = true;
+        limitPrice = price;
       } else if (
         k.status === 'bought' &&
         k.sell_target_price != null &&
@@ -753,6 +763,9 @@ Deno.serve(async (req: Request) => {
         limitPrice = Math.max(Number(k.sell_target_price), price);
       }
       if (!side) continue;
+      // KRX 는 가격대별 호가단위의 배수로만 주문할 수 있다 (안 맞으면 증권사가 거부)
+      if (!isUs) limitPrice = alignToKrxTick(limitPrice, side);
+      if (limitPrice <= 0) continue;
       if (recentKeys.has(`${k.id}:${side}`)) continue; // 10분 내 이미 시도함
 
       // 수량 계산
@@ -762,7 +775,7 @@ Deno.serve(async (req: Request) => {
           : Math.floor(openQtyByPocket.get(k.id) ?? 0);
       // 배분 예산으로 1주도 못 사는 포켓(매수 수량 0)은 조용히 건너뛴다 (실패 기록·알람 반복 방지)
       if (side === 'buy' && qty <= 0) continue;
-      const label = side === 'buy' ? '매수' : '매도';
+      const label = side === 'buy' ? '매수' : isStop ? '마지노선 매도' : '매도';
 
       try {
         if (qty <= 0) {
@@ -807,7 +820,7 @@ Deno.serve(async (req: Request) => {
             price: fillPrice,
             quantity: fillQty,
             executed_at: new Date().toISOString(),
-            note: `자동주문·서버(KIS ${order.orderNo || '-'})`,
+            note: `자동주문·서버(KIS ${order.orderNo || '-'})${isStop ? ' 마지노선' : ''}`,
           });
         }
         if (side === 'buy') {
