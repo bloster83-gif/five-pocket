@@ -467,9 +467,10 @@ function ProjectRealizedModal({
 }) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-        <Pressable
-          onPress={() => {}}
+      {/* 배경은 절대배치 Pressable, 시트는 View — Pressable 이 시트를 감싸면 스크롤 드래그를 가로챈다 */}
+      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+        <Pressable onPress={onClose} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.55)' }} />
+        <View
           style={{
             backgroundColor: colors.card,
             borderTopLeftRadius: radius.lg,
@@ -535,8 +536,8 @@ function ProjectRealizedModal({
           >
             <Text style={{ color: '#fff', fontWeight: '800' }}>닫기</Text>
           </Pressable>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
