@@ -268,6 +268,19 @@ export default function ChartScreen() {
     });
   }, [candles]);
 
+  // 처음 열면 가장 최근 봉(=현재가)이 보이도록 오른쪽 끝으로 맞춘다.
+  // 봉 데이터·차트 폭이 준비된 뒤 한 번만 하고, 이후 확대/이동은 사용자에게 맡긴다.
+  const didInitScroll = useRef(false);
+  useEffect(() => {
+    didInitScroll.current = false; // 봉 종류(일/주/년)·가로보기 전환·데이터 재조회 시 다시 맞춤
+  }, [mode, wideView, candles.length]);
+  useEffect(() => {
+    if (didInitScroll.current) return;
+    if (candles.length === 0 || plotW === 0) return;
+    didInitScroll.current = true;
+    scrollToX(candles.length * candleW - plotW, candleW);
+  }, [candles.length, plotW, candleW, scrollToX]);
+
   const gridLines = useMemo(() => {
     const n = 4;
     return Array.from({ length: n + 1 }, (_, i) => minP + ((maxP - minP) * i) / n);
