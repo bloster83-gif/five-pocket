@@ -3,6 +3,8 @@ import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, View, 
 import { useLocalSearchParams } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import { StatusBar } from 'expo-status-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { G, Line, Polygon, Polyline, Rect, Text as SvgText } from 'react-native-svg';
 import { supabase } from '@/lib/supabase';
 import { colors, formatPrice, spacing } from '@/theme';
@@ -45,12 +47,13 @@ export default function ChartScreen() {
 
   // 가로/세로에 맞춰 차트 높이 조절 (가로로 돌리면 화면을 꽉 채움)
   const { width: winW, height: winH } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const isLandscape = winW > winH;
   // '가로 보기' — 기기를 돌리지 않고 화면 안에서 90° 회전시켜 크게 본다.
   // (화면 회전 잠금을 켜 둔 사람도, 아직 세로 전용으로 빌드된 앱에서도 쓸 수 있다)
   const [wideView, setWideView] = useState(false);
   const chartH = wideView
-    ? Math.max(220, winW - 120) // 회전한 상태에서는 '기기 가로폭'이 차트 높이가 된다
+    ? Math.max(200, winW - insets.left - insets.right - 120) // 회전 시에는 '기기 가로폭'이 차트 높이가 된다
     : isLandscape
       ? Math.max(200, winH - 170)
       : 320;
@@ -489,6 +492,7 @@ export default function ChartScreen() {
   if (wideView) {
     return (
       <Modal visible transparent={false} animationType="fade" onRequestClose={() => setWideView(false)}>
+        <StatusBar hidden />
         <View style={{ flex: 1, backgroundColor: colors.bg }}>
           <View
             style={{
@@ -498,7 +502,12 @@ export default function ChartScreen() {
               width: winH,
               height: winW,
               transform: [{ rotate: '90deg' }],
-              padding: spacing.md,
+              // 90° 돌린 좌표계라 기기의 상·하단(노치·홈 인디케이터)이 좌·우가 된다.
+              // 그만큼 안쪽으로 밀어야 시계·배터리 표시와 겹치지 않는다.
+              paddingLeft: insets.top + spacing.sm,
+              paddingRight: insets.bottom + spacing.sm,
+              paddingTop: insets.right + spacing.sm,
+              paddingBottom: insets.left + spacing.sm,
               gap: spacing.sm,
             }}
           >
