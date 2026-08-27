@@ -1031,16 +1031,25 @@ function PnlBadge({ label, amount, market, rate }: { label: string; amount: numb
         <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '700', flexShrink: 0 }} numberOfLines={1}>
           {label}
         </Text>
-        <Text
-          style={{ color: c, fontWeight: '900', fontSize: 18, flexShrink: 1, textAlign: 'right' }}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.6}
-        >
-          {up ? '▲ +' : '▼ '}
-          {formatMoney(amount, market)}
-          {rate != null ? ` (${rate > 0 ? '+' : ''}${rate}%)` : ''}
-        </Text>
+        {/* 수익률(%)은 금액과 분리한다. 한 줄에 붙이면 % 가 있는 쪽만 글자가 더 줄어들어
+            평가손익과 실현손익의 크기가 달라 보인다. */}
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, flexShrink: 1 }}>
+          <Text
+            style={{ color: c, fontWeight: '900', fontSize: 17, flexShrink: 1, textAlign: 'right' }}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            {up ? '▲ +' : '▼ '}
+            {formatMoney(amount, market)}
+          </Text>
+          {rate != null && (
+            <Text style={{ color: c, fontWeight: '800', fontSize: 12, flexShrink: 0 }} numberOfLines={1}>
+              ({rate > 0 ? '+' : ''}
+              {rate}%)
+            </Text>
+          )}
+        </View>
       </View>
     </View>
   );
