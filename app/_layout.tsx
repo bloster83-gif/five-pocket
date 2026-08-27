@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Platform } from 'react-native';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { registerForNotifications } from '@/lib/notifications';
@@ -31,6 +32,13 @@ function RootNavigator() {
   useEffect(() => {
     if (session?.user?.id) registerForNotifications(session.user.id);
   }, [session?.user?.id]);
+
+  // 앱 전체는 세로 고정. (app.json 은 'default' 로 두어야 iOS 가 회전 자체를 허용하고,
+  //  그래야 차트 화면에서 unlockAsync 로 가로를 열 수 있다)
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+  }, []);
 
   if (loading) {
     return (
