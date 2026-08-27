@@ -57,8 +57,8 @@ export interface Candle {
 export type CandleMode = 'day' | 'week' | 'year';
 
 const MODE_CFG: Record<CandleMode, { interval: string; range: string }> = {
-  day: { interval: '1d', range: '1y' }, // 일봉 (120일 이동평균선을 그리려면 6개월로는 부족)
-  week: { interval: '1wk', range: '3y' }, // 주봉 (60주 이동평균선 확보)
+  day: { interval: '1d', range: '10y' }, // 일봉 10년치 (처음엔 1년만 보이고, 밀면 과거가 나온다)
+  week: { interval: '1wk', range: '10y' }, // 주봉 10년치
   year: { interval: '1mo', range: '10y' }, // 월봉을 받아 연봉으로 집계
 };
 
