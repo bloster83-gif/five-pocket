@@ -121,6 +121,26 @@ export default function ChartScreen() {
     return m;
   }, [pockets]);
 
+  // 체결된 매수·매도 가격선 (포켓·방향별로 가장 최근 체결가 하나씩)
+  const fills = useMemo(() => {
+    const m = new Map<string, { price: number; color: string; label: string; at: number }>();
+    for (const t of trades) {
+      const idx = t.pocket_id ? pocketIdx[t.pocket_id] : undefined;
+      if (idx == null) continue;
+      const at = new Date(t.executed_at).getTime();
+      const key = `${idx}:${t.side}`;
+      const prev = m.get(key);
+      if (prev && prev.at >= at) continue;
+      m.set(key, {
+        price: t.price,
+        color: t.side === 'buy' ? colors.buy : colors.sell,
+        label: `P${idx + 1} ${t.side === 'buy' ? '매수' : '매도'}`,
+        at,
+      });
+    }
+    return Array.from(m.values());
+  }, [trades, pocketIdx]);
+
   const { minP, maxP } = useMemo(() => {
     if (candles.length === 0) return { minP: 0, maxP: 1 };
     let lo = Math.min(...candles.map((c) => c.l));
@@ -158,6 +178,22 @@ export default function ChartScreen() {
     }
     return idx;
   };
+
+  // 좌우로 밀어도 항상 보이도록, 가격선과 라벨은 스크롤되지 않는 오버레이에 그린다.
+  // (예전에는 스크롤되는 SVG 안에 있어서 차트를 옮기면 라벨이 화면 밖으로 사라졌다)
+  const [plotW, setPlotW] = useState(0);
+  const overlayLines = useMemo(() => {
+    const rows = [...fills, ...guides]
+      .map((g) => ({ ...g, y: PAD_TOP + ((maxP - g.price) / (maxP - minP)) * plotH }))
+      .sort((a, b) => a.y - b.y);
+    // 가격이 가까우면 라벨이 겹치므로 아래로 조금씩 밀어 준다
+    let last = -Infinity;
+    return rows.map((r) => {
+      const labelY = Math.max(r.y - 4, last + 13);
+      last = labelY;
+      return { ...r, labelY };
+    });
+  }, [fills, guides, minP, maxP, plotH]);
 
   const gridLines = useMemo(() => {
     const n = 4;
@@ -213,7 +249,8 @@ export default function ChartScreen() {
                 </SvgText>
               ))}
             </Svg>
-            <ScrollView horizontal showsHorizontalScrollIndicator style={{ flex: 1 }}>
+            <View style={{ flex: 1 }} onLayout={(e) => setPlotW(e.nativeEvent.layout.width)}>
+            <ScrollView horizontal showsHorizontalScrollIndicator>
               <Svg width={chartW} height={chartH}>
               {gridLines.map((p, i) => (
                 <Line key={i} x1={0} y1={priceToY(p)} x2={chartW} y2={priceToY(p)} stroke={colors.border} strokeWidth={0.5} />
@@ -252,18 +289,6 @@ export default function ChartScreen() {
                 return <Line key={`w${i}`} x1={x} y1={priceToY(c.h)} x2={x} y2={priceToY(c.l)} stroke={col} strokeWidth={1} />;
               })}
 
-              {/* 아직 안 된 매수/매도 = 점선 가이드 */}
-              {guides.map((g, i) => {
-                const y = priceToY(g.price);
-                return (
-                  <G key={`g${i}`}>
-                    <Line x1={0} y1={y} x2={chartW} y2={y} stroke={g.color} strokeWidth={1} strokeDasharray="5 4" opacity={0.9} />
-                    <SvgText x={4} y={y - 3} fontSize={10} fontWeight="bold" fill={g.color}>
-                      {g.label}
-                    </SvgText>
-                  </G>
-                );
-              })}
 
               {/* 체결된 매수/매도 = 포인트(포켓번호 표시) */}
               {trades.map((t) => {
@@ -274,15 +299,16 @@ export default function ChartScreen() {
                 const isBuy = t.side === 'buy';
                 const col = isBuy ? colors.buy : colors.sell;
                 const pnum = ((t.pocket_id ? pocketIdx[t.pocket_id] : undefined) ?? 0) + 1;
+                // 가격선 라벨이 포켓을 알려주므로 마커는 '언제 체결됐는지'만 짚어주면 된다 → 작게
                 const pts = isBuy
-                  ? `${x},${y + 11} ${x - 8},${y + 25} ${x + 8},${y + 25}`
-                  : `${x},${y - 11} ${x - 8},${y - 25} ${x + 8},${y - 25}`;
-                const labelY = isBuy ? y + 36 : y - 28;
+                  ? `${x},${y + 6} ${x - 4},${y + 14} ${x + 4},${y + 14}`
+                  : `${x},${y - 6} ${x - 4},${y - 14} ${x + 4},${y - 14}`;
+                const labelY = isBuy ? y + 23 : y - 17;
                 return (
                   <G key={t.id}>
-                    <Line x1={x} y1={y} x2={x} y2={isBuy ? y + 11 : y - 11} stroke={col} strokeWidth={1.5} />
-                    <Polygon points={pts} fill={col} stroke="#fff" strokeWidth={1} />
-                    <SvgText x={x} y={labelY} fontSize={11} fontWeight="bold" fill={col} textAnchor="middle">
+                    <Line x1={x} y1={y} x2={x} y2={isBuy ? y + 6 : y - 6} stroke={col} strokeWidth={1} />
+                    <Polygon points={pts} fill={col} stroke="#fff" strokeWidth={0.8} />
+                    <SvgText x={x} y={labelY} fontSize={9} fontWeight="bold" fill={col} textAnchor="middle">
                       P{pnum}
                     </SvgText>
                   </G>
@@ -290,6 +316,40 @@ export default function ChartScreen() {
               })}
               </Svg>
             </ScrollView>
+
+            {/* 가격선 + 라벨 오버레이 — 차트를 좌우로 밀어도 자리에 그대로 남는다 */}
+            <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, width: plotW, height: chartH }}>
+              <Svg width={plotW} height={chartH}>
+                {overlayLines.map((g, i) => (
+                  <G key={`o${i}`}>
+                    <Line
+                      x1={0}
+                      y1={g.y}
+                      x2={plotW}
+                      y2={g.y}
+                      stroke={g.color}
+                      strokeWidth={1}
+                      strokeDasharray="5 4"
+                      opacity={0.9}
+                    />
+                    {/* 캔들 위에 겹쳐도 읽히도록 글자 뒤에 어두운 판을 깔아준다 */}
+                    <Rect
+                      x={3}
+                      y={g.labelY - 10}
+                      width={g.label.length * 7 + 8}
+                      height={13}
+                      rx={3}
+                      fill={colors.bg}
+                      opacity={0.72}
+                    />
+                    <SvgText x={7} y={g.labelY} fontSize={10} fontWeight="bold" fill={g.color}>
+                      {g.label}
+                    </SvgText>
+                  </G>
+                ))}
+              </Svg>
+            </View>
+            </View>
           </View>
         </GestureDetector>
       )}
@@ -299,7 +359,7 @@ export default function ChartScreen() {
         <Legend color={colors.sell} label="하락/매도" />
       </View>
       <Text style={{ color: colors.textDim, fontSize: 11 }}>
-        ▲/▼ + P번호 = 체결한 매수·매도 지점 · 점선 = 아직 안 된 포켓의 매수/매도 목표가
+        점선 = 가격선 (빨강 매수 · 파랑 매도) · 진한 라벨 = 체결가, 「목표」 라벨 = 아직 안 된 목표가{'\n'}▲/▼ + P번호 = 그 매매가 체결된 시점
       </Text>
       <Text style={{ color: colors.textDim, fontSize: 11 }}>
         좌우로 밀어 이동 · 두 손가락으로 벌리면 확대, 오므리면 축소 · ＋/－ 버튼도 가능
