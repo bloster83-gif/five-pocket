@@ -733,31 +733,32 @@ export default function ProjectsScreen() {
                   {/* 기준가 + 매수/매도 목표율 + 자동매매 스위치 (같은 선상).
                       기준가는 현재가 옆에 있으면 묻히므로 이 줄로 내려 크게 보여준다. */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+                    {/* 묶음 카드 안의 프로젝트 칸 첫 줄과 같은 서식으로 맞춘다 */}
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, minWidth: 0 }}>
                       <Text
                         numberOfLines={1}
                         adjustsFontSizeToFit
                         minimumFontScale={0.7}
-                        style={{ color: closed ? colors.textDim : num.base, fontWeight: '900', fontSize: 17, flexShrink: 1 }}
+                        style={{ color: closed ? colors.textDim : num.base, fontWeight: '900', fontSize: 16, flexShrink: 1 }}
                       >
                         {formatPrice(item.base_price, m?.market ?? item.market)}
                       </Text>
-                      <View style={{ backgroundColor: colors.buyBg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
-                        <Text style={{ color: colors.buy, fontSize: 11, fontWeight: '800' }}>-{item.buy_interval_pct}%</Text>
+                      <View style={{ backgroundColor: colors.buyBg, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}>
+                        <Text style={{ color: colors.buy, fontSize: 10, fontWeight: '800' }}>-{item.buy_interval_pct}%</Text>
                       </View>
-                      <View style={{ backgroundColor: colors.sellBg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
-                        <Text style={{ color: colors.sell, fontSize: 11, fontWeight: '800' }}>+{item.sell_target_pct}%</Text>
+                      <View style={{ backgroundColor: colors.sellBg, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}>
+                        <Text style={{ color: colors.sell, fontSize: 10, fontWeight: '800' }}>+{item.sell_target_pct}%</Text>
                       </View>
                     </View>
                     {tier === 'auto' && !closed && (item.market === 'KRX' || item.market === 'US') && (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                        <Text style={{ color: item.auto_trade_enabled ? colors.buy : colors.textDim, fontWeight: '800', fontSize: 12 }}>
-                          🤖 자동매매 {item.auto_trade_enabled ? 'ON' : 'OFF'}
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={{ color: item.auto_trade_enabled ? colors.buy : colors.textDim, fontWeight: '800', fontSize: 10 }}>
+                          🤖 {item.auto_trade_enabled ? 'ON' : 'OFF'}
                         </Text>
                         <Switch
                           value={item.auto_trade_enabled}
                           onValueChange={(v) => toggleAuto(item, v)}
-                          style={{ transform: [{ scaleX: 0.6 }, { scaleY: 0.6 }] }}
+                          style={{ transform: [{ scaleX: 0.45 }, { scaleY: 0.45 }] }}
                         />
                       </View>
                     )}
