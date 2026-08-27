@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, Text, TextInput, View } from 'react-native';
-import { colors, formatPrice, radius, rawNumeric, signColor, spacing } from '@/theme';
+import { colors, formatPrice, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { alignToKrxTick, estimatedShares } from '@/domain/pockets';
 import { notify } from '@/lib/alert';
 import type { Pocket } from '@/types/db';
@@ -177,7 +177,7 @@ export function EditTargetsModal({
             ) : (
               <>
                 <TextInput
-                  value={buyStr}
+                  value={withCommas(buyStr, dec)}
                   onChangeText={(t) => setBuyStr(rawNumeric(t, dec))}
                   keyboardType="numeric"
                   placeholder={`매수 목표가 (${cur})`}
@@ -198,7 +198,7 @@ export function EditTargetsModal({
           <View style={{ gap: 4 }}>
             <Text style={{ color: colors.sell, fontSize: 13, fontWeight: '800' }}>매도 목표가</Text>
             <TextInput
-              value={sellStr}
+              value={withCommas(sellStr, dec)}
               onChangeText={(t) => setSellStr(rawNumeric(t, dec))}
               keyboardType="numeric"
               placeholder={`매도 목표가 (${cur})`}
@@ -223,7 +223,7 @@ export function EditTargetsModal({
             <View style={{ gap: 4 }}>
               <Text style={{ color: colors.warn, fontSize: 13, fontWeight: '800' }}>🛑 마지노선 (손절가)</Text>
               <TextInput
-                value={stopStr}
+                value={withCommas(stopStr, dec)}
                 onChangeText={(t) => setStopStr(rawNumeric(t, dec))}
                 keyboardType="numeric"
                 placeholder={`비워두면 사용 안 함 (${cur})`}
