@@ -252,11 +252,167 @@ export default function ProjectsScreen() {
     return rows;
   }, [projects, status, market, q, from, to]);
 
+  /**
+   * 같은 종목 묶음 카드 안에 들어가는 프로젝트 한 칸.
+   * 종목명·현재가는 카드 위쪽에 이미 있으므로 '기준가'로 구분하고,
+   * 나머지 정보는 세 줄로 압축한다. 좌우 스와이프(복사/종료)도 칸마다 살아 있다.
+   */
+  const renderGroupProject = (p: Project, first: boolean) => {
+    const m = metrics[p.id];
+    const closed = !!p.closed_at;
+    const pockets = pocketsByProject[p.id] ?? [];
+    const maxIdx = pockets.length ? Math.max(...pockets.map((x) => x.idx)) : -1;
+    const rate = m?.buyValue && m.buyValue > 0 && m.pnl != null ? Math.round((m.pnl / m.buyValue) * 1000) / 10 : null;
+    const showAuto = !closed && tier === 'auto' && (p.market === 'KRX' || p.market === 'US');
+    return (
+      <View
+        key={p.id}
+        style={{
+          marginTop: first ? 8 : 6,
+          paddingTop: first ? 0 : 6,
+          borderTopWidth: first ? 0 : 1,
+          borderTopColor: colors.border,
+        }}
+      >
+        <ProjectSwipe closed={closed} onClose={() => closeProject(p)} onCopy={() => copyProject(p)}>
+          <Pressable
+            onPress={() => router.push(`/project/${p.id}`)}
+            style={{ gap: 4, opacity: closed ? 0.5 : 1, backgroundColor: colors.card }}
+          >
+            {/* 1줄: 기준가 · 목표율 · 자동매매/상태 */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+                style={{ color: closed ? colors.textDim : num.base, fontWeight: '900', fontSize: 16 }}
+              >
+                {formatPrice(p.base_price, m?.market ?? p.market)}
+              </Text>
+              <View style={{ backgroundColor: colors.buyBg, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}>
+                <Text style={{ color: colors.buy, fontSize: 10, fontWeight: '800' }}>-{p.buy_interval_pct}%</Text>
+              </View>
+              <View style={{ backgroundColor: colors.sellBg, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}>
+                <Text style={{ color: colors.sell, fontSize: 10, fontWeight: '800' }}>+{p.sell_target_pct}%</Text>
+              </View>
+              <View style={{ flex: 1 }} />
+              {closed ? (
+                <Text style={{ color: colors.sell, fontSize: 11, fontWeight: '800' }}>🔒 종료</Text>
+              ) : showAuto ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={{ color: p.auto_trade_enabled ? colors.buy : colors.textDim, fontWeight: '800', fontSize: 10 }}>
+                    🤖 {p.auto_trade_enabled ? 'ON' : 'OFF'}
+                  </Text>
+                  <Switch
+                    value={p.auto_trade_enabled}
+                    onValueChange={(v) => toggleAuto(p, v)}
+                    style={{ transform: [{ scaleX: 0.45 }, { scaleY: 0.45 }] }}
+                  />
+                </View>
+              ) : null}
+            </View>
+
+            {/* 2줄: 매입 → 평가 · 손익 */}
+            {m && ((m.buyValue ?? 0) > 0 || m.realized !== 0) && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                {(m.buyValue ?? 0) > 0 && (
+                  <>
+                    <Text numberOfLines={1} style={{ color: num.position, fontWeight: '800', fontSize: 12 }}>
+                      {formatMoney(m.buyValue!, m.market)}
+                    </Text>
+                    <Text style={{ color: colors.textDim, fontSize: 11 }}>→</Text>
+                    <Text numberOfLines={1} style={{ color: num.evalTotal, fontWeight: '800', fontSize: 12 }}>
+                      {m.value != null ? formatMoney(m.value, m.market) : '-'}
+                    </Text>
+                  </>
+                )}
+                {m.pnl != null && (m.value ?? 0) > 0 && (
+                  <Text numberOfLines={1} style={{ color: signColor(m.pnl), fontWeight: '900', fontSize: 12 }}>
+                    {m.pnl > 0 ? '▲+' : m.pnl < 0 ? '▼' : ''}
+                    {formatMoney(m.pnl, m.market)}
+                    {rate != null ? ` (${rate > 0 ? '+' : ''}${rate}%)` : ''}
+                  </Text>
+                )}
+                {m.realized !== 0 && (
+                  <Text numberOfLines={1} style={{ color: signColor(m.realized), fontWeight: '800', fontSize: 11 }}>
+                    ✓{m.realized > 0 ? '+' : ''}
+                    {formatMoney(m.realized, m.market)}
+                  </Text>
+                )}
+              </View>
+            )}
+
+            {/* 3줄: 예산 · 포켓 신호등 */}
+            {!closed && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={{ color: num.budget, fontWeight: '800', fontSize: 11 }}>
+                  💰 {p.total_budget != null ? formatMoney(p.total_budget, m?.market ?? p.market) : '-'}
+                </Text>
+                <View style={{ flex: 1 }} />
+                {maxIdx >= 0 && (
+                  <View style={{ flexDirection: 'row', gap: 4 }}>
+                    {Array.from({ length: maxIdx + 1 }, (_, i) => i).map((idx) => {
+                      const pk = pockets.find((x) => x.idx === idx);
+                      if (!pk) return <View key={idx} style={{ width: 13, height: 13 }} />;
+                      const st = pk.status;
+                      const reached = st === 'waiting' && m?.price != null && m.price <= Number(pk.buy_target_price);
+                      const fill =
+                        st === 'bought'
+                          ? colors.buy
+                          : st === 'buy_ordered'
+                            ? colors.buyDim
+                            : st === 'sold'
+                              ? colors.sell
+                              : st === 'sell_ordered'
+                                ? colors.sellDim
+                                : reached
+                                  ? colors.warn
+                                  : 'transparent';
+                      const border =
+                        st === 'bought' || st === 'buy_ordered'
+                          ? colors.buy
+                          : st === 'sold' || st === 'sell_ordered'
+                            ? colors.sell
+                            : reached
+                              ? colors.warn
+                              : colors.border;
+                      return (
+                        <View
+                          key={idx}
+                          style={{
+                            width: 13,
+                            height: 13,
+                            borderRadius: 6.5,
+                            backgroundColor: fill,
+                            borderWidth: 1.5,
+                            borderColor: border,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Text
+                            style={{ color: fill !== 'transparent' ? '#fff' : colors.textDim, fontSize: 8, fontWeight: '800' }}
+                          >
+                            {idx + 1}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+            )}
+          </Pressable>
+        </ProjectSwipe>
+      </View>
+    );
+  };
+
   // 같은 종목으로 여러 프로젝트를 만들면 한 덩어리로 묶어 보여준다.
   // (종목명·현재가는 머리글에 한 번만, 각 프로젝트는 '기준가'로 구분)
   type Row =
-    | { kind: 'group'; key: string; symbol: string; name: string; market: string; ids: string[] }
-    | { kind: 'project'; key: string; project: Project; grouped: boolean };
+    | { kind: 'group'; key: string; symbol: string; name: string; market: string; projects: Project[] }
+    | { kind: 'project'; key: string; project: Project };
   const rows = useMemo<Row[]>(() => {
     const bySymbol = new Map<string, Project[]>();
     for (const p of filtered) {
@@ -271,7 +427,7 @@ export default function ProjectsScreen() {
       done.add(p.symbol);
       const group = bySymbol.get(p.symbol)!;
       if (group.length === 1) {
-        out.push({ kind: 'project', key: p.id, project: p, grouped: false });
+        out.push({ kind: 'project', key: p.id, project: p });
         continue;
       }
       // 기준가가 높은 것부터 (가격대별로 읽기 쉽게)
@@ -282,9 +438,8 @@ export default function ProjectsScreen() {
         symbol: p.symbol,
         name: p.name,
         market: p.market,
-        ids: sorted.map((x) => x.id),
+        projects: sorted,
       });
-      sorted.forEach((x) => out.push({ kind: 'project', key: x.id, project: x, grouped: true }));
     }
     return out;
   }, [filtered]);
@@ -379,57 +534,97 @@ export default function ProjectsScreen() {
             ) : null
           }
           renderItem={({ item: row }) => {
-            // 종목 머리글 — 같은 종목 프로젝트가 2개 이상일 때만 나온다
+            // 같은 종목 프로젝트가 2개 이상이면 카드 하나로 묶는다.
+            // 카드 윗부분은 일반 프로젝트 카드와 똑같이(배지·종목명·현재가),
+            // 그 아래에 프로젝트별 정보를 압축해 나란히 넣는다.
             if (row.kind === 'group') {
               const isKR = row.market === 'KRX';
-              const gm = row.ids.map((id) => metrics[id]).find((x) => x?.price != null);
+              const accent = isKR ? colors.text : colors.accent;
+              const gm = row.projects.map((p) => metrics[p.id]).find((x) => x?.price != null);
+              const openCount = row.projects.filter((p) => !p.closed_at).length;
               return (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 8,
-                    paddingHorizontal: 4,
-                    marginBottom: -4,
-                  }}
-                >
-                  <Text style={{ fontSize: 13 }}>{isKR ? '🇰🇷' : '🇺🇸'}</Text>
-                  <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '900', fontSize: 17, flexShrink: 1 }}>
-                    {row.name}
-                  </Text>
-                  <Text style={{ color: colors.textDim, fontSize: 12 }}>{row.symbol}</Text>
-                  <View style={{ flex: 1 }} />
-                  <Text
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
-                    style={{ color: num.live, fontWeight: '900', fontSize: 15 }}
-                  >
-                    {gm?.price != null ? formatPrice(gm.price, gm.market ?? row.market) : '—'}
-                  </Text>
-                  {gm?.changePct != null && (
+                <Card style={{ borderLeftWidth: 4, borderLeftColor: accent }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 3,
+                            paddingHorizontal: 7,
+                            paddingVertical: 2,
+                            borderRadius: 6,
+                            backgroundColor: isKR ? 'rgba(255,255,255,0.08)' : 'rgba(91,141,239,0.16)',
+                            borderWidth: 1,
+                            borderColor: accent,
+                          }}
+                        >
+                          <Text style={{ fontSize: 11 }}>{isKR ? '🇰🇷' : '🇺🇸'}</Text>
+                          <Text style={{ color: accent, fontSize: 11, fontWeight: '900' }}>{isKR ? '한국' : '미국'}</Text>
+                        </View>
+                        <Text numberOfLines={1} style={{ color: colors.text, fontSize: 18, fontWeight: '800', flexShrink: 1 }}>
+                          {row.name}
+                        </Text>
+                      </View>
+                      <Text style={{ color: colors.textDim, marginTop: 2 }}>{row.symbol}</Text>
+                    </View>
                     <View
                       style={{
-                        backgroundColor: gm.changePct >= 0 ? colors.buyBg : colors.sellBg,
-                        borderRadius: 6,
-                        paddingHorizontal: 6,
-                        paddingVertical: 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 4,
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 999,
+                        backgroundColor: 'rgba(245,69,92,0.15)',
                       }}
                     >
-                      <Text style={{ color: signColor(gm.changePct), fontWeight: '900', fontSize: 12 }}>
-                        {gm.changePct > 0 ? '▲' : gm.changePct < 0 ? '▼' : ''}
-                        {gm.changePct > 0 ? '+' : ''}
-                        {formatChangePct(gm.changePct)}%
+                      <Text style={{ fontSize: 12 }}>🔴</Text>
+                      <Text style={{ color: colors.buy, fontSize: 12, fontWeight: '800' }}>
+                        진행중 {openCount}
                       </Text>
                     </View>
-                  )}
-                  <Text style={{ color: colors.textDim, fontSize: 11 }}>{row.ids.length}개</Text>
-                </View>
+                  </View>
+
+                  {/* 현재가 — 종목당 하나 */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <Text style={{ color: colors.textDim, fontSize: 12 }}>현재가</Text>
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.7}
+                      style={{ color: num.live, fontWeight: '900', fontSize: 15, flexShrink: 1 }}
+                    >
+                      {gm?.price != null ? formatPrice(gm.price, gm.market ?? row.market) : '—'}
+                    </Text>
+                    {gm?.changePct != null && (
+                      <View
+                        style={{
+                          backgroundColor: gm.changePct >= 0 ? colors.buyBg : colors.sellBg,
+                          borderRadius: 6,
+                          paddingHorizontal: 6,
+                          paddingVertical: 1,
+                        }}
+                      >
+                        <Text style={{ color: signColor(gm.changePct), fontWeight: '900', fontSize: 12 }}>
+                          {gm.changePct > 0 ? '▲' : gm.changePct < 0 ? '▼' : ''}
+                          {gm.changePct > 0 ? '+' : ''}
+                          {formatChangePct(gm.changePct)}%
+                        </Text>
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }} />
+                    <Text style={{ color: colors.textDim, fontSize: 11 }}>프로젝트 {row.projects.length}개</Text>
+                  </View>
+
+                  {/* 프로젝트별 압축 정보 — 기준가로 구분 */}
+                  {row.projects.map((p, i) => renderGroupProject(p, i === 0))}
+                </Card>
               );
             }
 
             const item = row.project;
-            const grouped = row.grouped;
             const closed = !!item.closed_at;
             const m = metrics[item.id];
             // 한국/미국 구분 서식 (배지 + 카드 좌측 색 띠)
@@ -444,30 +639,14 @@ export default function ProjectsScreen() {
               <ProjectSwipe closed={closed} onClose={() => closeProject(item)} onCopy={() => copyProject(item)}>
               <Pressable onPress={() => router.push(`/project/${item.id}`)}>
                 <Card
-                  style={{
-                    ...(closed
+                  style={
+                    closed
                       ? // 종료 프로젝트: 선글라스 씌운 듯 흐리게(페이드) + 무채색 → 진행중/미국주식과 확실히 구분
                         { opacity: 0.45, backgroundColor: 'rgba(148,162,184,0.05)', borderColor: colors.border, borderLeftWidth: 4, borderLeftColor: colors.textDim }
-                      : { borderLeftWidth: 4, borderLeftColor: mkBadge.color }),
-                    // 같은 종목 묶음에 속한 카드는 살짝 들여써서 머리글에 딸린 것처럼 보이게
-                    ...(grouped ? { marginLeft: spacing.md } : null),
-                  }}
+                      : { borderLeftWidth: 4, borderLeftColor: mkBadge.color }
+                  }
                 >
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    {grouped ? (
-                      // 종목명·현재가는 머리글에 있으므로, 여기서는 기준가로 프로젝트를 구분한다
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
-                        <Text style={{ color: colors.textDim, fontSize: 12 }}>기준가</Text>
-                        <Text
-                          numberOfLines={1}
-                          adjustsFontSizeToFit
-                          minimumFontScale={0.7}
-                          style={{ color: closed ? colors.textDim : num.base, fontWeight: '900', fontSize: 18, flexShrink: 1 }}
-                        >
-                          {formatPrice(item.base_price, m?.market ?? item.market)}
-                        </Text>
-                      </View>
-                    ) : (
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         {/* 한국/미국 구분 배지 */}
@@ -501,7 +680,6 @@ export default function ProjectsScreen() {
                       </View>
                       <Text style={{ color: colors.textDim, marginTop: 2 }}>{item.symbol}</Text>
                     </View>
-                    )}
                     <View
                       style={{
                         flexDirection: 'row',
@@ -521,7 +699,6 @@ export default function ProjectsScreen() {
                   </View>
 
                   {/* 현재가 · 기준가 — 한 줄에 좌/우 정렬(세로 높이 통일) */}
-                  {!grouped && (
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
                     {/* 줄바꿈 없이 한 줄 유지 — 가격이 길면 글자가 줄어들며 맞춰진다 */}
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
@@ -569,7 +746,6 @@ export default function ProjectsScreen() {
                       </Text>
                     </View>
                   </View>
-                  )}
 
                   {/* 매수/매도 목표율 + 자동매매 스위치 (같은 선상) */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
