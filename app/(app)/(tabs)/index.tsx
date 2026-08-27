@@ -255,7 +255,7 @@ export default function ProjectsScreen() {
   /**
    * 같은 종목 묶음 카드 안에 들어가는 프로젝트 한 칸.
    * 종목명·현재가는 카드 위쪽에 이미 있으므로 '기준가'로 구분하고,
-   * 나머지 정보는 세 줄로 압축한다. 좌우 스와이프(복사/종료)도 칸마다 살아 있다.
+   * 나머지 정보는 네 줄로 압축하고, 칸마다 네모 박스 + 좌우 스와이프(복사/종료)를 둔다.
    */
   const renderGroupProject = (p: Project, first: boolean) => {
     const m = metrics[p.id];
@@ -265,19 +265,21 @@ export default function ProjectsScreen() {
     const rate = m?.buyValue && m.buyValue > 0 && m.pnl != null ? Math.round((m.pnl / m.buyValue) * 1000) / 10 : null;
     const showAuto = !closed && tier === 'auto' && (p.market === 'KRX' || p.market === 'US');
     return (
-      <View
-        key={p.id}
-        style={{
-          marginTop: first ? 8 : 6,
-          paddingTop: first ? 0 : 6,
-          borderTopWidth: first ? 0 : 1,
-          borderTopColor: colors.border,
-        }}
-      >
+      <View key={p.id} style={{ marginTop: first ? 8 : 6, borderRadius: radius.md, overflow: 'hidden' }}>
         <ProjectSwipe closed={closed} onClose={() => closeProject(p)} onCopy={() => copyProject(p)}>
           <Pressable
             onPress={() => router.push(`/project/${p.id}`)}
-            style={{ gap: 4, opacity: closed ? 0.5 : 1, backgroundColor: colors.card }}
+            style={{
+              gap: 6,
+              opacity: closed ? 0.5 : 1,
+              // 네모 박스로 감싸야 좌우로 밀 때 '이 칸이 움직인다'는 게 분명해진다
+              backgroundColor: colors.cardAlt,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: radius.md,
+              paddingHorizontal: spacing.md,
+              paddingVertical: 10,
+            }}
           >
             {/* 1줄: 기준가 · 목표율 · 자동매매/상태 */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -312,37 +314,29 @@ export default function ProjectsScreen() {
               ) : null}
             </View>
 
-            {/* 2줄: 매입 → 평가 · 손익 */}
-            {m && ((m.buyValue ?? 0) > 0 || m.realized !== 0) && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                {(m.buyValue ?? 0) > 0 && (
-                  <>
-                    <Text numberOfLines={1} style={{ color: num.position, fontWeight: '800', fontSize: 12 }}>
-                      {formatMoney(m.buyValue!, m.market)}
-                    </Text>
-                    <Text style={{ color: colors.textDim, fontSize: 11 }}>→</Text>
-                    <Text numberOfLines={1} style={{ color: num.evalTotal, fontWeight: '800', fontSize: 12 }}>
-                      {m.value != null ? formatMoney(m.value, m.market) : '-'}
-                    </Text>
-                  </>
-                )}
-                {m.pnl != null && (m.value ?? 0) > 0 && (
-                  <Text numberOfLines={1} style={{ color: signColor(m.pnl), fontWeight: '900', fontSize: 12 }}>
-                    {m.pnl > 0 ? '▲+' : m.pnl < 0 ? '▼' : ''}
-                    {formatMoney(m.pnl, m.market)}
-                    {rate != null ? ` (${rate > 0 ? '+' : ''}${rate}%)` : ''}
-                  </Text>
-                )}
-                {m.realized !== 0 && (
-                  <Text numberOfLines={1} style={{ color: signColor(m.realized), fontWeight: '800', fontSize: 11 }}>
-                    ✓{m.realized > 0 ? '+' : ''}
-                    {formatMoney(m.realized, m.market)}
-                  </Text>
-                )}
+            {/* 2줄: 매입 → 평가 (금액만, 색으로 구분) */}
+            {m && (m.buyValue ?? 0) > 0 && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>매입</Text>
+                <Text numberOfLines={1} style={{ color: num.position, fontWeight: '800', fontSize: 12 }}>
+                  {formatMoney(m.buyValue!, m.market)}
+                </Text>
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>→ 평가</Text>
+                <Text numberOfLines={1} style={{ color: num.evalTotal, fontWeight: '800', fontSize: 12 }}>
+                  {m.value != null ? formatMoney(m.value, m.market) : '-'}
+                </Text>
               </View>
             )}
 
-            {/* 3줄: 예산 · 포켓 신호등 */}
+            {/* 3줄: 손익 — 기존 카드와 같은 박스 서식 */}
+            {m && (m.value ?? 0) > 0 && (
+              <PnlBadge label="평가 손익 (미실현)" amount={m.pnl ?? 0} market={m.market} rate={rate} />
+            )}
+            {m && m.realized !== 0 && (
+              <PnlBadge label="실현 손익 (확정) ✓" amount={m.realized} market={m.market} />
+            )}
+
+            {/* 4줄: 예산 · 포켓 신호등 */}
             {!closed && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Text style={{ color: num.budget, fontWeight: '800', fontSize: 11 }}>
