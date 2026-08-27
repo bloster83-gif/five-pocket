@@ -463,6 +463,12 @@ export default function MyScreen() {
         )}
       </Card>
 
+      {/* 알림 켜기/끄기 */}
+      <NotificationCard userId={session?.user?.id} />
+
+      {/* 앱 업데이트 확인 (OTA) — 재시작 반복 없이 버튼 한 번으로 받기 */}
+      <UpdateCard />
+
       {/* 통계 (MY 탭에 통합) */}
       <View style={{ borderTopWidth: 1, borderTopColor: colors.border, marginTop: spacing.sm, paddingTop: spacing.lg }}>
         <StatsContent />
@@ -479,12 +485,6 @@ export default function MyScreen() {
           </Card>
         </Pressable>
       )}
-
-      {/* 알림 켜기/끄기 */}
-      <NotificationCard userId={session?.user?.id} />
-
-      {/* 앱 업데이트 확인 (OTA) — 재시작 반복 없이 버튼 한 번으로 받기 */}
-      <UpdateCard />
 
       {/* 로그아웃 */}
       <Pressable
