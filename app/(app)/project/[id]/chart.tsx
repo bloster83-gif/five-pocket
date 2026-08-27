@@ -57,21 +57,59 @@ export default function ChartScreen() {
   }, []);
 
   // 두 손가락 핀치로 확대/축소 (네이버 증권 차트처럼)
+  // 손가락이 짚고 있던 캔들이 제자리에 남도록, 캔들 폭을 바꿀 때 스크롤 위치도 같이 옮긴다.
   const candleWRef = useRef(candleW);
   candleWRef.current = candleW;
-  const pinchBase = useRef(9);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollXRef = useRef(0);
+  const plotWRef = useRef(0);
+  const countRef = useRef(0);
+  countRef.current = candles.length;
+
+  /** 새 캔들 폭 기준으로 가로 스크롤 위치를 옮긴다 (양 끝을 넘지 않게 보정) */
+  const scrollToX = useCallback((x: number, w: number) => {
+    const maxX = Math.max(0, countRef.current * w - plotWRef.current);
+    const nx = Math.min(maxX, Math.max(0, x));
+    scrollXRef.current = nx;
+    // 폭이 바뀐 내용이 그려진 다음에 옮겨야 끝까지 스크롤된다
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ x: nx, animated: false }));
+  }, []);
+
+  /** 기준점(focal)을 화면에 고정한 채 캔들 폭을 w 로 바꾼다 */
+  const zoomAround = useCallback(
+    (w: number, focal: number) => {
+      const w0 = candleWRef.current;
+      if (w === w0) return;
+      const idx = (scrollXRef.current + focal) / w0; // 기준점이 짚고 있던 캔들(소수 포함)
+      setCandleW(w);
+      scrollToX(idx * w - focal, w);
+    },
+    [scrollToX]
+  );
+
+  const pinchBase = useRef({ w: 9, focal: 0 });
   const pinch = useMemo(
     () =>
       Gesture.Pinch()
         .runOnJS(true)
-        .onStart(() => {
-          pinchBase.current = candleWRef.current;
+        .onStart((e) => {
+          // focalX 는 축(왼쪽 가격 눈금)을 포함한 좌표 → 차트 영역 기준으로 보정
+          pinchBase.current = { w: candleWRef.current, focal: Math.max(0, e.focalX - AXIS_W) };
         })
         .onUpdate((e) => {
-          const w = Math.min(MAX_CANDLE_W, Math.max(MIN_CANDLE_W, Math.round(pinchBase.current * e.scale)));
-          if (w !== candleWRef.current) setCandleW(w);
+          const w = Math.min(MAX_CANDLE_W, Math.max(MIN_CANDLE_W, Math.round(pinchBase.current.w * e.scale)));
+          zoomAround(w, pinchBase.current.focal);
         }),
-    []
+    [zoomAround]
+  );
+
+  /** ＋/－ 버튼은 화면 한가운데를 기준으로 확대·축소 */
+  const zoomByButton = useCallback(
+    (delta: number) => {
+      const w = Math.min(MAX_CANDLE_W, Math.max(MIN_CANDLE_W, candleWRef.current + delta));
+      zoomAround(w, plotWRef.current / 2);
+    },
+    [zoomAround]
   );
 
   useEffect(() => {
@@ -224,10 +262,10 @@ export default function ChartScreen() {
           </Pressable>
         ))}
         <View style={{ flex: 1 }} />
-        <Pressable onPress={() => setCandleW((w) => Math.max(MIN_CANDLE_W, w - 2))} style={zoomBtn}>
+        <Pressable onPress={() => zoomByButton(-2)} style={zoomBtn}>
           <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>－</Text>
         </Pressable>
-        <Pressable onPress={() => setCandleW((w) => Math.min(MAX_CANDLE_W, w + 2))} style={zoomBtn}>
+        <Pressable onPress={() => zoomByButton(2)} style={zoomBtn}>
           <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>＋</Text>
         </Pressable>
         <Pressable onPress={() => setWideView((v) => !v)} style={{ ...zoomBtn, width: 44 }}>
@@ -262,8 +300,22 @@ export default function ChartScreen() {
                 </SvgText>
               ))}
             </Svg>
-            <View style={{ flex: 1 }} onLayout={(e) => setPlotW(e.nativeEvent.layout.width)}>
-            <ScrollView horizontal showsHorizontalScrollIndicator>
+            <View
+              style={{ flex: 1 }}
+              onLayout={(e) => {
+                setPlotW(e.nativeEvent.layout.width);
+                plotWRef.current = e.nativeEvent.layout.width;
+              }}
+            >
+            <ScrollView
+              ref={scrollRef}
+              horizontal
+              showsHorizontalScrollIndicator
+              scrollEventThrottle={16}
+              onScroll={(e) => {
+                scrollXRef.current = e.nativeEvent.contentOffset.x;
+              }}
+            >
               <Svg width={chartW} height={chartH}>
               {gridLines.map((p, i) => (
                 <Line key={i} x1={0} y1={priceToY(p)} x2={chartW} y2={priceToY(p)} stroke={colors.border} strokeWidth={0.5} />
