@@ -54,31 +54,15 @@ export interface Candle {
   c: number;
 }
 
-export type CandleMode = 'day' | 'week' | 'year';
+export type CandleMode = 'day' | 'week' | 'month';
 
 const MODE_CFG: Record<CandleMode, { interval: string; range: string }> = {
   day: { interval: '1d', range: '10y' }, // 일봉 10년치 (처음엔 1년만 보이고, 밀면 과거가 나온다)
   week: { interval: '1wk', range: '10y' }, // 주봉 10년치
-  year: { interval: '1mo', range: '10y' }, // 월봉을 받아 연봉으로 집계
+  month: { interval: '1mo', range: '10y' }, // 월봉 10년치
 };
 
-/** 월봉 → 연봉 집계 (연도별 시가=첫달 시가, 고가=최대, 저가=최소, 종가=마지막달 종가) */
-function aggregateYearly(candles: Candle[]): Candle[] {
-  const byYear = new Map<number, Candle>();
-  for (const c of candles) {
-    const y = new Date(c.t).getFullYear();
-    const g = byYear.get(y);
-    if (!g) byYear.set(y, { ...c });
-    else {
-      g.h = Math.max(g.h, c.h);
-      g.l = Math.min(g.l, c.l);
-      g.c = c.c;
-    }
-  }
-  return Array.from(byYear.values()).sort((a, b) => a.t - b.t);
-}
-
-/** 캔들차트용 OHLC (일봉/주봉/년봉) */
+/** 캔들차트용 OHLC (일봉/주봉/월봉) */
 export async function fetchCandles(symbol: string, mode: CandleMode = 'day'): Promise<{ candles: Candle[]; currency?: string }> {
   const sym = normalizeSymbol(symbol);
   const { interval, range } = MODE_CFG[mode];
@@ -86,7 +70,7 @@ export async function fetchCandles(symbol: string, mode: CandleMode = 'day'): Pr
   const result = json?.chart?.result?.[0];
   const ts: number[] = result?.timestamp ?? [];
   const q = result?.indicators?.quote?.[0] ?? {};
-  let candles: Candle[] = [];
+  const candles: Candle[] = [];
   for (let i = 0; i < ts.length; i++) {
     const o = q.open?.[i];
     const h = q.high?.[i];
@@ -95,7 +79,6 @@ export async function fetchCandles(symbol: string, mode: CandleMode = 'day'): Pr
     if ([o, h, l, c].some((v) => v == null)) continue;
     candles.push({ t: ts[i] * 1000, o, h, l, c });
   }
-  if (mode === 'year') candles = aggregateYearly(candles);
   return { candles, currency: result?.meta?.currency };
 }
 
