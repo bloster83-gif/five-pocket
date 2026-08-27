@@ -234,14 +234,36 @@ export default function ChartScreen() {
   const priceToY = (p: number) => PAD_TOP + ((maxP - p) / (maxP - minP)) * plotH;
   const chartW = Math.max(candles.length * candleW, 10);
 
-  // x축 날짜 라벨 — 캔들 폭에 맞춰 겹치지 않을 만큼 띄엄띄엄 표시
-  const labelStep = Math.max(1, Math.round(52 / candleW));
-  const fmtAxisDate = (ms: number) => {
-    const d = new Date(ms);
-    const YY = String(d.getFullYear()).slice(2);
-    if (mode === 'year') return `${YY}/${d.getMonth() + 1}`; // 년봉(월 집계): 연/월
-    return `${d.getMonth() + 1}/${d.getDate()}`; // 일·주봉: 월/일
-  };
+  // x축 눈금 — 확대 정도에 따라 표기를 바꾸고, 라벨이 겹치지 않게 픽셀 간격으로 걸러낸다.
+  //   축소: 월이 바뀌는 지점에 '연/월'    (예: 26/3)
+  //   확대: 날짜 단위로 '연/월/일'         (예: 26/3/14)
+  // 해가 바뀌는 지점에는 세로 점선 + 연도를 따로 표시한다.
+  const DETAIL_ZOOM = 6; // 캔들 폭이 이보다 넓으면 '일'까지 표기
+  const axis = useMemo(() => {
+    const ticks: { i: number; label: string }[] = [];
+    const years: { i: number; year: number }[] = [];
+    if (candles.length === 0) return { ticks, years };
+    const detailed = candleW >= DETAIL_ZOOM;
+    const minGapPx = detailed ? 62 : 50;
+    let lastX = -Infinity;
+    for (let i = view.from; i < view.to; i++) {
+      const d = new Date(candles[i].t);
+      const prev = i > 0 ? new Date(candles[i - 1].t) : null;
+      const newYear = !!prev && prev.getFullYear() !== d.getFullYear();
+      const newMonth = !prev || newYear || prev.getMonth() !== d.getMonth();
+      if (newYear) years.push({ i, year: d.getFullYear() });
+      if (!detailed && !newMonth) continue; // 축소 상태에서는 월이 바뀌는 봉만 후보
+      const x = i * candleW + candleW / 2;
+      if (x - lastX < minGapPx) continue;
+      lastX = x;
+      const YY = String(d.getFullYear()).slice(2);
+      ticks.push({
+        i,
+        label: detailed ? `${YY}/${d.getMonth() + 1}/${d.getDate()}` : `${YY}/${d.getMonth() + 1}`,
+      });
+    }
+    return { ticks, years };
+  }, [candles, candleW, view]);
 
   // 매매 → 그 시점이 속한 캔들 인덱스 (t 이하의 마지막 캔들)
   const tradeIndex = (tradeTime: number): number => {
@@ -412,13 +434,32 @@ export default function ChartScreen() {
               {gridLines.map((p, i) => (
                 <Line key={i} x1={0} y1={priceToY(p)} x2={chartW} y2={priceToY(p)} stroke={colors.border} strokeWidth={0.5} />
               ))}
-              {/* x축 날짜 라벨 + 세로 눈금 (하단) */}
-              {candles.slice(view.from, view.to).map((c, j) => {
-                const i = view.from + j;
-                if (i % labelStep !== 0) return null;
-                const x = i * candleW + candleW / 2;
+              {/* 해가 바뀌는 지점 — 세로 점선 + 연도 */}
+              {axis.years.map((y) => {
+                const x = y.i * candleW;
                 return (
-                  <G key={`d${i}`}>
+                  <G key={`y${y.i}`}>
+                    <Line
+                      x1={x}
+                      y1={PAD_TOP}
+                      x2={x}
+                      y2={PAD_TOP + plotH}
+                      stroke={colors.textDim}
+                      strokeWidth={1}
+                      strokeDasharray="3 5"
+                      opacity={0.5}
+                    />
+                    <SvgText x={x + 3} y={PAD_TOP + 9} fontSize={10} fontWeight="bold" fill={colors.textDim}>
+                      {y.year}
+                    </SvgText>
+                  </G>
+                );
+              })}
+              {/* x축 날짜 라벨 + 세로 눈금 (하단) */}
+              {axis.ticks.map((t) => {
+                const x = t.i * candleW + candleW / 2;
+                return (
+                  <G key={`d${t.i}`}>
                     <Line
                       x1={x}
                       y1={PAD_TOP + plotH}
@@ -428,7 +469,7 @@ export default function ChartScreen() {
                       strokeWidth={0.5}
                     />
                     <SvgText x={x} y={chartH - 8} fontSize={9} fill={colors.textDim} textAnchor="middle">
-                      {fmtAxisDate(c.t)}
+                      {t.label}
                     </SvgText>
                   </G>
                 );
