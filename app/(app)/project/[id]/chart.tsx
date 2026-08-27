@@ -3,7 +3,7 @@ import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, View, 
 import { useLocalSearchParams } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import Svg, { G, Line, Polygon, Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { G, Line, Polygon, Polyline, Rect, Text as SvgText } from 'react-native-svg';
 import { supabase } from '@/lib/supabase';
 import { colors, formatPrice, spacing } from '@/theme';
 import { fetchCandles, type Candle, type CandleMode } from '@/services/prices/yahooProvider';
@@ -15,6 +15,15 @@ const MODES: { key: CandleMode; label: string }[] = [
   { key: 'week', label: '주봉' },
   { key: 'year', label: '년봉' },
 ];
+
+// 이동평균선 — 네이버 증권 기본값(5·20·60·120)과 같은 기간.
+// 색은 캔들의 빨강(상승)·파랑(하락)과 겹치지 않게 따로 골랐다.
+const MA_LINES = [
+  { n: 5, color: '#F59E0B' },
+  { n: 20, color: '#A78BFA' },
+  { n: 60, color: '#22D3A6' },
+  { n: 120, color: '#94A3B8' },
+] as const;
 
 const PAD_TOP = 16;
 const PAD_BOT = 24;
@@ -240,6 +249,22 @@ export default function ChartScreen() {
     });
   }, [fills, guides, minP, maxP, plotH]);
 
+  // 이동평균 계산 (단순이동평균). 봉이 모자란 구간은 null → 그 지점부터 선이 시작된다.
+  const [maOn, setMaOn] = useState<Record<number, boolean>>({ 5: true, 20: true, 60: true, 120: true });
+  const maSeries = useMemo(() => {
+    const closes = candles.map((c) => c.c);
+    return MA_LINES.map(({ n, color }) => {
+      const pts: (number | null)[] = [];
+      let sum = 0;
+      for (let i = 0; i < closes.length; i++) {
+        sum += closes[i];
+        if (i >= n) sum -= closes[i - n];
+        pts.push(i >= n - 1 ? sum / n : null);
+      }
+      return { n, color, pts, has: closes.length >= n };
+    });
+  }, [candles]);
+
   const gridLines = useMemo(() => {
     const n = 4;
     return Array.from({ length: n + 1 }, (_, i) => minP + ((maxP - minP) * i) / n);
@@ -278,6 +303,33 @@ export default function ChartScreen() {
 
   const chartBlock = (
     <>
+      {/* 이동평균선 켜기/끄기 — 봉 수가 모자란 기간은 흐리게 표시하고 눌러도 안 그려진다 */}
+      <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Text style={{ color: colors.textDim, fontSize: 11 }}>이평선</Text>
+        {maSeries.map((m) => (
+          <Pressable
+            key={m.n}
+            onPress={() => m.has && setMaOn((v) => ({ ...v, [m.n]: !v[m.n] }))}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              paddingHorizontal: 8,
+              paddingVertical: 3,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: maOn[m.n] && m.has ? m.color : colors.border,
+              backgroundColor: maOn[m.n] && m.has ? 'rgba(255,255,255,0.06)' : 'transparent',
+              opacity: m.has ? 1 : 0.35,
+            }}
+          >
+            <View style={{ width: 10, height: 2, backgroundColor: m.color }} />
+            <Text style={{ color: maOn[m.n] && m.has ? m.color : colors.textDim, fontSize: 11, fontWeight: '800' }}>
+              {m.n}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
 
       {loading ? (
         <View style={{ height: chartH, justifyContent: 'center' }}>
@@ -354,6 +406,17 @@ export default function ChartScreen() {
                 return <Line key={`w${i}`} x1={x} y1={priceToY(c.h)} x2={x} y2={priceToY(c.l)} stroke={col} strokeWidth={1} />;
               })}
 
+
+              {/* 이동평균선 — 캔들 위에 겹쳐 그린다 */}
+              {maSeries.map((m) => {
+                if (!m.has || !maOn[m.n]) return null;
+                const pts = m.pts
+                  .map((v, i) => (v == null ? null : `${i * candleW + candleW / 2},${priceToY(v)}`))
+                  .filter(Boolean)
+                  .join(' ');
+                if (!pts) return null;
+                return <Polyline key={`ma${m.n}`} points={pts} fill="none" stroke={m.color} strokeWidth={1.2} />;
+              })}
 
               {/* 체결된 매수/매도 = 포인트(포켓번호 표시) */}
               {trades.map((t) => {
@@ -458,7 +521,7 @@ export default function ChartScreen() {
         <Legend color={colors.sell} label="하락/매도" />
       </View>
       <Text style={{ color: colors.textDim, fontSize: 11 }}>
-        점선 = 가격선 (빨강 매수 · 파랑 매도) · 진한 라벨 = 체결가, 「목표」 라벨 = 아직 안 된 목표가{'\n'}▲/▼ + P번호 = 그 매매가 체결된 시점
+        점선 = 가격선 (빨강 매수 · 파랑 매도) · 진한 라벨 = 체결가, 「목표」 라벨 = 아직 안 된 목표가{'\n'}▲/▼ + P번호 = 그 매매가 체결된 시점 · 이평선 = 5·20·60·120 단순이동평균
       </Text>
       <Text style={{ color: colors.textDim, fontSize: 11 }}>
         좌우로 밀어 이동 · 두 손가락으로 벌리면 확대, 오므리면 축소 · ＋/－ 버튼도 가능
