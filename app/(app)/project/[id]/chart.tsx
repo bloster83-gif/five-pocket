@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -37,7 +37,14 @@ export default function ChartScreen() {
   // 가로/세로에 맞춰 차트 높이 조절 (가로로 돌리면 화면을 꽉 채움)
   const { width: winW, height: winH } = useWindowDimensions();
   const isLandscape = winW > winH;
-  const chartH = isLandscape ? Math.max(200, winH - 170) : 320;
+  // '가로 보기' — 기기를 돌리지 않고 화면 안에서 90° 회전시켜 크게 본다.
+  // (화면 회전 잠금을 켜 둔 사람도, 아직 세로 전용으로 빌드된 앱에서도 쓸 수 있다)
+  const [wideView, setWideView] = useState(false);
+  const chartH = wideView
+    ? Math.max(220, winW - 120) // 회전한 상태에서는 '기기 가로폭'이 차트 높이가 된다
+    : isLandscape
+      ? Math.max(200, winH - 170)
+      : 320;
   const plotH = chartH - PAD_TOP - PAD_BOT;
 
   // 이 화면에서는 회전 허용, 나가면 다시 세로 고정
@@ -200,10 +207,7 @@ export default function ChartScreen() {
     return Array.from({ length: n + 1 }, (_, i) => minP + ((maxP - minP) * i) / n);
   }, [minP, maxP]);
 
-  return (
-    <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}>
-      <BackHeader fallback="/" />
-      {/* 일봉/주봉/년봉 + 확대축소 */}
+  const controls = (
       <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
         {MODES.map((m) => (
           <Pressable
@@ -226,7 +230,16 @@ export default function ChartScreen() {
         <Pressable onPress={() => setCandleW((w) => Math.min(MAX_CANDLE_W, w + 2))} style={zoomBtn}>
           <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>＋</Text>
         </Pressable>
+        <Pressable onPress={() => setWideView((v) => !v)} style={{ ...zoomBtn, width: 44 }}>
+          <Text style={{ color: wideView ? colors.buy : colors.text, fontWeight: '900', fontSize: 15 }}>
+            {wideView ? '⤡' : '⤢'}
+          </Text>
+        </Pressable>
       </View>
+  );
+
+  const chartBlock = (
+    <>
 
       {loading ? (
         <View style={{ height: chartH, justifyContent: 'center' }}>
@@ -354,6 +367,40 @@ export default function ChartScreen() {
         </GestureDetector>
       )}
 
+    </>
+  );
+
+  // 가로 보기 — 화면 전체를 덮고 내용을 90° 돌려 크게 보여준다
+  if (wideView) {
+    return (
+      <Modal visible transparent={false} animationType="fade" onRequestClose={() => setWideView(false)}>
+        <View style={{ flex: 1, backgroundColor: colors.bg }}>
+          <View
+            style={{
+              position: 'absolute',
+              top: (winH - winW) / 2,
+              left: (winW - winH) / 2,
+              width: winH,
+              height: winW,
+              transform: [{ rotate: '90deg' }],
+              padding: spacing.md,
+              gap: spacing.sm,
+            }}
+          >
+            {controls}
+            {chartBlock}
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}>
+      <BackHeader fallback="/" />
+      {controls}
+      {chartBlock}
+
       <View style={{ flexDirection: 'row', gap: 16, flexWrap: 'wrap' }}>
         <Legend color={colors.buy} label="상승/매수" />
         <Legend color={colors.sell} label="하락/매도" />
@@ -365,7 +412,7 @@ export default function ChartScreen() {
         좌우로 밀어 이동 · 두 손가락으로 벌리면 확대, 오므리면 축소 · ＋/－ 버튼도 가능
       </Text>
       <Text style={{ color: colors.textDim, fontSize: 11 }}>
-        📱 폰을 가로로 돌리면 차트가 화면 가득 넓게 보여요. (약 15분 지연 · 년봉은 월봉 집계)
+        ⤢ 버튼을 누르면 화면을 가로로 돌려 크게 볼 수 있어요. (약 15분 지연 · 년봉은 월봉 집계)
       </Text>
     </ScrollView>
   );

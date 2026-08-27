@@ -4,7 +4,7 @@
     "slug": "five-pocket",
     "version": "1.0.0",
     "scheme": "fivepocket",
-    "orientation": "portrait",
+    "orientation": "default",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
     "assetBundlePatterns": [
