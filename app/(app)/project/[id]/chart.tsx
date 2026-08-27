@@ -15,7 +15,7 @@ import { BackHeader } from '@/components/BackHeader';
 const MODES: { key: CandleMode; label: string }[] = [
   { key: 'day', label: '일봉' },
   { key: 'week', label: '주봉' },
-  { key: 'year', label: '년봉' },
+  { key: 'month', label: '월봉' },
 ];
 
 // 이동평균선 — 네이버 증권 기본값(5·20·60·120)과 같은 기간.
@@ -318,7 +318,7 @@ export default function ChartScreen() {
     didInitScroll.current = true;
     // 데이터는 일봉 3년·주봉 5년치를 받아두고, 처음 화면에는 최근 1년치만 담는다.
     // (나머지는 왼쪽으로 밀면 나온다)
-    const oneYear = mode === 'day' ? 250 : mode === 'week' ? 52 : candles.length; // 년봉은 전체
+    const oneYear = mode === 'day' ? 250 : mode === 'week' ? 52 : 12; // 월봉은 12개월
     const visible = Math.max(1, Math.min(oneYear, candles.length));
     const w = Math.min(MAX_CANDLE_W, Math.max(MIN_CANDLE_W, Math.round((plotW / visible) * 10) / 10));
     setCandleW(w);
@@ -620,7 +620,7 @@ export default function ChartScreen() {
         처음엔 최근 1년치가 보여요. 왼쪽으로 밀면 과거(최대 10년)까지 볼 수 있어요.{'\n'}두 손가락으로 벌리면 확대, 오므리면 축소 · ＋/－ 버튼도 가능
       </Text>
       <Text style={{ color: colors.textDim, fontSize: 11 }}>
-        ⤢ 버튼을 누르면 화면을 가로로 돌려 크게 볼 수 있어요. (약 15분 지연 · 년봉은 월봉 집계)
+        ⤢ 버튼을 누르면 화면을 가로로 돌려 크게 볼 수 있어요. (약 15분 지연)
       </Text>
     </ScrollView>
   );

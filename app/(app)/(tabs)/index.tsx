@@ -252,6 +252,43 @@ export default function ProjectsScreen() {
     return rows;
   }, [projects, status, market, q, from, to]);
 
+  // 같은 종목으로 여러 프로젝트를 만들면 한 덩어리로 묶어 보여준다.
+  // (종목명·현재가는 머리글에 한 번만, 각 프로젝트는 '기준가'로 구분)
+  type Row =
+    | { kind: 'group'; key: string; symbol: string; name: string; market: string; ids: string[] }
+    | { kind: 'project'; key: string; project: Project; grouped: boolean };
+  const rows = useMemo<Row[]>(() => {
+    const bySymbol = new Map<string, Project[]>();
+    for (const p of filtered) {
+      const arr = bySymbol.get(p.symbol) ?? [];
+      arr.push(p);
+      bySymbol.set(p.symbol, arr);
+    }
+    const out: Row[] = [];
+    const done = new Set<string>();
+    for (const p of filtered) {
+      if (done.has(p.symbol)) continue;
+      done.add(p.symbol);
+      const group = bySymbol.get(p.symbol)!;
+      if (group.length === 1) {
+        out.push({ kind: 'project', key: p.id, project: p, grouped: false });
+        continue;
+      }
+      // 기준가가 높은 것부터 (가격대별로 읽기 쉽게)
+      const sorted = [...group].sort((a, b) => Number(b.base_price) - Number(a.base_price));
+      out.push({
+        kind: 'group',
+        key: `g:${p.symbol}`,
+        symbol: p.symbol,
+        name: p.name,
+        market: p.market,
+        ids: sorted.map((x) => x.id),
+      });
+      sorted.forEach((x) => out.push({ kind: 'project', key: x.id, project: x, grouped: true }));
+    }
+    return out;
+  }, [filtered]);
+
   return (
     <View style={{ flex: 1 }}>
       {/* 검색/필터 바 (내용 카드와 구분되는 어두운 바 서식) */}
@@ -316,8 +353,8 @@ export default function ProjectsScreen() {
         </View>
       ) : (
         <FlatList
-          data={filtered}
-          keyExtractor={(p) => p.id}
+          data={rows}
+          keyExtractor={(r) => r.key}
           contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 120 }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
@@ -341,7 +378,58 @@ export default function ProjectsScreen() {
               </Text>
             ) : null
           }
-          renderItem={({ item }) => {
+          renderItem={({ item: row }) => {
+            // 종목 머리글 — 같은 종목 프로젝트가 2개 이상일 때만 나온다
+            if (row.kind === 'group') {
+              const isKR = row.market === 'KRX';
+              const gm = row.ids.map((id) => metrics[id]).find((x) => x?.price != null);
+              return (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 8,
+                    paddingHorizontal: 4,
+                    marginBottom: -4,
+                  }}
+                >
+                  <Text style={{ fontSize: 13 }}>{isKR ? '🇰🇷' : '🇺🇸'}</Text>
+                  <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '900', fontSize: 17, flexShrink: 1 }}>
+                    {row.name}
+                  </Text>
+                  <Text style={{ color: colors.textDim, fontSize: 12 }}>{row.symbol}</Text>
+                  <View style={{ flex: 1 }} />
+                  <Text
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                    style={{ color: num.live, fontWeight: '900', fontSize: 15 }}
+                  >
+                    {gm?.price != null ? formatPrice(gm.price, gm.market ?? row.market) : '—'}
+                  </Text>
+                  {gm?.changePct != null && (
+                    <View
+                      style={{
+                        backgroundColor: gm.changePct >= 0 ? colors.buyBg : colors.sellBg,
+                        borderRadius: 6,
+                        paddingHorizontal: 6,
+                        paddingVertical: 1,
+                      }}
+                    >
+                      <Text style={{ color: signColor(gm.changePct), fontWeight: '900', fontSize: 12 }}>
+                        {gm.changePct > 0 ? '▲' : gm.changePct < 0 ? '▼' : ''}
+                        {gm.changePct > 0 ? '+' : ''}
+                        {formatChangePct(gm.changePct)}%
+                      </Text>
+                    </View>
+                  )}
+                  <Text style={{ color: colors.textDim, fontSize: 11 }}>{row.ids.length}개</Text>
+                </View>
+              );
+            }
+
+            const item = row.project;
+            const grouped = row.grouped;
             const closed = !!item.closed_at;
             const m = metrics[item.id];
             // 한국/미국 구분 서식 (배지 + 카드 좌측 색 띠)
@@ -356,14 +444,30 @@ export default function ProjectsScreen() {
               <ProjectSwipe closed={closed} onClose={() => closeProject(item)} onCopy={() => copyProject(item)}>
               <Pressable onPress={() => router.push(`/project/${item.id}`)}>
                 <Card
-                  style={
-                    closed
+                  style={{
+                    ...(closed
                       ? // 종료 프로젝트: 선글라스 씌운 듯 흐리게(페이드) + 무채색 → 진행중/미국주식과 확실히 구분
                         { opacity: 0.45, backgroundColor: 'rgba(148,162,184,0.05)', borderColor: colors.border, borderLeftWidth: 4, borderLeftColor: colors.textDim }
-                      : { borderLeftWidth: 4, borderLeftColor: mkBadge.color }
-                  }
+                      : { borderLeftWidth: 4, borderLeftColor: mkBadge.color }),
+                    // 같은 종목 묶음에 속한 카드는 살짝 들여써서 머리글에 딸린 것처럼 보이게
+                    ...(grouped ? { marginLeft: spacing.md } : null),
+                  }}
                 >
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    {grouped ? (
+                      // 종목명·현재가는 머리글에 있으므로, 여기서는 기준가로 프로젝트를 구분한다
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                        <Text style={{ color: colors.textDim, fontSize: 12 }}>기준가</Text>
+                        <Text
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.7}
+                          style={{ color: closed ? colors.textDim : num.base, fontWeight: '900', fontSize: 18, flexShrink: 1 }}
+                        >
+                          {formatPrice(item.base_price, m?.market ?? item.market)}
+                        </Text>
+                      </View>
+                    ) : (
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         {/* 한국/미국 구분 배지 */}
@@ -397,6 +501,7 @@ export default function ProjectsScreen() {
                       </View>
                       <Text style={{ color: colors.textDim, marginTop: 2 }}>{item.symbol}</Text>
                     </View>
+                    )}
                     <View
                       style={{
                         flexDirection: 'row',
@@ -416,6 +521,7 @@ export default function ProjectsScreen() {
                   </View>
 
                   {/* 현재가 · 기준가 — 한 줄에 좌/우 정렬(세로 높이 통일) */}
+                  {!grouped && (
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
                     {/* 줄바꿈 없이 한 줄 유지 — 가격이 길면 글자가 줄어들며 맞춰진다 */}
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
@@ -463,6 +569,7 @@ export default function ProjectsScreen() {
                       </Text>
                     </View>
                   </View>
+                  )}
 
                   {/* 매수/매도 목표율 + 자동매매 스위치 (같은 선상) */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
