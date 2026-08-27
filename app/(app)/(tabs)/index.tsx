@@ -728,27 +728,25 @@ export default function ProjectsScreen() {
                         m?.price != null && <Text style={{ color: colors.textDim, fontSize: 11 }}>등락률 —</Text>
                       )}
                     </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, minWidth: 0 }}>
-                      <Text style={{ color: colors.textDim, fontSize: 12 }}>기준가</Text>
+                  </View>
+
+                  {/* 기준가 + 매수/매도 목표율 + 자동매매 스위치 (같은 선상).
+                      기준가는 현재가 옆에 있으면 묻히므로 이 줄로 내려 크게 보여준다. */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, minWidth: 0 }}>
                       <Text
                         numberOfLines={1}
                         adjustsFontSizeToFit
                         minimumFontScale={0.7}
-                        style={{ color: closed ? colors.textDim : num.base, fontWeight: '900', fontSize: 15, flexShrink: 1 }}
+                        style={{ color: closed ? colors.textDim : num.base, fontWeight: '900', fontSize: 17, flexShrink: 1 }}
                       >
                         {formatPrice(item.base_price, m?.market ?? item.market)}
                       </Text>
-                    </View>
-                  </View>
-
-                  {/* 매수/매도 목표율 + 자동매매 스위치 (같은 선상) */}
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-                    <View style={{ flexDirection: 'row', gap: 6 }}>
-                      <View style={{ backgroundColor: colors.buyBg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}>
-                        <Text style={{ color: colors.buy, fontSize: 12, fontWeight: '800' }}>매수 -{item.buy_interval_pct}%</Text>
+                      <View style={{ backgroundColor: colors.buyBg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
+                        <Text style={{ color: colors.buy, fontSize: 11, fontWeight: '800' }}>-{item.buy_interval_pct}%</Text>
                       </View>
-                      <View style={{ backgroundColor: colors.sellBg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}>
-                        <Text style={{ color: colors.sell, fontSize: 12, fontWeight: '800' }}>매도 +{item.sell_target_pct}%</Text>
+                      <View style={{ backgroundColor: colors.sellBg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
+                        <Text style={{ color: colors.sell, fontSize: 11, fontWeight: '800' }}>+{item.sell_target_pct}%</Text>
                       </View>
                     </View>
                     {tier === 'auto' && !closed && (item.market === 'KRX' || item.market === 'US') && (
