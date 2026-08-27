@@ -30,7 +30,7 @@ const MA_LINES = [
 const PAD_TOP = 16;
 const PAD_BOT = 24;
 const AXIS_W = 56;
-const MIN_CANDLE_W = 3;
+const MIN_CANDLE_W = 1.2;
 const MAX_CANDLE_W = 28;
 
 export default function ChartScreen() {
@@ -74,6 +74,7 @@ export default function ChartScreen() {
   candleWRef.current = candleW;
   const scrollRef = useRef<ScrollView>(null);
   const scrollXRef = useRef(0);
+  const [scrollX, setScrollX] = useState(0); // 보이는 구간 계산용 (그리기 최적화)
   const plotWRef = useRef(0);
   const countRef = useRef(0);
   countRef.current = candles.length;
@@ -83,6 +84,7 @@ export default function ChartScreen() {
     const maxX = Math.max(0, countRef.current * w - plotWRef.current);
     const nx = Math.min(maxX, Math.max(0, x));
     scrollXRef.current = nx;
+    setScrollX(nx);
     // 폭이 바뀐 내용이 그려진 다음에 옮겨야 끝까지 스크롤된다
     requestAnimationFrame(() => scrollRef.current?.scrollTo({ x: nx, animated: false }));
   }, []);
@@ -109,7 +111,7 @@ export default function ChartScreen() {
           pinchBase.current = { w: candleWRef.current, focal: Math.max(0, e.focalX - AXIS_W) };
         })
         .onUpdate((e) => {
-          const w = Math.min(MAX_CANDLE_W, Math.max(MIN_CANDLE_W, Math.round(pinchBase.current.w * e.scale)));
+          const w = Math.min(MAX_CANDLE_W, Math.max(MIN_CANDLE_W, Math.round(pinchBase.current.w * e.scale * 10) / 10));
           zoomAround(w, pinchBase.current.focal);
         }),
     [zoomAround]
@@ -198,10 +200,25 @@ export default function ChartScreen() {
     return Array.from(m.values());
   }, [trades, pocketIdx]);
 
+  const [plotW, setPlotW] = useState(0); // 차트 그리기 영역의 실제 폭 (onLayout 으로 측정)
+
+  // 화면에 보이는 봉 구간만 그린다 (10년치를 전부 그리면 SVG 요소가 수천 개가 되어 느려진다).
+  // 양옆으로 조금 여유를 둬서 스크롤할 때 빈 칸이 보이지 않게 한다.
+  const view = useMemo(() => {
+    if (candles.length === 0 || plotW === 0) return { from: 0, to: candles.length };
+    const pad = 30;
+    const from = Math.max(0, Math.floor(scrollX / candleW) - pad);
+    const to = Math.min(candles.length, Math.ceil((scrollX + plotW) / candleW) + pad);
+    return { from, to };
+  }, [candles.length, scrollX, candleW, plotW]);
+
+  // 가격 축은 '보이는 구간' 기준으로 잡는다 → 10년 전 가격 때문에 최근 움직임이 눌리지 않는다
   const { minP, maxP } = useMemo(() => {
     if (candles.length === 0) return { minP: 0, maxP: 1 };
-    let lo = Math.min(...candles.map((c) => c.l));
-    let hi = Math.max(...candles.map((c) => c.h));
+    const shown = candles.slice(view.from, view.to);
+    const src = shown.length > 0 ? shown : candles;
+    let lo = Math.min(...src.map((c) => c.l));
+    let hi = Math.max(...src.map((c) => c.h));
     trades.forEach((t) => {
       lo = Math.min(lo, t.price);
       hi = Math.max(hi, t.price);
@@ -212,7 +229,7 @@ export default function ChartScreen() {
     });
     const pad = (hi - lo) * 0.06 || 1;
     return { minP: lo - pad, maxP: hi + pad };
-  }, [candles, trades, guides]);
+  }, [candles, trades, guides, view]);
 
   const priceToY = (p: number) => PAD_TOP + ((maxP - p) / (maxP - minP)) * plotH;
   const chartW = Math.max(candles.length * candleW, 10);
@@ -238,7 +255,6 @@ export default function ChartScreen() {
 
   // 좌우로 밀어도 항상 보이도록, 가격선과 라벨은 스크롤되지 않는 오버레이에 그린다.
   // (예전에는 스크롤되는 SVG 안에 있어서 차트를 옮기면 라벨이 화면 밖으로 사라졌다)
-  const [plotW, setPlotW] = useState(0);
   const overlayLines = useMemo(() => {
     const rows = [...fills, ...guides]
       .map((g) => ({ ...g, y: PAD_TOP + ((maxP - g.price) / (maxP - minP)) * plotH }))
@@ -278,8 +294,15 @@ export default function ChartScreen() {
     if (didInitScroll.current) return;
     if (candles.length === 0 || plotW === 0) return;
     didInitScroll.current = true;
-    scrollToX(candles.length * candleW - plotW, candleW);
-  }, [candles.length, plotW, candleW, scrollToX]);
+    // 데이터는 일봉 3년·주봉 5년치를 받아두고, 처음 화면에는 최근 1년치만 담는다.
+    // (나머지는 왼쪽으로 밀면 나온다)
+    const oneYear = mode === 'day' ? 250 : mode === 'week' ? 52 : candles.length; // 년봉은 전체
+    const visible = Math.max(1, Math.min(oneYear, candles.length));
+    const w = Math.min(MAX_CANDLE_W, Math.max(MIN_CANDLE_W, Math.round((plotW / visible) * 10) / 10));
+    setCandleW(w);
+    candleWRef.current = w;
+    scrollToX(candles.length * w - plotW, w);
+  }, [candles.length, plotW, mode, scrollToX]);
 
   const gridLines = useMemo(() => {
     const n = 4;
@@ -382,6 +405,7 @@ export default function ChartScreen() {
               scrollEventThrottle={16}
               onScroll={(e) => {
                 scrollXRef.current = e.nativeEvent.contentOffset.x;
+                setScrollX(e.nativeEvent.contentOffset.x);
               }}
             >
               <Svg width={chartW} height={chartH}>
@@ -389,7 +413,8 @@ export default function ChartScreen() {
                 <Line key={i} x1={0} y1={priceToY(p)} x2={chartW} y2={priceToY(p)} stroke={colors.border} strokeWidth={0.5} />
               ))}
               {/* x축 날짜 라벨 + 세로 눈금 (하단) */}
-              {candles.map((c, i) => {
+              {candles.slice(view.from, view.to).map((c, j) => {
+                const i = view.from + j;
                 if (i % labelStep !== 0) return null;
                 const x = i * candleW + candleW / 2;
                 return (
@@ -408,15 +433,17 @@ export default function ChartScreen() {
                   </G>
                 );
               })}
-              {candles.map((c, i) => {
+              {candles.slice(view.from, view.to).map((c, j) => {
+                const i = view.from + j;
                 const x = i * candleW + candleW / 2;
                 const col = c.c >= c.o ? colors.buy : colors.sell;
                 const bodyTop = priceToY(Math.max(c.o, c.c));
                 const bodyH = Math.max(1, Math.abs(priceToY(c.o) - priceToY(c.c)));
-                const bodyW = Math.max(2, candleW * 0.7);
+                const bodyW = Math.max(1, candleW * 0.7);
                 return <Rect key={`b${i}`} x={x - bodyW / 2} y={bodyTop} width={bodyW} height={bodyH} fill={col} />;
               })}
-              {candles.map((c, i) => {
+              {candles.slice(view.from, view.to).map((c, j) => {
+                const i = view.from + j;
                 const x = i * candleW + candleW / 2;
                 const col = c.c >= c.o ? colors.buy : colors.sell;
                 return <Line key={`w${i}`} x1={x} y1={priceToY(c.h)} x2={x} y2={priceToY(c.l)} stroke={col} strokeWidth={1} />;
@@ -427,7 +454,10 @@ export default function ChartScreen() {
               {maSeries.map((m) => {
                 if (!m.has || !maOn[m.n]) return null;
                 const pts = m.pts
-                  .map((v, i) => (v == null ? null : `${i * candleW + candleW / 2},${priceToY(v)}`))
+                  .slice(view.from, view.to)
+                  .map((v, j) =>
+                    v == null ? null : `${(view.from + j) * candleW + candleW / 2},${priceToY(v)}`
+                  )
                   .filter(Boolean)
                   .join(' ');
                 if (!pts) return null;
@@ -546,7 +576,7 @@ export default function ChartScreen() {
         점선 = 가격선 (빨강 매수 · 파랑 매도) · 진한 라벨 = 체결가, 「목표」 라벨 = 아직 안 된 목표가{'\n'}▲/▼ + P번호 = 그 매매가 체결된 시점 · 이평선 = 5·20·60·120 단순이동평균
       </Text>
       <Text style={{ color: colors.textDim, fontSize: 11 }}>
-        좌우로 밀어 이동 · 두 손가락으로 벌리면 확대, 오므리면 축소 · ＋/－ 버튼도 가능
+        처음엔 최근 1년치가 보여요. 왼쪽으로 밀면 과거(최대 10년)까지 볼 수 있어요.{'\n'}두 손가락으로 벌리면 확대, 오므리면 축소 · ＋/－ 버튼도 가능
       </Text>
       <Text style={{ color: colors.textDim, fontSize: 11 }}>
         ⤢ 버튼을 누르면 화면을 가로로 돌려 크게 볼 수 있어요. (약 15분 지연 · 년봉은 월봉 집계)
