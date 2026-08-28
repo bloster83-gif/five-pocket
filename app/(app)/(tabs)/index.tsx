@@ -1031,16 +1031,27 @@ function PnlBadge({ label, amount, market, rate }: { label: string; amount: numb
         <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '700', flexShrink: 0 }} numberOfLines={1}>
           {label}
         </Text>
-        <Text
-          style={{ color: c, fontWeight: '900', fontSize: 18, flexShrink: 1, textAlign: 'right' }}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.6}
-        >
-          {up ? '▲ +' : '▼ '}
-          {formatMoney(amount, market)}
-          {rate != null ? ` (${rate > 0 ? '+' : ''}${rate}%)` : ''}
-        </Text>
+        {/* 수익률(%)은 금액과 분리한다. 한 줄에 붙이면 % 가 있는 쪽만 글자가 더 줄어들어
+            평가손익과 실현손익의 크기가 달라 보인다. */}
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, flexShrink: 1 }}>
+          {/* fontSize 가 '최대 크기'다. 금액이 길어지면 이 값 안에서만 줄어들고,
+              짧다고 해서 더 커지지 않으므로 평가손익·실현손익이 항상 같은 크기로 보인다. */}
+          <Text
+            style={{ color: c, fontWeight: '900', fontSize: 16, flexShrink: 1, textAlign: 'right' }}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.65}
+          >
+            {up ? '▲ +' : '▼ '}
+            {formatMoney(amount, market)}
+          </Text>
+          {rate != null && (
+            <Text style={{ color: c, fontWeight: '800', fontSize: 12, flexShrink: 0 }} numberOfLines={1}>
+              ({rate > 0 ? '+' : ''}
+              {rate}%)
+            </Text>
+          )}
+        </View>
       </View>
     </View>
   );
