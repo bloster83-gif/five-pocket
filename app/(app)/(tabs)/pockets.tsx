@@ -15,6 +15,7 @@ import { getStoredQuotes } from '@/services/prices/quoteStore';
 import { getOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import { orderWindow } from '@/services/marketHours';
 import { savePocketTargets, STOP_PRICE_MIGRATION_HINT } from '@/services/pocketTargets';
+import { useDeposits } from '@/services/deposits';
 import { cancelPendingOrder, findHoldingMismatches, healBoughtPockets, loadPendingOrders, reconcilePendingOrders, releasePendingOrderLocally, type HoldingMismatch } from '@/services/pendingOrders';
 import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
@@ -140,9 +141,14 @@ export default function PocketsScreen() {
   }, [account, loading, trades]);
 
   // 전체 요약 (한국/미국 열) — 프로젝트탭과 같은 표
+  const deposits = useDeposits(account); // 미반영예산 = 증권사 예수금
   const summaries = useMemo(
-    () => computeMarketSummaries(projects, pockets, trades, (sym) => prices[sym]?.price ?? null),
-    [projects, pockets, trades, prices]
+    () =>
+      computeMarketSummaries(projects, pockets, trades, (sym) => prices[sym]?.price ?? null).map((s) => ({
+        ...s,
+        deposit: deposits[s.market] ?? null,
+      })),
+    [projects, pockets, trades, prices, deposits]
   );
 
   const projMap = useMemo(() => {
