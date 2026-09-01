@@ -43,6 +43,11 @@ const MIN_CANDLE_W = 1.2;
 const MAX_CANDLE_W = 28;
 // 오른쪽 여백 — 마지막 봉이 화면 끝에 딱 붙어 날짜 라벨이 잘리지 않게 (가로 보기에서 특히)
 const RIGHT_PAD = 46;
+// 처음엔 3년치만 담아 두고, 왼쪽 끝까지 밀 때마다 5년 → 10년으로 넓힌다.
+// (10년치를 한 번에 담으면 두 손가락으로 축소했을 때 너무 많은 봉이 쏟아진다)
+const YEAR_STEPS = [3, 5, 10] as const;
+/** 봉 종류별 1년치 봉 개수 (대략) */
+const perYear = (m: CandleMode) => (m === 'day' ? 250 : m === 'week' ? 52 : 12);
 const DETAIL_ZOOM = 6; // 캔들 폭이 이보다 넓으면 x축에 '일'까지 표기
 const HIT_PX = 20; // 도형을 집었다고 보는 거리
 const HANDLE_R = 6; // 조절점 반지름
@@ -99,11 +104,18 @@ const DRAG_TOOLS: Tool[] = ['line', 'arrow', 'rect', 'circle'];
 const TAP_TOOLS: Tool[] = ['hline', 'vline', 'erase'];
 const DRAW = num.base; // 그린 도형 색 (보라 — 매수 빨강·매도 파랑과 구분)
 
-const drawKey = (symbol: string) => `chartDrawings:${symbol}`;
+// 봉 종류마다 따로 저장한다 — 일봉에 그은 추세선이 월봉에서 같은 자리일 리 없다.
+const drawKey = (symbol: string, mode: CandleMode) => `chartDrawings:${symbol}:${mode}`;
+const legacyKey = (symbol: string) => `chartDrawings:${symbol}`; // 봉 구분 전에 저장된 것 (일봉으로 본다)
 
-async function loadDrawings(symbol: string): Promise<Drawing[]> {
+async function loadDrawings(symbol: string, mode: CandleMode): Promise<Drawing[]> {
   try {
-    const raw = await AsyncStorage.getItem(drawKey(symbol));
+    let raw = await AsyncStorage.getItem(drawKey(symbol, mode));
+    // 봉 구분이 없던 시절에 그린 것은 일봉으로 옮겨 온다 (한 번만)
+    if (raw == null && mode === 'day') {
+      raw = await AsyncStorage.getItem(legacyKey(symbol));
+      if (raw != null) await AsyncStorage.setItem(drawKey(symbol, 'day'), raw);
+    }
     const arr = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(arr)) return [];
     // 예전 이름('trend')으로 저장된 선, 지금은 뺀 자유선('free')을 정리한다
@@ -115,9 +127,9 @@ async function loadDrawings(symbol: string): Promise<Drawing[]> {
   }
 }
 
-async function saveDrawings(symbol: string, list: Drawing[]) {
+async function saveDrawings(symbol: string, mode: CandleMode, list: Drawing[]) {
   try {
-    await AsyncStorage.setItem(drawKey(symbol), JSON.stringify(list));
+    await AsyncStorage.setItem(drawKey(symbol, mode), JSON.stringify(list));
   } catch {
     /* 저장 실패해도 화면은 그대로 */
   }
@@ -126,7 +138,7 @@ async function saveDrawings(symbol: string, list: Drawing[]) {
 export function CandleChart({
   symbol,
   market,
-  candles,
+  candles: allCandles,
   mode,
   onMode,
   loading,
@@ -147,6 +159,22 @@ export function CandleChart({
   height?: number;
 }) {
   const [candleW, setCandleW] = useState(9);
+
+  // 지금 담아 둔 기간 (0=3년, 1=5년, 2=10년). 왼쪽 끝까지 밀면 한 칸씩 넓어진다.
+  const [spanIdx, setSpanIdx] = useState(0);
+  useEffect(() => {
+    setSpanIdx(0); // 봉 종류·종목이 바뀌면 다시 3년치부터
+  }, [mode, symbol]);
+  const limitFor = useCallback(
+    (i: number) => Math.min(allCandles.length, YEAR_STEPS[i] * perYear(mode)),
+    [allCandles.length, mode]
+  );
+  const candles = useMemo(
+    () => allCandles.slice(Math.max(0, allCandles.length - limitFor(spanIdx))),
+    [allCandles, spanIdx, limitFor]
+  );
+  /** 더 넓힐 여지가 남았는지 (마지막 단계이거나 데이터가 그만큼 없으면 끝) */
+  const hasMore = spanIdx < YEAR_STEPS.length - 1 && limitFor(spanIdx + 1) > limitFor(spanIdx);
 
   const { width: winW, height: winH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -214,6 +242,19 @@ export function CandleChart({
         }),
     [zoomAround]
   );
+
+  /** 왼쪽 끝까지 밀었을 때 3년 → 5년 → 10년으로 넓힌다.
+   *  늘어난 만큼 스크롤을 밀어 줘서, 보고 있던 자리는 그대로 있고 왼쪽만 이어진다. */
+  const expandSpan = useCallback(() => {
+    if (!hasMore) return;
+    const cur = limitFor(spanIdx);
+    const next = limitFor(spanIdx + 1);
+    const added = next - cur;
+    if (added <= 0) return;
+    countRef.current = next; // scrollToX 의 최대치 계산이 새 길이를 알도록 먼저 갱신
+    setSpanIdx(spanIdx + 1);
+    scrollToX(scrollXRef.current + added * candleWRef.current, candleWRef.current);
+  }, [hasMore, limitFor, spanIdx, scrollToX]);
 
   const zoomByButton = useCallback(
     (delta: number) => {
@@ -363,7 +404,7 @@ export function CandleChart({
   const didInitScroll = useRef(false);
   useEffect(() => {
     didInitScroll.current = false; // 봉 종류·가로보기 전환·데이터 재조회 시 다시 맞춤
-  }, [mode, wideView, candles.length]);
+  }, [mode, wideView, allCandles.length]);
   useEffect(() => {
     if (didInitScroll.current) return;
     if (candles.length === 0 || plotW === 0) return;
@@ -395,18 +436,19 @@ export function CandleChart({
 
   useEffect(() => {
     let alive = true;
-    loadDrawings(symbol).then((d) => alive && setDrawings(d));
+    setSelectedId(null); // 봉을 바꾸면 그림도 바뀌므로 선택은 풀어 준다
+    loadDrawings(symbol, mode).then((d) => alive && setDrawings(d));
     return () => {
       alive = false;
     };
-  }, [symbol]);
+  }, [symbol, mode]);
 
   const commit = useCallback(
     (next: Drawing[]) => {
       setDrawings(next);
-      saveDrawings(symbol, next);
+      saveDrawings(symbol, mode, next);
     },
-    [symbol]
+    [symbol, mode]
   );
 
   const selected = drawings.find((d) => d.id === selectedId) ?? null;
@@ -540,7 +582,7 @@ export function CandleChart({
           const next = applyEdit(ed.base, ed.grab, e.x - ed.x0, e.y - ed.y0, e.x, e.y);
           setDrawings((list) => {
             const out = replace(list, next);
-            saveDrawings(symbol, out);
+            saveDrawings(symbol, mode, out);
             return out;
           });
         })
@@ -548,7 +590,7 @@ export function CandleChart({
           editRef.current = null;
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tool, selected, drawings, candleW, minP, maxP, plotH, symbol]
+    [tool, selected, drawings, candleW, minP, maxP, plotH, symbol, mode]
   );
 
   // 끌어서 그리는 도구
@@ -801,7 +843,7 @@ export function CandleChart({
     : tool === 'none'
       ? paletteOpen
         ? '그린 도형을 탭하면 선택돼요 · 꾹 누른 채 움직이면 날짜·종가 추적'
-        : '꾹 누른 채 움직이면 날짜·종가를 볼 수 있어요'
+        : '꾹 누른 채 움직이면 날짜·종가 · 왼쪽 끝까지 밀면 더 과거'
       : tool === 'erase'
         ? '지울 도형을 탭하세요'
         : TAP_TOOLS.includes(tool)
@@ -834,9 +876,14 @@ export function CandleChart({
           </Text>
         </>
       ) : (
-        <Text numberOfLines={1} style={{ color: selected || tool !== 'none' ? DRAW : colors.textDim, fontSize: 10 }}>
-          {hint}
-        </Text>
+        <>
+          <Text style={{ color: colors.textDim, fontSize: 10, fontWeight: '800' }}>
+            {YEAR_STEPS[spanIdx]}년치{hasMore ? ` ↤ ${YEAR_STEPS[spanIdx + 1]}년` : ''}
+          </Text>
+          <Text numberOfLines={1} style={{ color: selected || tool !== 'none' ? DRAW : colors.textDim, fontSize: 10, flex: 1 }}>
+            {hint}
+          </Text>
+        </>
       )}
     </View>
   );
@@ -881,8 +928,10 @@ export function CandleChart({
               showsHorizontalScrollIndicator
               scrollEventThrottle={16}
               onScroll={(e) => {
-                scrollXRef.current = e.nativeEvent.contentOffset.x;
-                setScrollX(e.nativeEvent.contentOffset.x);
+                const x = e.nativeEvent.contentOffset.x;
+                scrollXRef.current = x;
+                setScrollX(x);
+                if (x <= 4) expandSpan(); // 왼쪽 끝 → 더 오래된 기간을 이어 붙인다
               }}
             >
               <GestureDetector gesture={chartGestures}>
