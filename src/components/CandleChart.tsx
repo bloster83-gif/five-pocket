@@ -50,6 +50,11 @@ const HANDLE_R = 6; // 조절점 반지름
 const NO_LINES: PriceLine[] = [];
 const NO_MARKERS: TradeMarker[] = [];
 
+function fmtDay(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /** 차트를 가로질러 그리는 가격선 (체결가·목표가) */
 export interface PriceLine {
   price: number;
@@ -254,6 +259,7 @@ export function CandleChart({
   /** 캔들 인덱스(소수 가능) → x (봉 가운데) */
   const idxToX = (i: number) => i * candleW + candleW / 2;
   const xToIdx = (x: number) => x / candleW - 0.5;
+  const clampIdx = (i: number) => Math.max(0, Math.min(candles.length - 1, i));
 
   /** 시간 ↔ x — 봉 간격으로 사이·바깥을 이어서 계산한다 */
   const timeAt = (x: number): number => {
@@ -382,6 +388,8 @@ export function CandleChart({
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  // 꾹 누른 채 움직이면 그 자리 봉을 따라가는 크로스헤어 (index, null = 안 하는 중)
+  const [trackIdx, setTrackIdx] = useState<number | null>(null);
   // 수정 중인 도형의 원본 + 무엇을 잡았는지
   const editRef = useRef<{ base: Drawing; grab: 'move' | 0 | 1; x0: number; y0: number } | null>(null);
 
@@ -488,20 +496,20 @@ export function CandleChart({
       : { ...base, t2: timeAt(x), p2: yToPrice(y) };
   };
 
-  // 꾹 누르면 그 자리 도형을 선택 (그리기 도구가 꺼져 있을 때)
-  const longPress = useMemo(
+  // 꾹 누른 채 움직이면 날짜·종가를 따라간다 (네이버 증권 차트와 같은 동작).
+  // 그냥 미는 건 가로 스크롤이어야 하므로, 길게 누른 뒤에만 시작한다.
+  const track = useMemo(
     () =>
-      Gesture.LongPress()
+      Gesture.Pan()
         .runOnJS(true)
-        .minDuration(300)
-        .enabled(tool === 'none')
-        .onStart((e) => {
-          const hit = hitTest(e.x, e.y);
-          setSelectedId(hit?.id ?? null);
-          if (hit) setPaletteOpen(true); // 선택하면 수정 막대가 보이도록 팔레트를 편다
-        }),
+        .enabled(tool === 'none' && !selected)
+        .activateAfterLongPress(250)
+        .onStart((e) => setTrackIdx(clampIdx(Math.round(xToIdx(e.x)))))
+        .onUpdate((e) => setTrackIdx(clampIdx(Math.round(xToIdx(e.x)))))
+        .onEnd(() => setTrackIdx(null))
+        .onFinalize(() => setTrackIdx(null)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tool, drawings, candleW, minP, maxP, plotH]
+    [tool, selected, candleW, candles.length]
   );
 
   // 선택된 도형 옮기기 / 끝점 잡아 모양 바꾸기
@@ -581,19 +589,19 @@ export function CandleChart({
             if (hit) commit(drawings.filter((d) => d.id !== hit.id));
             return;
           }
-          if (tool === 'none') setSelectedId(hitTest(e.x, e.y)?.id ?? null);
+          if (tool === 'none' && paletteOpen) setSelectedId(hitTest(e.x, e.y)?.id ?? null);
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tool, drawings, candleW, minP, maxP, plotH, commit]
+    [tool, paletteOpen, drawings, candleW, minP, maxP, plotH, commit]
   );
 
   const chartGestures = useMemo(
-    () => Gesture.Simultaneous(pinch, Gesture.Exclusive(drawPan, editPan, longPress, tap)),
-    [pinch, drawPan, editPan, longPress, tap]
+    () => Gesture.Simultaneous(pinch, Gesture.Exclusive(drawPan, editPan, track, tap)),
+    [pinch, drawPan, editPan, track, tap]
   );
 
-  // 그리기·수정 중에는 가로 스크롤을 멈춘다 (같은 드래그를 둘이 다투지 않게)
-  const scrollEnabled = tool === 'none' && !selected;
+  // 그리기·수정·추적 중에는 가로 스크롤을 멈춘다 (같은 드래그를 둘이 다투지 않게)
+  const scrollEnabled = tool === 'none' && !selected && trackIdx === null;
 
   // ── 도형 그리기 ────────────────────────────────────────────
   const arrowHead = (ax: number, ay: number, bx: number, by: number) => {
@@ -792,19 +800,52 @@ export function CandleChart({
     ? '도형을 끌면 옮겨지고, 끝점(●)을 잡으면 기울기·크기가 바뀌어요'
     : tool === 'none'
       ? paletteOpen
-        ? '그린 도형을 꾹 누르면 선택돼요'
-        : null
+        ? '그린 도형을 탭하면 선택돼요 · 꾹 누른 채 움직이면 날짜·종가 추적'
+        : '꾹 누른 채 움직이면 날짜·종가를 볼 수 있어요'
       : tool === 'erase'
         ? '지울 도형을 탭하세요'
         : TAP_TOOLS.includes(tool)
           ? '차트를 탭하면 그어져요'
           : '차트 위를 끌어서 그려요';
 
+  // 추적 중인 봉 — 전 봉 대비 등락률까지 같이 보여준다
+  const tracked = trackIdx != null ? candles[trackIdx] : null;
+  const trackedPct =
+    tracked && trackIdx! > 0 && candles[trackIdx! - 1].c > 0
+      ? Math.round((tracked.c / candles[trackIdx! - 1].c - 1) * 10000) / 100
+      : null;
+
+  // 정보줄 — 평소엔 안내, 꾹 누르는 중엔 날짜·종가 (높이 고정이라 화면이 흔들리지 않는다)
+  const infoRow = (
+    <View style={{ height: 18, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      {tracked ? (
+        <>
+          <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>{fmtDay(tracked.t)}</Text>
+          <Text style={{ color: num.live, fontSize: 13, fontWeight: '900' }}>{formatPrice(tracked.c, market)}</Text>
+          {trackedPct != null && (
+            <Text style={{ color: trackedPct >= 0 ? colors.buy : colors.sell, fontSize: 12, fontWeight: '800' }}>
+              {trackedPct > 0 ? '+' : ''}
+              {trackedPct}%
+            </Text>
+          )}
+          <View style={{ flex: 1 }} />
+          <Text numberOfLines={1} style={{ color: colors.textDim, fontSize: 10 }}>
+            시 {formatPrice(tracked.o, market)} · 고 {formatPrice(tracked.h, market)} · 저 {formatPrice(tracked.l, market)}
+          </Text>
+        </>
+      ) : (
+        <Text numberOfLines={1} style={{ color: selected || tool !== 'none' ? DRAW : colors.textDim, fontSize: 10 }}>
+          {hint}
+        </Text>
+      )}
+    </View>
+  );
+
   const chartBlock = (
     <>
       {maRow}
       {drawRow}
-      {hint ? <Text style={{ color: DRAW, fontSize: 10 }}>{hint}</Text> : null}
+      {infoRow}
 
       {loading ? (
         <View style={{ height: chartH, justifyContent: 'center' }}>
@@ -932,6 +973,40 @@ export function CandleChart({
                         <Circle key={`h${i}`} cx={h.x} cy={h.y} r={HANDLE_R} fill={colors.bg} stroke={DRAW} strokeWidth={2.5} />
                       ))}
                     {preview()}
+
+                    {/* 크로스헤어 — 꾹 누른 채 움직일 때 그 봉의 종가를 짚어준다 */}
+                    {tracked && trackIdx != null && (
+                      <G>
+                        <Line
+                          x1={idxToX(trackIdx)}
+                          y1={PAD_TOP}
+                          x2={idxToX(trackIdx)}
+                          y2={PAD_TOP + plotH}
+                          stroke={colors.text}
+                          strokeWidth={1}
+                          strokeDasharray="3 3"
+                          opacity={0.7}
+                        />
+                        <Line
+                          x1={Math.max(0, scrollX)}
+                          y1={priceToY(tracked.c)}
+                          x2={Math.max(0, scrollX) + plotW}
+                          y2={priceToY(tracked.c)}
+                          stroke={colors.text}
+                          strokeWidth={1}
+                          strokeDasharray="3 3"
+                          opacity={0.7}
+                        />
+                        <Circle
+                          cx={idxToX(trackIdx)}
+                          cy={priceToY(tracked.c)}
+                          r={4.5}
+                          fill={tracked.c >= tracked.o ? colors.buy : colors.sell}
+                          stroke="#fff"
+                          strokeWidth={1.5}
+                        />
+                      </G>
+                    )}
                   </Svg>
                 </View>
               </GestureDetector>
