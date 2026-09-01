@@ -360,15 +360,18 @@ export default function NewProjectScreen() {
                 </Pressable>
               </View>
             </View>
-            {overBudget ? (
-              <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '800' }}>
-                ⚠️ 예산이 사용가능 예산을 초과했어요! 이 금액 이하로 낮춰야 프로젝트를 만들 수 있어요.
-              </Text>
-            ) : (
-              <Text style={{ color: colors.textDim, fontSize: 11 }}>
-                예수금에서 대기중인 포켓 예산(다른 프로젝트 포함)을 뺀, 실제로 쓸 수 있는 금액이에요.
-              </Text>
-            )}
+            {/* 안내/경고는 높이를 고정 — 입력 중 줄 수가 바뀌면 아래 입력칸이 밀려 키보드가 닫힌다 */}
+            <View style={{ minHeight: 30, justifyContent: 'center' }}>
+              {overBudget ? (
+                <Text numberOfLines={2} style={{ color: colors.danger, fontSize: 12, fontWeight: '800' }}>
+                  ⚠️ 예산이 사용가능 예산을 초과했어요! 이 금액 이하로 낮춰야 프로젝트를 만들 수 있어요.
+                </Text>
+              ) : (
+                <Text numberOfLines={2} style={{ color: colors.textDim, fontSize: 11 }}>
+                  예수금에서 대기중인 포켓 예산(다른 프로젝트 포함)을 뺀, 실제로 쓸 수 있는 금액이에요.
+                </Text>
+              )}
+            </View>
           </View>
         ) : null}
         {/* 포켓 개수 선택 (기본 5, 특별 종목은 6~10) */}
@@ -416,13 +419,16 @@ export default function NewProjectScreen() {
             !!s &&
             ((s.budget ?? 0) <= 0 || estimatedShares(s.budget, s.buy_target_price) <= 0);
           return (
-            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, opacity: excluded ? 0.5 : 1 }}>
-              <Text style={{ color: colors.text, width: 56 }}>포켓 {i + 1}</Text>
+            // 예산이 1주 값에 못 미치는 동안에도 입력칸은 그대로 둔다 —
+            // 흐리게 처리하는 건 설명 글자만. 입력칸을 감싼 View 를 건드리면
+            // 숫자를 치는 도중에 칸이 다시 그려지며 키보드가 닫힌다.
+            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Text style={{ color: colors.text, width: 56, opacity: excluded ? 0.5 : 1 }}>포켓 {i + 1}</Text>
               <View style={{ width: 90 }}>
                 <WeightInput value={w} onChange={(v) => setWeight(i, v)} />
               </View>
               {/* 이 줄도 한 줄 고정 — 값이 길어져 줄바꿈되면 입력 중 레이아웃이 흔들린다 */}
-              <Text numberOfLines={1} style={{ color: colors.textDim, flex: 1 }}>
+              <Text numberOfLines={1} style={{ color: colors.textDim, flex: 1, opacity: excluded ? 0.5 : 1 }}>
                 {normalized[i]}% {alloc != null ? `· ${formatPrice(alloc, market)}` : ''}
                 {excluded && <Text style={{ color: colors.warn, fontWeight: '800' }}>  · 생성 안 함</Text>}
               </Text>

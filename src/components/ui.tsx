@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -78,11 +78,19 @@ export function Field({
 }
 
 // 천단위 콤마를 자동으로 보여주는 숫자 입력 (value/onChangeText 는 콤마 없는 원문)
+//
+// 입력 중에는 이 컴포넌트가 글자를 직접 들고 있는다.
+// 예산 같은 값은 한 글자 칠 때마다 부모가 포켓 배분·수량·경고를 전부 다시 계산하는데,
+// 그 리렌더가 입력칸까지 흔들어 키보드가 닫히던 문제를 막기 위함이다.
+// (100,000 을 치려는데 '1'만 쳐도 1주도 못 사는 예산이 되어 화면이 요동치던 증상)
+// 포커스가 없을 때만 부모 값을 따라간다 — '전액 입력' 같은 외부 변경은 그대로 반영된다.
 export function NumberField({
   label,
   value,
   onChangeText,
   decimals = false,
+  onFocus,
+  onBlur,
   ...props
 }: Omit<TextInputProps, 'value' | 'onChangeText'> & {
   label: string;
@@ -90,11 +98,31 @@ export function NumberField({
   onChangeText: (raw: string) => void;
   decimals?: boolean;
 }) {
+  const [text, setText] = useState(value);
+  const focused = useRef(false);
+
+  useEffect(() => {
+    if (!focused.current) setText(value);
+  }, [value]);
+
   return (
     <Field
       label={label}
-      value={withCommas(value, decimals)}
-      onChangeText={(t) => onChangeText(rawNumeric(t, decimals))}
+      value={withCommas(text, decimals)}
+      onFocus={(e) => {
+        focused.current = true;
+        onFocus?.(e);
+      }}
+      onBlur={(e) => {
+        focused.current = false;
+        setText(value);
+        onBlur?.(e);
+      }}
+      onChangeText={(t) => {
+        const raw = rawNumeric(t, decimals);
+        setText(raw);
+        onChangeText(raw);
+      }}
       keyboardType={decimals ? 'decimal-pad' : 'number-pad'}
       {...props}
     />
