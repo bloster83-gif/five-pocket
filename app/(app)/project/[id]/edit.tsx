@@ -5,10 +5,11 @@ import { supabase } from '@/lib/supabase';
 import { notify } from '@/lib/alert';
 import { Button, Card, Field, NumberField } from '@/components/ui';
 import { colors, formatPrice, money, spacing } from '@/theme';
-import { buildPocketSeeds, normalizeWeights, POCKET_COUNT } from '@/domain/pockets';
+import { buildPocketSeeds, estimatedShares, normalizeWeights, POCKET_COUNT } from '@/domain/pockets';
 import type { Pocket, Project } from '@/types/db';
 import { BackHeader } from '@/components/BackHeader';
 import { WeightInput } from '@/components/WeightInput';
+import { useAllocMode } from '@/lib/allocMode';
 
 // 프로젝트 수정 — 종목/시장/이름은 고정(이름=종목명).
 //  - 거래가 하나도 없으면: 전략·예산·포켓비중 수정 가능
@@ -81,6 +82,18 @@ export default function EditProjectScreen() {
     const next = [...weights];
     next[i] = v;
     setWeights(next);
+  };
+
+  // 배분 방식 — 비중(%) 또는 금액 (프로젝트 생성 화면과 같은 규칙)
+  const alloc = useAllocMode(market, weights, setWeights, totalBudget, setTotalBudget);
+  const byAmount = alloc.mode === 'amount';
+  const resetEqual = () => {
+    const count = weights.length;
+    if (byAmount) {
+      const per = alloc.round((Number(totalBudget) || 0) / count);
+      return alloc.setAllAmounts(Array(count).fill(per > 0 ? String(per) : ''));
+    }
+    setWeights(Array(count).fill(String(Math.round((100 / count) * 100) / 100)));
   };
 
   // 거래가 하나라도 있으면 수정 불가 (전략 잠금). 이름은 종목명이라 항상 고정.
@@ -187,29 +200,93 @@ export default function EditProjectScreen() {
       <Card style={{ opacity: dim }}>
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>예산 & 포켓 비율</Text>
         <NumberField
-          label={`프로젝트 총 예산 (${market === 'KRX' ? '원' : '달러'}, 선택)`}
+          label={
+            byAmount
+              ? `프로젝트 총 예산 (${market === 'KRX' ? '원' : '달러'}) · 포켓 금액 합계`
+              : `프로젝트 총 예산 (${market === 'KRX' ? '원' : '달러'}, 선택)`
+          }
           value={totalBudget}
           onChangeText={setTotalBudget}
           decimals
-          editable={!locked}
+          editable={!locked && !byAmount} // 금액 모드에서는 포켓 금액의 합이라 직접 못 고친다
           placeholder="예: 1,000,000"
         />
+        {/* 배분 방식 — 비중(%)으로 나눌지, 금액을 직접 넣을지 */}
+        {!locked && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={{ color: colors.textDim, fontSize: 13, marginRight: 2 }}>배분</Text>
+            {(['pct', 'amount'] as const).map((k) => (
+              <Pressable
+                key={k}
+                onPress={() => alloc.changeMode(k)}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: alloc.mode === k ? colors.primary : colors.border,
+                  backgroundColor: alloc.mode === k ? 'rgba(34,211,166,0.14)' : colors.cardAlt,
+                }}
+              >
+                <Text style={{ color: alloc.mode === k ? colors.primary : colors.textDim, fontWeight: '800', fontSize: 13 }}>
+                  {k === 'pct' ? '비중 %' : `금액 ${market === 'KRX' ? '₩' : '$'}`}
+                </Text>
+              </Pressable>
+            ))}
+            <View style={{ flex: 1 }} />
+            <Pressable onPress={resetEqual}>
+              <Text style={{ color: colors.accent, fontWeight: '700' }}>균등 분배</Text>
+            </Pressable>
+          </View>
+        )}
         {/* 한 줄 고정 — 입력 중 '(자동 정규화됨)'이 붙으며 줄바꿈되면 아래 입력칸이 밀린다 */}
         <Text numberOfLines={1} style={{ color: colors.textDim }}>
-          포켓별 비중 합계: {money(weightSum, 1)}%{' '}
-          {Math.abs(weightSum - 100) > 0.1 && <Text style={{ color: colors.warn }}>(자동 정규화됨)</Text>}
+          {byAmount ? (
+            <>포켓 금액 합계: {formatPrice(alloc.sum, market)}</>
+          ) : (
+            <>
+              포켓별 비중 합계: {money(weightSum, 1)}%{' '}
+              {Math.abs(weightSum - 100) > 0.1 && <Text style={{ color: colors.warn }}>(자동 정규화됨)</Text>}
+            </>
+          )}
         </Text>
         {weights.map((w, i) => {
-          const alloc = parsed.totalBudget ? (parsed.totalBudget * normalized[i]) / 100 : null;
+          const allocAmt = parsed.totalBudget ? (parsed.totalBudget * normalized[i]) / 100 : null;
+          const sd = seeds[i];
+          // 예산 0 또는 매수 가능 수량 0주면 저장해도 이 포켓은 살아나지 않는다
+          const excluded =
+            parsed.totalBudget != null &&
+            !!sd &&
+            ((sd.budget ?? 0) <= 0 || estimatedShares(sd.budget, sd.buy_target_price) <= 0);
           return (
-            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <Text style={{ color: colors.text, width: 56 }}>포켓 {i + 1}</Text>
-              <View style={{ width: 90 }}>
-                <WeightInput value={w} onChange={(v) => setWeight(i, v)} editable={!locked} />
+            <View key={i} style={{ gap: 2 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+                <Text style={{ color: colors.text, width: 56, opacity: excluded ? 0.5 : 1 }}>포켓 {i + 1}</Text>
+                <View style={{ width: byAmount ? 130 : 90 }}>
+                  {byAmount ? (
+                    <WeightInput
+                      value={alloc.amounts[i] ?? ''}
+                      onChange={(v) => alloc.setAmount(i, v)}
+                      editable={!locked}
+                      commas
+                      decimals={alloc.decimals}
+                    />
+                  ) : (
+                    <WeightInput value={w} onChange={(v) => setWeight(i, v)} editable={!locked} />
+                  )}
+                </View>
+                <Text numberOfLines={1} style={{ color: colors.textDim, flex: 1, opacity: excluded ? 0.5 : 1 }}>
+                  {byAmount
+                    ? `${normalized[i]}%`
+                    : `${normalized[i]}% ${allocAmt != null ? `· ${formatPrice(allocAmt, market)}` : ''}`}
+                </Text>
               </View>
-              <Text numberOfLines={1} style={{ color: colors.textDim, flex: 1 }}>
-                {normalized[i]}% {alloc != null ? `· ${formatPrice(alloc, market)}` : ''}
-              </Text>
+              {/* 이유는 잘리지 않게 아랫줄에 따로 (빨강) */}
+              {excluded && (
+                <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700', marginLeft: 56 + spacing.md }}>
+                  1주도 살 수 없어 이 포켓은 생성되지 않아요
+                </Text>
+              )}
             </View>
           );
         })}

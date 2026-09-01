@@ -1,4 +1,4 @@
-// 포켓 비중(%) 입력칸.
+// 포켓 배분 입력칸 (비중 % 또는 금액).
 //
 // 입력값을 이 컴포넌트가 직접 들고 있는다. 부모 화면은 한 글자 칠 때마다
 // 비중 합계·정규화·포켓 미리보기를 전부 다시 계산하는데, 그 리렌더가 입력칸까지 흔들어
@@ -10,15 +10,22 @@
 
 import { memo, useEffect, useRef, useState } from 'react';
 import { Field } from '@/components/ui';
+import { rawNumeric, withCommas } from '@/theme';
 
 export const WeightInput = memo(function WeightInput({
   value,
   onChange,
   editable = true,
+  commas = false,
+  decimals = true,
 }: {
   value: string;
   onChange: (v: string) => void;
   editable?: boolean;
+  /** 금액 입력처럼 천단위 콤마를 보여줄지 */
+  commas?: boolean;
+  /** 소수점 허용 (원화 금액은 false) */
+  decimals?: boolean;
 }) {
   const [text, setText] = useState(value);
   const focused = useRef(false);
@@ -30,7 +37,7 @@ export const WeightInput = memo(function WeightInput({
   return (
     <Field
       label=""
-      value={text}
+      value={commas ? withCommas(text, decimals) : text}
       editable={editable}
       onFocus={() => {
         focused.current = true;
@@ -40,12 +47,11 @@ export const WeightInput = memo(function WeightInput({
         setText(value);
       }}
       onChangeText={(v) => {
-        // 숫자와 소수점만 (소수점은 하나까지)
-        const cleaned = v.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+        const cleaned = rawNumeric(v, decimals);
         setText(cleaned);
         onChange(cleaned);
       }}
-      keyboardType="decimal-pad"
+      keyboardType={decimals ? 'decimal-pad' : 'number-pad'}
       selectTextOnFocus // 탭하면 기존 값이 통째로 선택돼 지우지 않고 바로 덮어쓸 수 있다
       returnKeyType="done"
     />

@@ -25,7 +25,9 @@ export interface MarketSummary {
   usedBudget: number;
   evalAmount: number;
   buyCost: number;
-  /** 증권사 예수금 — 아직 프로젝트 예산으로 잡지 않은 돈. 계좌 미연결이면 null */
+  /** 아직 매수하지 않고 '대기중'인 포켓에 이미 배정된 예산 */
+  waitingBudget: number;
+  /** 증권사 예수금(D+ 정산). 계좌 미연결·조회 실패면 null */
   deposit?: number | null;
 }
 
@@ -50,7 +52,7 @@ export function computeMarketSummaries(
   const bucket = (market: string) => {
     let e = acc.get(market);
     if (!e) {
-      e = { market, totalBudget: 0, usedBudget: 0, evalAmount: 0, buyCost: 0 };
+      e = { market, totalBudget: 0, usedBudget: 0, waitingBudget: 0, evalAmount: 0, buyCost: 0 };
       acc.set(market, e);
     }
     return e;
@@ -62,6 +64,8 @@ export function computeMarketSummaries(
     const p = projById.get(k.project_id);
     if (!p) continue;
     if (IN_USE.has(k.status)) bucket(p.market).usedBudget += Number(k.budget ?? 0);
+    // 대기중 = 아직 현금이지만 이미 다른 포켓에 배정돼 새로 쓸 수 없는 돈
+    else if (k.status === 'waiting') bucket(p.market).waitingBudget += Number(k.budget ?? 0);
   }
 
   // 포지션은 프로젝트 단위로 (같은 프로젝트의 여러 포켓을 합산)
@@ -246,8 +250,14 @@ export function PortfolioSummary({ summaries }: { summaries: MarketSummary[] }) 
     { label: '총예산', values: summaries.map((s) => s.totalBudget), color: num.budget, strong: true },
     { label: '사용예산', values: summaries.map((s) => s.usedBudget), color: num.position },
     { label: '잔여예산', values: summaries.map((s) => Math.max(0, s.totalBudget - s.usedBudget)), color: num.budget },
-    // 증권사 예수금 = 아직 어떤 프로젝트에도 배정하지 않은 돈
-    { label: '미반영예산', values: summaries.map((s) => s.deposit ?? null), color: num.budget },
+    // 미반영예산 = 아직 어떤 포켓에도 배정하지 않은 돈
+    //   = 증권사 예수금 − 대기중 포켓에 이미 배정된 예산
+    //   (프로젝트를 만들 때 보여주는 '사용가능 예산'과 같은 금액)
+    {
+      label: '미반영예산',
+      values: summaries.map((s) => (s.deposit == null ? null : Math.max(0, s.deposit - s.waitingBudget))),
+      color: num.budget,
+    },
     { label: '평가금액', values: summaries.map((s) => s.evalAmount), color: num.evalTotal, strong: true, divider: true },
     { label: '매입원가', values: summaries.map((s) => s.buyCost), color: num.position },
     { label: '평가이익', values: summaries.map((s) => (s.buyCost > 0 ? s.evalAmount - s.buyCost : 0)), sign: true, strong: true },
@@ -263,7 +273,7 @@ export function PortfolioSummary({ summaries }: { summaries: MarketSummary[] }) 
       markets={markets}
       rows={rows}
       subtitle={rate || undefined}
-      footnote="사용예산 = 매수 주문·보유 중인 포켓에 묶인 배분 예산 · 잔여예산 = 총예산 − 사용예산 · 미반영예산 = 증권사 예수금(D+ 정산)"
+      footnote="사용예산 = 매수 주문·보유 중인 포켓에 묶인 배분 예산 · 잔여예산 = 총예산 − 사용예산 · 미반영예산 = 예수금 − 대기중 포켓 예산 (프로젝트 생성 시 '사용가능 예산'과 같은 금액)"
     />
   );
 }
