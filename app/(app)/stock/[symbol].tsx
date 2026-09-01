@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Dimensions, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Dimensions, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Card } from '@/components/ui';
 import { BarChart5y, LineChart } from '@/components/MiniCharts';
@@ -93,6 +95,10 @@ export default function StockValuationScreen() {
   const [range, setRange] = useState<SeriesRange>('6M');
   const [livePrice, setLivePrice] = useState<number | null>(null);
   const [prevClose, setPrevClose] = useState<number | null>(null);
+  // '크게 보기' — 기기를 돌리지 않고 화면 안에서 90° 회전 (매매차트와 동일)
+  const [wideView, setWideView] = useState(false);
+  const { width: winW, height: winH } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   // 한국은 네이버(키 불필요), 미국은 FMP 키 필요
   const finReady = mkt === 'KRX' || fundamentalsConfigured();
@@ -174,6 +180,86 @@ export default function StockValuationScreen() {
       ? Math.round((livePrice / prevClose - 1) * 10000) / 100
       : null;
 
+  // 기간칩 + 차트. 세로 화면과 '크게 보기'(가로) 양쪽에서 같은 걸 그린다.
+  const chartBlock = (w: number, h: number) => (
+    <>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        {RANGES.map((r) => (
+          <Pressable
+            key={r.key}
+            onPress={() => setRange(r.key)}
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: 999,
+              backgroundColor: range === r.key ? colors.buy : colors.cardAlt,
+            }}
+          >
+            <Text style={{ color: range === r.key ? '#fff' : colors.textDim, fontSize: 12, fontWeight: '700' }}>
+              {r.label}
+            </Text>
+          </Pressable>
+        ))}
+        <View style={{ flex: 1 }} />
+        {/* 크게 보기 — 기기를 돌리지 않고 화면 안에서 90° 회전시켜 본다 (매매차트와 동일) */}
+        <Pressable
+          onPress={() => setWideView((v) => !v)}
+          hitSlop={8}
+          style={{
+            paddingHorizontal: 10,
+            paddingVertical: 5,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: wideView ? colors.buy : colors.border,
+            backgroundColor: colors.cardAlt,
+          }}
+        >
+          <Text style={{ color: wideView ? colors.buy : colors.text, fontSize: 13, fontWeight: '900' }}>
+            {wideView ? '⤡' : '⤢'}
+          </Text>
+        </Pressable>
+      </View>
+      {seriesLoading ? (
+        <View style={{ height: h, justifyContent: 'center' }}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      ) : (
+        <StockPriceChart points={series} market={mkt} width={w} height={h} symbol={symbol as string} />
+      )}
+    </>
+  );
+
+  // 크게 보기 — 화면 전체를 덮고 내용을 90° 돌려 크게 보여준다 (매매차트와 같은 방식).
+  // 화면 회전 잠금을 켜 둔 사람도 쓸 수 있다.
+  if (wideView) {
+    const innerW = winH - (insets.top + insets.bottom) - spacing.sm * 2;
+    return (
+      <Modal visible transparent={false} animationType="fade" onRequestClose={() => setWideView(false)}>
+        <StatusBar hidden />
+        <View style={{ flex: 1, backgroundColor: colors.bg }}>
+          <View
+            style={{
+              position: 'absolute',
+              top: (winH - winW) / 2,
+              left: (winW - winH) / 2,
+              width: winH,
+              height: winW,
+              transform: [{ rotate: '90deg' }],
+              // 90° 돌린 좌표계라 기기의 상·하단(노치·홈 인디케이터)이 좌·우가 된다
+              paddingLeft: insets.top + spacing.sm,
+              paddingRight: insets.bottom + spacing.sm,
+              paddingTop: insets.right + spacing.sm,
+              paddingBottom: insets.left + spacing.sm,
+              gap: spacing.sm,
+            }}
+          >
+            {chartBlock(innerW, Math.max(180, winW - insets.left - insets.right - 130))}
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
   return (
     <>
       <Stack.Screen
@@ -210,34 +296,8 @@ export default function StockValuationScreen() {
           </View>
         </View>
 
-        {/* 가격 차트 — 기간 선택 + 핀치 확대·축소 + 꾹 눌러 가격 추적 */}
-        <Card>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-            {RANGES.map((r) => (
-              <Pressable
-                key={r.key}
-                onPress={() => setRange(r.key)}
-                style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                  borderRadius: 999,
-                  backgroundColor: range === r.key ? colors.buy : colors.cardAlt,
-                }}
-              >
-                <Text style={{ color: range === r.key ? '#fff' : colors.textDim, fontSize: 12, fontWeight: '700' }}>
-                  {r.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          {seriesLoading ? (
-            <View style={{ height: 210, justifyContent: 'center' }}>
-              <ActivityIndicator color={colors.primary} />
-            </View>
-          ) : (
-            <StockPriceChart points={series} market={mkt} width={CHART_W} height={210} />
-          )}
-        </Card>
+        {/* 가격 차트 — 기간 선택 + 핀치 확대·축소 + 꾹 눌러 가격 추적 + 그리기 */}
+        <Card>{chartBlock(CHART_W, 210)}</Card>
 
         {!finReady ? (
           <Card style={{ borderColor: colors.warn, borderWidth: 1 }}>
