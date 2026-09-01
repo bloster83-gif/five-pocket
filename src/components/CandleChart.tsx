@@ -43,12 +43,22 @@ const MIN_CANDLE_W = 1.2;
 const MAX_CANDLE_W = 28;
 // 오른쪽 여백 — 마지막 봉이 화면 끝에 딱 붙어 날짜 라벨이 잘리지 않게 (가로 보기에서 특히)
 const RIGHT_PAD = 46;
+// 처음엔 3년치만 담아 두고, 왼쪽 끝까지 밀 때마다 5년 → 10년으로 넓힌다.
+// (10년치를 한 번에 담으면 두 손가락으로 축소했을 때 너무 많은 봉이 쏟아진다)
+const YEAR_STEPS = [3, 5, 10] as const;
+/** 봉 종류별 1년치 봉 개수 (대략) */
+const perYear = (m: CandleMode) => (m === 'day' ? 250 : m === 'week' ? 52 : 12);
 const DETAIL_ZOOM = 6; // 캔들 폭이 이보다 넓으면 x축에 '일'까지 표기
 const HIT_PX = 20; // 도형을 집었다고 보는 거리
 const HANDLE_R = 6; // 조절점 반지름
 // 매번 새 배열이 만들어져 계산이 되풀이되지 않도록 기본값은 한 번만 만든다
 const NO_LINES: PriceLine[] = [];
 const NO_MARKERS: TradeMarker[] = [];
+
+function fmtDay(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+}
 
 /** 차트를 가로질러 그리는 가격선 (체결가·목표가) */
 export interface PriceLine {
@@ -94,11 +104,18 @@ const DRAG_TOOLS: Tool[] = ['line', 'arrow', 'rect', 'circle'];
 const TAP_TOOLS: Tool[] = ['hline', 'vline', 'erase'];
 const DRAW = num.base; // 그린 도형 색 (보라 — 매수 빨강·매도 파랑과 구분)
 
-const drawKey = (symbol: string) => `chartDrawings:${symbol}`;
+// 봉 종류마다 따로 저장한다 — 일봉에 그은 추세선이 월봉에서 같은 자리일 리 없다.
+const drawKey = (symbol: string, mode: CandleMode) => `chartDrawings:${symbol}:${mode}`;
+const legacyKey = (symbol: string) => `chartDrawings:${symbol}`; // 봉 구분 전에 저장된 것 (일봉으로 본다)
 
-async function loadDrawings(symbol: string): Promise<Drawing[]> {
+async function loadDrawings(symbol: string, mode: CandleMode): Promise<Drawing[]> {
   try {
-    const raw = await AsyncStorage.getItem(drawKey(symbol));
+    let raw = await AsyncStorage.getItem(drawKey(symbol, mode));
+    // 봉 구분이 없던 시절에 그린 것은 일봉으로 옮겨 온다 (한 번만)
+    if (raw == null && mode === 'day') {
+      raw = await AsyncStorage.getItem(legacyKey(symbol));
+      if (raw != null) await AsyncStorage.setItem(drawKey(symbol, 'day'), raw);
+    }
     const arr = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(arr)) return [];
     // 예전 이름('trend')으로 저장된 선, 지금은 뺀 자유선('free')을 정리한다
@@ -110,9 +127,9 @@ async function loadDrawings(symbol: string): Promise<Drawing[]> {
   }
 }
 
-async function saveDrawings(symbol: string, list: Drawing[]) {
+async function saveDrawings(symbol: string, mode: CandleMode, list: Drawing[]) {
   try {
-    await AsyncStorage.setItem(drawKey(symbol), JSON.stringify(list));
+    await AsyncStorage.setItem(drawKey(symbol, mode), JSON.stringify(list));
   } catch {
     /* 저장 실패해도 화면은 그대로 */
   }
@@ -121,7 +138,7 @@ async function saveDrawings(symbol: string, list: Drawing[]) {
 export function CandleChart({
   symbol,
   market,
-  candles,
+  candles: allCandles,
   mode,
   onMode,
   loading,
@@ -142,6 +159,22 @@ export function CandleChart({
   height?: number;
 }) {
   const [candleW, setCandleW] = useState(9);
+
+  // 지금 담아 둔 기간 (0=3년, 1=5년, 2=10년). 왼쪽 끝까지 밀면 한 칸씩 넓어진다.
+  const [spanIdx, setSpanIdx] = useState(0);
+  useEffect(() => {
+    setSpanIdx(0); // 봉 종류·종목이 바뀌면 다시 3년치부터
+  }, [mode, symbol]);
+  const limitFor = useCallback(
+    (i: number) => Math.min(allCandles.length, YEAR_STEPS[i] * perYear(mode)),
+    [allCandles.length, mode]
+  );
+  const candles = useMemo(
+    () => allCandles.slice(Math.max(0, allCandles.length - limitFor(spanIdx))),
+    [allCandles, spanIdx, limitFor]
+  );
+  /** 더 넓힐 여지가 남았는지 (마지막 단계이거나 데이터가 그만큼 없으면 끝) */
+  const hasMore = spanIdx < YEAR_STEPS.length - 1 && limitFor(spanIdx + 1) > limitFor(spanIdx);
 
   const { width: winW, height: winH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -210,6 +243,19 @@ export function CandleChart({
     [zoomAround]
   );
 
+  /** 왼쪽 끝까지 밀었을 때 3년 → 5년 → 10년으로 넓힌다.
+   *  늘어난 만큼 스크롤을 밀어 줘서, 보고 있던 자리는 그대로 있고 왼쪽만 이어진다. */
+  const expandSpan = useCallback(() => {
+    if (!hasMore) return;
+    const cur = limitFor(spanIdx);
+    const next = limitFor(spanIdx + 1);
+    const added = next - cur;
+    if (added <= 0) return;
+    countRef.current = next; // scrollToX 의 최대치 계산이 새 길이를 알도록 먼저 갱신
+    setSpanIdx(spanIdx + 1);
+    scrollToX(scrollXRef.current + added * candleWRef.current, candleWRef.current);
+  }, [hasMore, limitFor, spanIdx, scrollToX]);
+
   const zoomByButton = useCallback(
     (delta: number) => {
       const w = Math.min(MAX_CANDLE_W, Math.max(MIN_CANDLE_W, candleWRef.current + delta));
@@ -254,6 +300,7 @@ export function CandleChart({
   /** 캔들 인덱스(소수 가능) → x (봉 가운데) */
   const idxToX = (i: number) => i * candleW + candleW / 2;
   const xToIdx = (x: number) => x / candleW - 0.5;
+  const clampIdx = (i: number) => Math.max(0, Math.min(candles.length - 1, i));
 
   /** 시간 ↔ x — 봉 간격으로 사이·바깥을 이어서 계산한다 */
   const timeAt = (x: number): number => {
@@ -357,7 +404,7 @@ export function CandleChart({
   const didInitScroll = useRef(false);
   useEffect(() => {
     didInitScroll.current = false; // 봉 종류·가로보기 전환·데이터 재조회 시 다시 맞춤
-  }, [mode, wideView, candles.length]);
+  }, [mode, wideView, allCandles.length]);
   useEffect(() => {
     if (didInitScroll.current) return;
     if (candles.length === 0 || plotW === 0) return;
@@ -382,23 +429,26 @@ export function CandleChart({
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  // 꾹 누른 채 움직이면 그 자리 봉을 따라가는 크로스헤어 (index, null = 안 하는 중)
+  const [trackIdx, setTrackIdx] = useState<number | null>(null);
   // 수정 중인 도형의 원본 + 무엇을 잡았는지
   const editRef = useRef<{ base: Drawing; grab: 'move' | 0 | 1; x0: number; y0: number } | null>(null);
 
   useEffect(() => {
     let alive = true;
-    loadDrawings(symbol).then((d) => alive && setDrawings(d));
+    setSelectedId(null); // 봉을 바꾸면 그림도 바뀌므로 선택은 풀어 준다
+    loadDrawings(symbol, mode).then((d) => alive && setDrawings(d));
     return () => {
       alive = false;
     };
-  }, [symbol]);
+  }, [symbol, mode]);
 
   const commit = useCallback(
     (next: Drawing[]) => {
       setDrawings(next);
-      saveDrawings(symbol, next);
+      saveDrawings(symbol, mode, next);
     },
-    [symbol]
+    [symbol, mode]
   );
 
   const selected = drawings.find((d) => d.id === selectedId) ?? null;
@@ -488,20 +538,20 @@ export function CandleChart({
       : { ...base, t2: timeAt(x), p2: yToPrice(y) };
   };
 
-  // 꾹 누르면 그 자리 도형을 선택 (그리기 도구가 꺼져 있을 때)
-  const longPress = useMemo(
+  // 꾹 누른 채 움직이면 날짜·종가를 따라간다 (네이버 증권 차트와 같은 동작).
+  // 그냥 미는 건 가로 스크롤이어야 하므로, 길게 누른 뒤에만 시작한다.
+  const track = useMemo(
     () =>
-      Gesture.LongPress()
+      Gesture.Pan()
         .runOnJS(true)
-        .minDuration(300)
-        .enabled(tool === 'none')
-        .onStart((e) => {
-          const hit = hitTest(e.x, e.y);
-          setSelectedId(hit?.id ?? null);
-          if (hit) setPaletteOpen(true); // 선택하면 수정 막대가 보이도록 팔레트를 편다
-        }),
+        .enabled(tool === 'none' && !selected)
+        .activateAfterLongPress(250)
+        .onStart((e) => setTrackIdx(clampIdx(Math.round(xToIdx(e.x)))))
+        .onUpdate((e) => setTrackIdx(clampIdx(Math.round(xToIdx(e.x)))))
+        .onEnd(() => setTrackIdx(null))
+        .onFinalize(() => setTrackIdx(null)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tool, drawings, candleW, minP, maxP, plotH]
+    [tool, selected, candleW, candles.length]
   );
 
   // 선택된 도형 옮기기 / 끝점 잡아 모양 바꾸기
@@ -532,7 +582,7 @@ export function CandleChart({
           const next = applyEdit(ed.base, ed.grab, e.x - ed.x0, e.y - ed.y0, e.x, e.y);
           setDrawings((list) => {
             const out = replace(list, next);
-            saveDrawings(symbol, out);
+            saveDrawings(symbol, mode, out);
             return out;
           });
         })
@@ -540,7 +590,7 @@ export function CandleChart({
           editRef.current = null;
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tool, selected, drawings, candleW, minP, maxP, plotH, symbol]
+    [tool, selected, drawings, candleW, minP, maxP, plotH, symbol, mode]
   );
 
   // 끌어서 그리는 도구
@@ -581,19 +631,19 @@ export function CandleChart({
             if (hit) commit(drawings.filter((d) => d.id !== hit.id));
             return;
           }
-          if (tool === 'none') setSelectedId(hitTest(e.x, e.y)?.id ?? null);
+          if (tool === 'none' && paletteOpen) setSelectedId(hitTest(e.x, e.y)?.id ?? null);
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tool, drawings, candleW, minP, maxP, plotH, commit]
+    [tool, paletteOpen, drawings, candleW, minP, maxP, plotH, commit]
   );
 
   const chartGestures = useMemo(
-    () => Gesture.Simultaneous(pinch, Gesture.Exclusive(drawPan, editPan, longPress, tap)),
-    [pinch, drawPan, editPan, longPress, tap]
+    () => Gesture.Simultaneous(pinch, Gesture.Exclusive(drawPan, editPan, track, tap)),
+    [pinch, drawPan, editPan, track, tap]
   );
 
-  // 그리기·수정 중에는 가로 스크롤을 멈춘다 (같은 드래그를 둘이 다투지 않게)
-  const scrollEnabled = tool === 'none' && !selected;
+  // 그리기·수정·추적 중에는 가로 스크롤을 멈춘다 (같은 드래그를 둘이 다투지 않게)
+  const scrollEnabled = tool === 'none' && !selected && trackIdx === null;
 
   // ── 도형 그리기 ────────────────────────────────────────────
   const arrowHead = (ax: number, ay: number, bx: number, by: number) => {
@@ -792,19 +842,57 @@ export function CandleChart({
     ? '도형을 끌면 옮겨지고, 끝점(●)을 잡으면 기울기·크기가 바뀌어요'
     : tool === 'none'
       ? paletteOpen
-        ? '그린 도형을 꾹 누르면 선택돼요'
-        : null
+        ? '그린 도형을 탭하면 선택돼요 · 꾹 누른 채 움직이면 날짜·종가 추적'
+        : '꾹 누른 채 움직이면 날짜·종가 · 왼쪽 끝까지 밀면 더 과거'
       : tool === 'erase'
         ? '지울 도형을 탭하세요'
         : TAP_TOOLS.includes(tool)
           ? '차트를 탭하면 그어져요'
           : '차트 위를 끌어서 그려요';
 
+  // 추적 중인 봉 — 전 봉 대비 등락률까지 같이 보여준다
+  const tracked = trackIdx != null ? candles[trackIdx] : null;
+  const trackedPct =
+    tracked && trackIdx! > 0 && candles[trackIdx! - 1].c > 0
+      ? Math.round((tracked.c / candles[trackIdx! - 1].c - 1) * 10000) / 100
+      : null;
+
+  // 정보줄 — 평소엔 안내, 꾹 누르는 중엔 날짜·종가 (높이 고정이라 화면이 흔들리지 않는다)
+  const infoRow = (
+    <View style={{ height: 18, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      {tracked ? (
+        <>
+          <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800' }}>{fmtDay(tracked.t)}</Text>
+          <Text style={{ color: num.live, fontSize: 13, fontWeight: '900' }}>{formatPrice(tracked.c, market)}</Text>
+          {trackedPct != null && (
+            <Text style={{ color: trackedPct >= 0 ? colors.buy : colors.sell, fontSize: 12, fontWeight: '800' }}>
+              {trackedPct > 0 ? '+' : ''}
+              {trackedPct}%
+            </Text>
+          )}
+          <View style={{ flex: 1 }} />
+          <Text numberOfLines={1} style={{ color: colors.textDim, fontSize: 10 }}>
+            시 {formatPrice(tracked.o, market)} · 고 {formatPrice(tracked.h, market)} · 저 {formatPrice(tracked.l, market)}
+          </Text>
+        </>
+      ) : (
+        <>
+          <Text style={{ color: colors.textDim, fontSize: 10, fontWeight: '800' }}>
+            {YEAR_STEPS[spanIdx]}년치{hasMore ? ` ↤ ${YEAR_STEPS[spanIdx + 1]}년` : ''}
+          </Text>
+          <Text numberOfLines={1} style={{ color: selected || tool !== 'none' ? DRAW : colors.textDim, fontSize: 10, flex: 1 }}>
+            {hint}
+          </Text>
+        </>
+      )}
+    </View>
+  );
+
   const chartBlock = (
     <>
       {maRow}
       {drawRow}
-      {hint ? <Text style={{ color: DRAW, fontSize: 10 }}>{hint}</Text> : null}
+      {infoRow}
 
       {loading ? (
         <View style={{ height: chartH, justifyContent: 'center' }}>
@@ -840,8 +928,10 @@ export function CandleChart({
               showsHorizontalScrollIndicator
               scrollEventThrottle={16}
               onScroll={(e) => {
-                scrollXRef.current = e.nativeEvent.contentOffset.x;
-                setScrollX(e.nativeEvent.contentOffset.x);
+                const x = e.nativeEvent.contentOffset.x;
+                scrollXRef.current = x;
+                setScrollX(x);
+                if (x <= 4) expandSpan(); // 왼쪽 끝 → 더 오래된 기간을 이어 붙인다
               }}
             >
               <GestureDetector gesture={chartGestures}>
@@ -932,6 +1022,40 @@ export function CandleChart({
                         <Circle key={`h${i}`} cx={h.x} cy={h.y} r={HANDLE_R} fill={colors.bg} stroke={DRAW} strokeWidth={2.5} />
                       ))}
                     {preview()}
+
+                    {/* 크로스헤어 — 꾹 누른 채 움직일 때 그 봉의 종가를 짚어준다 */}
+                    {tracked && trackIdx != null && (
+                      <G>
+                        <Line
+                          x1={idxToX(trackIdx)}
+                          y1={PAD_TOP}
+                          x2={idxToX(trackIdx)}
+                          y2={PAD_TOP + plotH}
+                          stroke={colors.text}
+                          strokeWidth={1}
+                          strokeDasharray="3 3"
+                          opacity={0.7}
+                        />
+                        <Line
+                          x1={Math.max(0, scrollX)}
+                          y1={priceToY(tracked.c)}
+                          x2={Math.max(0, scrollX) + plotW}
+                          y2={priceToY(tracked.c)}
+                          stroke={colors.text}
+                          strokeWidth={1}
+                          strokeDasharray="3 3"
+                          opacity={0.7}
+                        />
+                        <Circle
+                          cx={idxToX(trackIdx)}
+                          cy={priceToY(tracked.c)}
+                          r={4.5}
+                          fill={tracked.c >= tracked.o ? colors.buy : colors.sell}
+                          stroke="#fff"
+                          strokeWidth={1.5}
+                        />
+                      </G>
+                    )}
                   </Svg>
                 </View>
               </GestureDetector>
