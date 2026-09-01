@@ -1,34 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Dimensions, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Card } from '@/components/ui';
 import { BarChart5y, LineChart } from '@/components/MiniCharts';
-import { StockPriceChart } from '@/components/StockPriceChart';
+import { CandleChart } from '@/components/CandleChart';
 import { colors, formatChangePct, formatPrice, num, radius, signColor, spacing } from '@/theme';
 import { getUnifiedQuote, loadBrokerAccount } from '@/services/prices/unified';
 import { getStoredQuote } from '@/services/prices/quoteStore';
 import { useAuth } from '@/lib/auth';
-import { fetchCloseSeries, type SeriesPoint, type SeriesRange } from '@/services/prices/yahooProvider';
+import { fetchCandles, type Candle, type CandleMode } from '@/services/prices/yahooProvider';
 import {
   fundamentalsConfigured,
-  getPriceHistory,
   getStockFinancials,
   type StockFinancials,
 } from '@/services/fundamentals';
-
-const CHART_W = Dimensions.get('window').width - 32 - 28; // 화면폭 - 패딩(MiniCharts와 동일)
-
-const RANGES: { key: SeriesRange; label: string }[] = [
-  { key: '1M', label: '1개월' },
-  { key: '3M', label: '3개월' },
-  { key: '6M', label: '6개월' },
-  { key: '1Y', label: '1년' },
-  { key: '3Y', label: '3년' },
-  { key: '5Y', label: '5년' },
-  { key: '10Y', label: '10년' },
-];
 
 // 큰 금액 축약 (시총·재무제표) — 한국은 조/억, 미국은 B/M
 function abbrev(n: number, currency: string): string {
@@ -90,15 +75,12 @@ export default function StockValuationScreen() {
   const mkt = market === 'KRX' ? 'KRX' : 'US';
   const [fin, setFin] = useState<StockFinancials | null>(null);
   const [finLoading, setFinLoading] = useState(true);
-  const [series, setSeries] = useState<SeriesPoint[]>([]);
-  const [seriesLoading, setSeriesLoading] = useState(true);
-  const [range, setRange] = useState<SeriesRange>('6M');
+  const [candles, setCandles] = useState<Candle[]>([]);
+  const [candlesLoading, setCandlesLoading] = useState(true);
+  const [candleErr, setCandleErr] = useState<string | null>(null);
+  const [mode, setMode] = useState<CandleMode>('day');
   const [livePrice, setLivePrice] = useState<number | null>(null);
   const [prevClose, setPrevClose] = useState<number | null>(null);
-  // '크게 보기' — 기기를 돌리지 않고 화면 안에서 90° 회전 (매매차트와 동일)
-  const [wideView, setWideView] = useState(false);
-  const { width: winW, height: winH } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
 
   // 한국은 네이버(키 불필요), 미국은 FMP 키 필요
   const finReady = mkt === 'KRX' || fundamentalsConfigured();
@@ -145,28 +127,25 @@ export default function StockValuationScreen() {
     })();
   }, [symbol, mkt, finReady]);
 
-  // 가격 시계열 (기간 변경 시) — 야후 우선, 실패 시 FMP 폴백
-  const loadSeries = useCallback(async () => {
+  // 캔들 (봉 종류 변경 시) — 프로젝트 매매차트와 같은 데이터·같은 차트
+  const loadCandles = useCallback(async () => {
     if (!symbol) return;
-    setSeriesLoading(true);
+    setCandlesLoading(true);
+    setCandleErr(null);
     try {
-      const { points } = await fetchCloseSeries(symbol, range);
-      if (points.length >= 2) {
-        setSeries(points);
-        return;
-      }
-      const fb = await getPriceHistory(symbol, mkt);
-      setSeries(fb.map((d) => ({ t: Date.parse(d.year), c: d.value })).filter((p) => Number.isFinite(p.t)));
-    } catch {
-      setSeries([]);
+      const { candles: c } = await fetchCandles(symbol as string, mode);
+      setCandles(c);
+    } catch (e: any) {
+      setCandles([]);
+      setCandleErr(e?.message ?? '차트 데이터를 불러오지 못했어요');
     } finally {
-      setSeriesLoading(false);
+      setCandlesLoading(false);
     }
-  }, [symbol, mkt, range]);
+  }, [symbol, mode]);
 
   useEffect(() => {
-    loadSeries();
-  }, [loadSeries]);
+    loadCandles();
+  }, [loadCandles]);
 
   const f = fin?.fundamentals ?? null;
   const cur = mkt === 'KRX' ? 'KRW' : 'USD';
@@ -179,86 +158,6 @@ export default function StockValuationScreen() {
     livePrice != null && prevClose != null && prevClose > 0
       ? Math.round((livePrice / prevClose - 1) * 10000) / 100
       : null;
-
-  // 기간칩 + 차트. 세로 화면과 '크게 보기'(가로) 양쪽에서 같은 걸 그린다.
-  const chartBlock = (w: number, h: number) => (
-    <>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-        {RANGES.map((r) => (
-          <Pressable
-            key={r.key}
-            onPress={() => setRange(r.key)}
-            style={{
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-              borderRadius: 999,
-              backgroundColor: range === r.key ? colors.buy : colors.cardAlt,
-            }}
-          >
-            <Text style={{ color: range === r.key ? '#fff' : colors.textDim, fontSize: 12, fontWeight: '700' }}>
-              {r.label}
-            </Text>
-          </Pressable>
-        ))}
-        <View style={{ flex: 1 }} />
-        {/* 크게 보기 — 기기를 돌리지 않고 화면 안에서 90° 회전시켜 본다 (매매차트와 동일) */}
-        <Pressable
-          onPress={() => setWideView((v) => !v)}
-          hitSlop={8}
-          style={{
-            paddingHorizontal: 10,
-            paddingVertical: 5,
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: wideView ? colors.buy : colors.border,
-            backgroundColor: colors.cardAlt,
-          }}
-        >
-          <Text style={{ color: wideView ? colors.buy : colors.text, fontSize: 13, fontWeight: '900' }}>
-            {wideView ? '⤡' : '⤢'}
-          </Text>
-        </Pressable>
-      </View>
-      {seriesLoading ? (
-        <View style={{ height: h, justifyContent: 'center' }}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : (
-        <StockPriceChart points={series} market={mkt} width={w} height={h} symbol={symbol as string} />
-      )}
-    </>
-  );
-
-  // 크게 보기 — 화면 전체를 덮고 내용을 90° 돌려 크게 보여준다 (매매차트와 같은 방식).
-  // 화면 회전 잠금을 켜 둔 사람도 쓸 수 있다.
-  if (wideView) {
-    const innerW = winH - (insets.top + insets.bottom) - spacing.sm * 2;
-    return (
-      <Modal visible transparent={false} animationType="fade" onRequestClose={() => setWideView(false)}>
-        <StatusBar hidden />
-        <View style={{ flex: 1, backgroundColor: colors.bg }}>
-          <View
-            style={{
-              position: 'absolute',
-              top: (winH - winW) / 2,
-              left: (winW - winH) / 2,
-              width: winH,
-              height: winW,
-              transform: [{ rotate: '90deg' }],
-              // 90° 돌린 좌표계라 기기의 상·하단(노치·홈 인디케이터)이 좌·우가 된다
-              paddingLeft: insets.top + spacing.sm,
-              paddingRight: insets.bottom + spacing.sm,
-              paddingTop: insets.right + spacing.sm,
-              paddingBottom: insets.left + spacing.sm,
-              gap: spacing.sm,
-            }}
-          >
-            {chartBlock(innerW, Math.max(180, winW - insets.left - insets.right - 130))}
-          </View>
-        </View>
-      </Modal>
-    );
-  }
 
   return (
     <>
@@ -296,8 +195,19 @@ export default function StockValuationScreen() {
           </View>
         </View>
 
-        {/* 가격 차트 — 기간 선택 + 핀치 확대·축소 + 꾹 눌러 가격 추적 + 그리기 */}
-        <Card>{chartBlock(CHART_W, 210)}</Card>
+        {/* 가격 차트 — 프로젝트 매매차트와 완전히 같은 캔들차트 (이평선·확대·가로보기·그리기) */}
+        <Card>
+          <CandleChart
+            symbol={symbol as string}
+            market={mkt}
+            candles={candles}
+            mode={mode}
+            onMode={setMode}
+            loading={candlesLoading}
+            error={candleErr}
+            height={260}
+          />
+        </Card>
 
         {!finReady ? (
           <Card style={{ borderColor: colors.warn, borderWidth: 1 }}>
