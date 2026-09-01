@@ -657,7 +657,20 @@ export function CandleChart({
     const on = d.id === selectedId;
     const w = on ? 2.6 : 1.8;
     if (d.kind === 'hline') {
-      return <Line key={d.id} x1={0} y1={priceToY(d.p)} x2={chartW} y2={priceToY(d.p)} stroke={DRAW} strokeWidth={w} />;
+      const y = priceToY(d.p);
+      const label = formatPrice(d.p, market);
+      // 라벨은 보고 있는 화면 왼쪽에 붙여 둔다 — 차트를 밀어도 가격이 계속 보이게
+      const lx = Math.max(0, scrollX) + 6;
+      return (
+        <G key={d.id}>
+          <Line x1={0} y1={y} x2={chartW} y2={y} stroke={DRAW} strokeWidth={w} />
+          {/* 캔들 위에 겹쳐도 읽히도록 글자 뒤에 어두운 판을 깔아준다 */}
+          <Rect x={lx - 3} y={y - 15} width={label.length * 6.5 + 8} height={14} rx={3} fill={colors.bg} opacity={0.75} />
+          <SvgText x={lx + 1} y={y - 5} fontSize={10} fontWeight="bold" fill={DRAW}>
+            {label}
+          </SvgText>
+        </G>
+      );
     }
     if (d.kind === 'vline') {
       return (
