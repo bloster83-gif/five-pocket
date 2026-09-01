@@ -1,10 +1,12 @@
 // ---------------------------------------------------------------
 // 전체 요약 표 — 한국/미국을 나란히 두고 예산·포지션을 한눈에.
 //
-//   구분        한국주식      미국주식
-//   총예산      진행중 프로젝트 예산 합
-//   사용예산    보유·주문중 포켓에 묶인 배분 예산
-//   잔여예산    총예산 − 사용예산
+//   구분          한국주식      미국주식
+//   ┌ 총자산       증권사 계좌 총평가금액 (평가금액 + 예수금)
+//   └ 사용가능예산  예수금 − 대기중 포켓 예산  ← 계좌에 실제로 있는 돈 (테두리 박스)
+//   총예산        진행중 프로젝트 예산 합
+//   사용예산      보유·주문중 포켓에 묶인 배분 예산
+//   잔여예산      총예산 − 사용예산          ← 앱 안에서 세운 계획
 //   ───────────────────────────────
 //   평가금액    현재가 × 보유수량
 //   매입원가    평균매수가 × 보유수량
@@ -15,7 +17,7 @@
 
 import { Text, View } from 'react-native';
 import { Card } from '@/components/ui';
-import { colors, formatMoney, num, signColor } from '@/theme';
+import { colors, formatMoney, num, radius, signColor } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import type { Pocket, Project, Trade } from '@/types/db';
 
@@ -29,6 +31,8 @@ export interface MarketSummary {
   waitingBudget: number;
   /** 증권사 예수금(D+ 정산). 계좌 미연결·조회 실패면 null */
   deposit?: number | null;
+  /** 증권사 계좌 총자산 (평가금액 + 예수금). 계좌 미연결·조회 실패면 null */
+  totalAsset?: number | null;
 }
 
 /** 배분 예산이 '묶여 있는' 상태 — 매수 주문을 넣었거나 보유 중 */
@@ -99,6 +103,8 @@ export interface SummaryRow {
   sign?: boolean; // 값 부호에 따라 빨강/파랑
   strong?: boolean;
   divider?: boolean; // 위에 구분선
+  /** 테두리 박스로 감싸 다른 묶음과 확실히 구분 (계좌 실제 잔고 등) */
+  boxed?: boolean;
 }
 
 /** 표에 쓸 금액 문자열 (부호 포함) */
@@ -116,6 +122,7 @@ function Row({
   sign,
   strong,
   divider,
+  boxed,
   size,
 }: SummaryRow & { markets: string[]; size: number }) {
   return (
@@ -140,10 +147,27 @@ function Row({
         alignItems: 'center',
         paddingVertical: 3,
         ...(divider && !section ? { borderTopWidth: 1, borderTopColor: colors.border, marginTop: 3, paddingTop: 7 } : null),
+        // 박스 행 — 계좌에 실제로 있는 돈. 앱에서 세운 예산 계획과 눈에 띄게 구분한다
+        ...(boxed
+          ? {
+              backgroundColor: 'rgba(34,211,166,0.10)',
+              borderWidth: 1,
+              borderColor: 'rgba(34,211,166,0.35)',
+              borderRadius: radius.md,
+              paddingHorizontal: 7,
+              paddingVertical: 6,
+              marginBottom: 4,
+            }
+          : null),
       }}
     >
-      <View style={{ width: 60 }}>
-        <Text numberOfLines={1} style={{ color: colors.textDim, fontSize: 11 }}>
+      <View style={{ width: 74 }}>
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.8}
+          style={{ color: boxed ? colors.text : colors.textDim, fontSize: boxed ? 12 : 11, fontWeight: boxed ? '800' : '400' }}
+        >
           {label}
         </Text>
       </View>
@@ -155,8 +179,8 @@ function Row({
             minimumFontScale={0.55}
             style={{
               color: v == null ? colors.textDim : sign ? signColor(v) : (color ?? colors.text),
-              fontSize: strong ? size + 1 : size,
-              fontWeight: strong ? '900' : '800',
+              fontSize: boxed ? size + 2 : strong ? size + 1 : size,
+              fontWeight: boxed || strong ? '900' : '800',
             }}
           >
             {fmtCell(v, markets[i], sign)}
@@ -214,7 +238,7 @@ export function SummaryTable({
           borderBottomColor: colors.border,
         }}
       >
-        <View style={{ width: 60 }}>
+        <View style={{ width: 74 }}>
           <Text numberOfLines={1} style={{ color: accent, fontWeight: '900', fontSize: 12 }}>
             {title}
           </Text>
@@ -247,17 +271,21 @@ export function PortfolioSummary({ summaries }: { summaries: MarketSummary[] }) 
   if (summaries.length === 0) return null;
   const markets = summaries.map((s) => s.market);
   const rows: SummaryRow[] = [
-    { label: '총예산', values: summaries.map((s) => s.totalBudget), color: num.budget, strong: true },
-    { label: '사용예산', values: summaries.map((s) => s.usedBudget), color: num.position },
-    { label: '잔여예산', values: summaries.map((s) => Math.max(0, s.totalBudget - s.usedBudget)), color: num.budget },
-    // 미반영예산 = 아직 어떤 포켓에도 배정하지 않은 돈
+    // ── 계좌에 실제로 있는 돈 (박스) ──────────────────────────
+    { label: '총자산', values: summaries.map((s) => s.totalAsset ?? null), color: num.evalTotal, boxed: true },
+    // 사용가능 예산 = 아직 어떤 포켓에도 배정하지 않은 돈
     //   = 증권사 예수금 − 대기중 포켓에 이미 배정된 예산
     //   (프로젝트를 만들 때 보여주는 '사용가능 예산'과 같은 금액)
     {
-      label: '미반영예산',
+      label: '사용가능 예산',
       values: summaries.map((s) => (s.deposit == null ? null : Math.max(0, s.deposit - s.waitingBudget))),
       color: num.budget,
+      boxed: true,
     },
+    // ── 앱에서 세운 예산 계획 ────────────────────────────────
+    { label: '총예산', values: summaries.map((s) => s.totalBudget), color: num.budget, strong: true },
+    { label: '사용예산', values: summaries.map((s) => s.usedBudget), color: num.position },
+    { label: '잔여예산', values: summaries.map((s) => Math.max(0, s.totalBudget - s.usedBudget)), color: num.budget },
     { label: '평가금액', values: summaries.map((s) => s.evalAmount), color: num.evalTotal, strong: true, divider: true },
     { label: '매입원가', values: summaries.map((s) => s.buyCost), color: num.position },
     { label: '평가이익', values: summaries.map((s) => (s.buyCost > 0 ? s.evalAmount - s.buyCost : 0)), sign: true, strong: true },
@@ -273,7 +301,7 @@ export function PortfolioSummary({ summaries }: { summaries: MarketSummary[] }) 
       markets={markets}
       rows={rows}
       subtitle={rate || undefined}
-      footnote="사용예산 = 매수 주문·보유 중인 포켓에 묶인 배분 예산 · 잔여예산 = 총예산 − 사용예산 · 미반영예산 = 예수금 − 대기중 포켓 예산 (프로젝트 생성 시 '사용가능 예산'과 같은 금액)"
+      footnote="박스 = 증권사 계좌 실제 금액 · 총자산 = 평가금액 + 예수금 · 사용가능 예산 = 예수금 − 대기중 포켓 예산 (프로젝트 생성 화면과 같은 금액) · 아래는 앱에서 세운 계획 — 사용예산 = 매수 주문·보유 중인 포켓에 묶인 배분 예산 · 잔여예산 = 총예산 − 사용예산"
     />
   );
 }
