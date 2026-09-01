@@ -22,7 +22,7 @@ import { computePnL, findBudgetMismatches } from '@/domain/pockets';
 import { PortfolioSummary, computeMarketSummaries } from '@/components/PortfolioSummary';
 import { getUnifiedQuote } from '@/services/prices/unified';
 import { reconcilePendingOrders } from '@/services/pendingOrders';
-import { useDeposits } from '@/services/deposits';
+import { useAccountCash } from '@/services/deposits';
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 const fmtDate = (iso: string | null) => (iso ? iso.slice(0, 10) : '-');
@@ -172,14 +172,14 @@ export default function ProjectsScreen() {
   }, [account, hasPendingPocket]);
 
   // 전체 요약 (한국/미국 열) — 진행중 프로젝트 기준
-  const deposits = useDeposits(account); // 미반영예산 = 증권사 예수금
+  const cash = useAccountCash(account); // 총자산·사용가능 예산 (증권사 계좌 실제 금액)
   const summaries = useMemo(
     () =>
       computeMarketSummaries(projects, allPockets, allTrades, (sym) => {
         const hit = projects.find((p) => p.symbol === sym);
         return hit ? (metrics[hit.id]?.price ?? null) : null;
-      }).map((s) => ({ ...s, deposit: deposits[s.market] ?? null })),
-    [projects, allPockets, allTrades, metrics, deposits]
+      }).map((s) => ({ ...s, deposit: cash[s.market]?.deposit ?? null, totalAsset: cash[s.market]?.totalAsset ?? null })),
+    [projects, allPockets, allTrades, metrics, cash]
   );
 
   // 목록에서 바로 자동매매 on/off (AUTO 등급 전용)
