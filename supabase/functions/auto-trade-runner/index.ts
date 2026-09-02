@@ -412,6 +412,117 @@ function ymdOffset(days: number): string {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
 }
 
+/** 앱 심볼('058470.KQ') → KIS 종목코드('058470'). 미국 티커는 그대로. */
+const kisSym = (symbol: string) => symbol.replace(/\.(KS|KQ)$/i, '').trim().toUpperCase();
+
+/**
+ * 계좌 보유수량 맵 (잔고 기반 체결 확인용).
+ * SOR/NXT 로 체결된 주문은 체결조회(inquire-daily-ccld)에 안 잡히는 경우가 있어,
+ * 클라이언트(pendingOrders.ts)와 동일하게 '계좌에 실제로 있는 수량'으로 재확인한다.
+ * 조회 실패 시 null (확인 보류).
+ */
+async function getHoldingsMap(
+  acc: BrokerAccount,
+  token: string,
+  market: 'KRX' | 'US'
+): Promise<Map<string, number> | null> {
+  try {
+    if (market === 'US') {
+      const u = new URL(`${baseUrl(acc)}/uapi/overseas-stock/v1/trading/inquire-balance`);
+      const params: Record<string, string> = {
+        CANO: acc.account_no,
+        ACNT_PRDT_CD: acc.account_product_code,
+        OVRS_EXCG_CD: 'NASD',
+        TR_CRCY_CD: 'USD',
+        CTX_AREA_FK200: '',
+        CTX_AREA_NK200: '',
+      };
+      Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+      const res = await fetch(u.toString(), {
+        headers: {
+          authorization: `Bearer ${token}`,
+          appkey: acc.app_key,
+          appsecret: acc.app_secret,
+          tr_id: acc.is_virtual ? 'VTTS3012R' : 'TTTS3012R',
+          custtype: 'P',
+        },
+      });
+      const j = await res.json();
+      if (j?.rt_cd !== '0') return null;
+      const m = new Map<string, number>();
+      for (const h of (j.output1 ?? []) as Array<Record<string, string>>) {
+        if (h.ovrs_pdno) m.set(String(h.ovrs_pdno).toUpperCase(), Math.floor(Number(h.ovrs_cblc_qty ?? 0)));
+      }
+      return m;
+    }
+    const u = new URL(`${baseUrl(acc)}/uapi/domestic-stock/v1/trading/inquire-balance`);
+    const params: Record<string, string> = {
+      CANO: acc.account_no,
+      ACNT_PRDT_CD: acc.account_product_code,
+      AFHR_FLPR_YN: 'N',
+      OFL_YN: '',
+      INQR_DVSN: '02',
+      UNPR_DVSN: '01',
+      FUND_STTL_ICLD_YN: 'N',
+      FNCG_AMT_AUTO_RDPT_YN: 'N',
+      PRCS_DVSN: '00',
+      CTX_AREA_FK100: '',
+      CTX_AREA_NK100: '',
+    };
+    Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+    const res = await fetch(u.toString(), {
+      headers: {
+        authorization: `Bearer ${token}`,
+        appkey: acc.app_key,
+        appsecret: acc.app_secret,
+        tr_id: acc.is_virtual ? 'VTTC8434R' : 'TTTC8434R',
+        custtype: 'P',
+      },
+    });
+    const j = await res.json();
+    if (j?.rt_cd !== '0') return null;
+    const m = new Map<string, number>();
+    for (const h of (j.output1 ?? []) as Array<Record<string, string>>) {
+      if (h.pdno) m.set(String(h.pdno).toUpperCase(), Math.floor(Number(h.hldg_qty ?? 0)));
+    }
+    return m;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 이 사용자의 같은 종목 프로젝트들에 앱이 기록해 둔 순보유수량.
+ * (포켓별로 매수-매도를 걷어 합산 — 클라이언트 checkHolding.recordedQty 와 같은 의미)
+ */
+async function recordedQtyForSymbol(admin: SupabaseClient, userId: string, symbol: string): Promise<number> {
+  const { data: projRows } = await admin.from('projects').select('id').eq('user_id', userId).eq('symbol', symbol);
+  const ids = ((projRows ?? []) as { id: string }[]).map((p) => p.id);
+  if (ids.length === 0) return 0;
+  const { data: tradeRows } = await admin
+    .from('trades')
+    .select('pocket_id,side,quantity,executed_at')
+    .in('project_id', ids)
+    .order('executed_at');
+  const byPocket = new Map<string, { side: string; quantity: number }[]>();
+  for (const t of (tradeRows ?? []) as Array<{ pocket_id: string | null; side: string; quantity: number }>) {
+    const key = t.pocket_id ?? 'none';
+    const arr = byPocket.get(key);
+    if (arr) arr.push(t);
+    else byPocket.set(key, [t]);
+  }
+  let open = 0;
+  for (const g of byPocket.values()) {
+    let pos = 0;
+    for (const t of g) {
+      if (t.side === 'buy') pos += Number(t.quantity);
+      else pos = Math.max(0, pos - Number(t.quantity));
+    }
+    open += pos;
+  }
+  return Math.floor(open);
+}
+
 async function getOrderFill(
   acc: BrokerAccount,
   token: string,
@@ -501,11 +612,11 @@ async function getOrderFill(
 }
 
 // ----- 미체결로 기록된 자동주문을 실제 체결단가로 자동 동기화 (매 실행마다) -----
-async function reconcilePendingFills(admin: SupabaseClient): Promise<number> {
+async function reconcilePendingFills(admin: SupabaseClient, dbg?: unknown[]): Promise<number> {
   const since = new Date(Date.now() - 2 * 86400 * 1000).toISOString(); // 최근 2일
   const { data: pending } = await admin
     .from('auto_orders')
-    .select('id,user_id,project_id,pocket_id,side,symbol,kis_order_no')
+    .select('id,user_id,project_id,pocket_id,side,symbol,kis_order_no,quantity,order_price')
     .eq('status', 'sent')
     .gte('created_at', since);
   if (!pending?.length) return 0;
@@ -514,10 +625,13 @@ async function reconcilePendingFills(admin: SupabaseClient): Promise<number> {
   const projIds = [...new Set(pending.map((o) => o.project_id))];
   const [{ data: accounts }, { data: projs }] = await Promise.all([
     admin.from('broker_accounts').select('*').in('user_id', uids),
-    admin.from('projects').select('id,market,sell_target_pct').in('id', projIds),
+    admin.from('projects').select('id,market,symbol,sell_target_pct').in('id', projIds),
   ]);
   const accByUser = new Map((accounts ?? []).map((a) => [a.user_id, a as BrokerAccount]));
   const projById = new Map((projs ?? []).map((p) => [p.id, p]));
+
+  // 잔고는 사용자·시장별로 한 번만 조회 (폴백·중복 가드 공용)
+  const balCache = new Map<string, Map<string, number> | null>();
 
   let updated = 0;
   for (const o of pending) {
@@ -526,8 +640,64 @@ async function reconcilePendingFills(admin: SupabaseClient): Promise<number> {
     if (!acc || !proj || !o.kis_order_no) continue;
     try {
       const token = await getToken(admin, acc);
-      const fill = await getOrderFill(acc, token, proj.market === 'US' ? 'US' : 'KRX', o.kis_order_no, o.symbol);
-      if (!fill || fill.avgPrice <= 0) continue;
+      const market: 'KRX' | 'US' = proj.market === 'US' ? 'US' : 'KRX';
+      let estimated = false;
+      let fill = await getOrderFill(acc, token, market, o.kis_order_no, o.symbol);
+
+      // 잔고 준비 — 체결조회 폴백 + 기록 전 중복 가드에 함께 쓴다
+      const projSymbol: string = proj.symbol ?? o.symbol ?? '';
+      const symKey = kisSym(projSymbol);
+      const cacheKey = `${o.user_id}:${market}`;
+      if (!balCache.has(cacheKey)) balCache.set(cacheKey, await getHoldingsMap(acc, token, market));
+      const holdings = balCache.get(cacheKey) ?? null;
+      const held = holdings ? holdings.get(symKey) ?? 0 : null;
+      const recorded = held != null ? await recordedQtyForSymbol(admin, o.user_id, projSymbol) : null;
+
+      // 체결조회가 못 잡으면(SOR/NXT 체결 등) 잔고로 재확인 — 클라이언트 confirmByBalance 와 동일 규칙
+      if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) {
+        fill = null;
+        const orderQty = Math.floor(Number(o.quantity));
+        const limit = Number(o.order_price);
+        if (held != null && recorded != null && orderQty > 0 && limit > 0) {
+          if (o.side === 'buy' && held > 0 && held >= recorded + orderQty) {
+            fill = { avgPrice: limit, filledQty: orderQty };
+            estimated = true;
+          } else if (o.side === 'sell' && recorded > 0 && held <= recorded - orderQty) {
+            fill = { avgPrice: limit, filledQty: orderQty };
+            estimated = true;
+          }
+        }
+        dbg?.push({
+          no: String(o.kis_order_no).slice(-4),
+          sym: symKey,
+          side: o.side,
+          step: fill ? 'balance-confirm' : held == null ? 'balance-unavailable' : 'not-filled-yet',
+          held,
+          recorded,
+          orderQty,
+        });
+      } else {
+        dbg?.push({ no: String(o.kis_order_no).slice(-4), sym: symKey, side: o.side, step: 'ccld-found', qty: fill.filledQty });
+      }
+      if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) continue;
+
+      // 기록 전 잔고 검증 — 이 체결을 기록하면 앱 보유수량이 계좌를 넘어서는(중복) 경우 차단
+      const wouldOverRecord =
+        held != null &&
+        recorded != null &&
+        (o.side === 'buy' ? recorded + fill.filledQty > held : recorded - fill.filledQty < held);
+      if (wouldOverRecord) {
+        await admin
+          .from('auto_orders')
+          .update({
+            status: 'filled',
+            error_message: `잔고 검증으로 중복 기록 차단 (계좌 ${held}주 / 기록 ${recorded}주 / 이번 ${o.side === 'buy' ? '+' : '-'}${fill.filledQty}주)`,
+          })
+          .eq('id', o.id)
+          .eq('status', 'sent');
+        dbg?.push({ no: String(o.kis_order_no).slice(-4), sym: symKey, step: 'guard-blocked', held, recorded });
+        continue;
+      }
       // ── 주문 '선점' (중복 기록 방지) ──
       // 앱(여러 화면)과 이 러너가 동시에 같은 주문을 처리하면 체결이 두 번 기록된다.
       // status='sent' 인 행만 'filled' 로 바꾸는 단일 UPDATE 는 원자적이므로,
@@ -561,7 +731,9 @@ async function reconcilePendingFills(admin: SupabaseClient): Promise<number> {
           price: fill.avgPrice,
           quantity: fill.filledQty,
           executed_at: new Date().toISOString(),
-          note: `자동주문·서버(KIS ${o.kis_order_no}) ${o.side === 'sell' ? '매도' : '매수'}`,
+          note:
+            `자동주문·서버(KIS ${o.kis_order_no}) ${o.side === 'sell' ? '매도' : '매수'}` +
+            (estimated ? ' · 체결가 추정(지정가)' : ''),
         });
       }
       // 주문완료 → 체결 확인되면 보유중/매도완료로 전환
@@ -625,12 +797,14 @@ Deno.serve(async (req: Request) => {
     .lt('tier_expires_at', new Date().toISOString());
 
   // 0.5) 미체결로 남은 자동주문을 실제 체결단가로 자동 동기화 (장 시간과 무관하게 매 실행)
-  const reconciled = await reconcilePendingFills(admin);
+  // ?debug=1 이면 주문별 체결확인 경과를 응답에 담아 원인 파악을 돕는다
+  const reconcileDebug: unknown[] | undefined = url.searchParams.get('debug') === '1' ? [] : undefined;
+  const reconciled = await reconcilePendingFills(admin, reconcileDebug);
 
   // 국내(KST 09:00~15:30)·미국 정규장(ET 09:30~16:00)·미국 주간거래(ET 20:00~04:00)·
   // 미국 프리/애프터(ET 04:00~09:30, 16:00~20:00) 중 하나라도 열려 있어야 신호처리
   if (!force && !krxOpen && !usOpen && !usDaytime && !usExtended)
-    return json({ skipped: 'market-closed', reconciled });
+    return json({ skipped: 'market-closed', reconciled, ...(reconcileDebug ? { reconcileDebug } : {}) });
 
   // 1) 자동매매 대상 프로젝트 (KRX·US, 진행중, 추적 ON)
   const { data: projects, error: pErr } = await admin
@@ -866,5 +1040,11 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  return json({ processed: targets.length, reconciled, currentPrices: Object.fromEntries(priceCache), results });
+  return json({
+    processed: targets.length,
+    reconciled,
+    currentPrices: Object.fromEntries(priceCache),
+    results,
+    ...(reconcileDebug ? { reconcileDebug } : {}),
+  });
 });
