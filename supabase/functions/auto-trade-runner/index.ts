@@ -679,6 +679,70 @@ async function reconcilePendingFills(admin: SupabaseClient, dbg?: unknown[]): Pr
       } else {
         dbg?.push({ no: String(o.kis_order_no).slice(-4), sym: symKey, side: o.side, step: 'ccld-found', qty: fill.filledQty });
       }
+
+      // 폴백 2: 이 주문의 체결 기록(trade)이 이미 있는 경우 — 기록은 됐는데
+      // 주문/포켓 상태만 안 닫힌 스테일 상태다. (기록된 수량이 잔고 계산에 이미
+      // 포함돼 잔고 폴백으로는 영영 확인이 안 되므로, 상태만 마무리한다.)
+      if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) {
+        const { data: recordedTrade } = await admin
+          .from('trades')
+          .select('id,price')
+          .eq('project_id', o.project_id)
+          .ilike('note', `%${o.kis_order_no}%`)
+          .limit(1);
+        if (recordedTrade && recordedTrade.length > 0) {
+          const { data: claimed } = await admin
+            .from('auto_orders')
+            .update({ status: 'filled' })
+            .eq('id', o.id)
+            .eq('status', 'sent')
+            .select('id');
+          if (claimed && claimed.length > 0 && o.pocket_id) {
+            if (o.side === 'buy') {
+              const filledPrice = Number(recordedTrade[0].price);
+              await admin
+                .from('pockets')
+                .update({
+                  status: 'bought',
+                  sell_target_price:
+                    Math.round(filledPrice * (1 + Number(proj.sell_target_pct) / 100) * 10000) / 10000,
+                })
+                .eq('id', o.pocket_id);
+            } else {
+              await admin.from('pockets').update({ status: 'sold' }).eq('id', o.pocket_id);
+            }
+            updated++;
+            dbg?.push({ no: String(o.kis_order_no).slice(-4), sym: symKey, step: 'stale-closed' });
+          }
+          continue;
+        }
+        // 디버그: 확인이 안 되는 주문은 이 종목의 체결 기록 전체를 함께 보여줘 원인(유령 기록 등)을 찾게 한다
+        if (dbg) {
+          const { data: projRows2 } = await admin
+            .from('projects')
+            .select('id')
+            .eq('user_id', o.user_id)
+            .eq('symbol', projSymbol);
+          const ids2 = ((projRows2 ?? []) as { id: string }[]).map((p) => p.id);
+          if (ids2.length > 0) {
+            const { data: tr } = await admin
+              .from('trades')
+              .select('side,quantity,executed_at,pocket_id')
+              .in('project_id', ids2)
+              .order('executed_at');
+            dbg.push({
+              sym: symKey,
+              step: 'trade-dump',
+              trades: ((tr ?? []) as Array<Record<string, unknown>>).map((t) => ({
+                d: String(t.executed_at).slice(0, 10),
+                s: t.side,
+                q: Number(t.quantity),
+                pk: String(t.pocket_id ?? '').slice(-4),
+              })),
+            });
+          }
+        }
+      }
       if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) continue;
 
       // 기록 전 잔고 검증 — 이 체결을 기록하면 앱 보유수량이 계좌를 넘어서는(중복) 경우 차단

@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { notifyNow } from '@/lib/notifications';
 import { evaluateSignals, type PriceSignal } from '@/domain/pockets';
 import type { BrokerAccount, Pocket, Project } from '@/types/db';
-import { getDomesticPrice, getOverseasPrice } from './broker/kis';
+import { getUnifiedQuote } from './prices/unified';
 import { priceProvider } from './prices';
 import { getStoredQuote, setStoredQuote } from './prices/quoteStore';
 
@@ -96,14 +96,15 @@ export function usePriceTracker(
           }
           if (account) {
             try {
-              if (isUS) {
-                const oq = await getOverseasPrice(account, project.symbol);
-                q = { price: oq.price, currency: oq.currency, previousClose: oq.previousClose, at: Date.now() };
-              } else {
-                // 한국: 통합(UN)→NXT(NX)→KRX(J) — NXT 장 시세도 반영
-                const dq = await getDomesticPrice(account, project.symbol);
-                q = { price: dq.price, currency: dq.currency, previousClose: dq.previousClose, at: Date.now() };
-              }
+              // 통합 헬퍼 경유 — 전역 KIS 스로틀·신선도 캐시·동시요청 합치기를 함께 탄다
+              // (여러 화면이 동시에 폴링해도 KIS 초당 건수 제한에 걸리지 않게)
+              const uq = await getUnifiedQuote(account, project.symbol, project.market);
+              q = {
+                price: uq.price,
+                currency: project.market === 'KRX' ? 'KRW' : 'USD',
+                previousClose: uq.previousClose,
+                at: Date.now(),
+              };
             } catch {
               /* KIS 실패 → Yahoo 폴백 */
             }

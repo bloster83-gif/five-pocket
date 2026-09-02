@@ -166,6 +166,43 @@ async function reconcileOnce(account: BrokerAccount, projectId?: string): Promis
     if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) {
       fill = confirmByBalance(o, chk);
     }
+
+    // 폴백 2: 이 주문의 체결 기록(trade)이 이미 있는 경우 — 기록은 됐는데
+    // 주문/포켓 상태만 안 닫힌 스테일 상태. (기록된 수량이 잔고 계산에 이미 포함돼
+    // 잔고 폴백으로는 영영 확인되지 않으므로 상태만 마무리한다.)
+    if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) {
+      const { data: recordedTrade } = await supabase
+        .from('trades')
+        .select('id,price')
+        .eq('project_id', o.project_id!)
+        .ilike('note', `%${o.kis_order_no}%`)
+        .limit(1);
+      if (recordedTrade && recordedTrade.length > 0) {
+        const { data: claimed } = await supabase
+          .from('auto_orders')
+          .update({ status: 'filled' })
+          .eq('id', o.id)
+          .eq('status', 'sent')
+          .select('id');
+        if (claimed && claimed.length > 0 && o.pocket_id) {
+          if (o.side === 'buy') {
+            const rawSell = sellTargetFromFill(Number(recordedTrade[0].price), Number(p.sell_target_pct));
+            await supabase
+              .from('pockets')
+              .update({
+                status: 'bought',
+                sell_target_price: p.market === 'KRX' ? alignToKrxTick(rawSell, 'sell') : rawSell,
+              })
+              .eq('id', o.pocket_id);
+          } else {
+            await supabase.from('pockets').update({ status: 'sold' }).eq('id', o.pocket_id);
+            await maybeAutoCloseProject(o.project_id!);
+          }
+          changed = true;
+        }
+        continue;
+      }
+    }
     if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) continue;
 
     // ── 기록 전 잔고 검증 ────────────────────────────────────────────
@@ -350,6 +387,20 @@ export async function healBoughtPockets(staleIds: string[]): Promise<number> {
   if (staleIds.length === 0) return 0;
   const { error } = await supabase.from('pockets').update({ status: 'bought' }).in('id', staleIds);
   return error ? 0 : staleIds.length;
+}
+
+/**
+ * '보유중'인데 매수 체결 기록이 하나도 남아 있지 않은 포켓을 '대기중'으로 되돌린다.
+ * (잘못 기록된 체결을 매매일지에서 삭제한 뒤 포켓 상태가 유령처럼 남는 것을 정리)
+ * 미체결 주문이 걸려 있는 포켓은 건드리지 않도록 호출측에서 걸러서 넘긴다.
+ */
+export async function demoteEmptyBoughtPockets(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const { error } = await supabase
+    .from('pockets')
+    .update({ status: 'waiting', sell_target_price: null })
+    .in('id', ids);
+  return error ? 0 : ids.length;
 }
 
 /**
