@@ -513,12 +513,12 @@ async function recordedQtyForSymbol(admin: SupabaseClient, userId: string, symbo
   }
   let open = 0;
   for (const g of byPocket.values()) {
-    let pos = 0;
+    let pos = 0; // 음수 허용 — 기록 날짜가 어긋나 매도가 매수보다 앞에 있어도 상쇄된다
     for (const t of g) {
       if (t.side === 'buy') pos += Number(t.quantity);
-      else pos = Math.max(0, pos - Number(t.quantity));
+      else pos -= Number(t.quantity);
     }
-    open += pos;
+    open += Math.max(pos, 0);
   }
   return Math.floor(open);
 }

@@ -216,27 +216,43 @@ export function computePnL(trades: Trade[], currentPrice: number | null): PnL {
 
   for (const g of groups.values()) {
     g.sort((a, b) => (a.executed_at < b.executed_at ? -1 : a.executed_at > b.executed_at ? 1 : 0));
-    let pos = 0;
+    let pos = 0; // 음수 허용: 기록 날짜가 어긋나 매도가 매수보다 먼저 와도 나중 매수와 상쇄된다
     let cost = 0;
     for (const t of g) {
       if (t.side === 'buy') {
-        pos += t.quantity;
-        cost += t.quantity * t.price;
+        if (pos < 0) {
+          // 선기록된 매도 빚을 먼저 갚는다 (원가에는 반영하지 않음)
+          const repay = Math.min(t.quantity, -pos);
+          pos += repay;
+          const rest = t.quantity - repay;
+          if (rest > 0) {
+            pos += rest;
+            cost += rest * t.price;
+          }
+        } else {
+          pos += t.quantity;
+          cost += t.quantity * t.price;
+        }
       } else if (pos > 0) {
         const avg = cost / pos;
         const q = Math.min(t.quantity, pos);
         realized += (t.price - avg) * q;
         pos -= q;
         cost -= avg * q;
-        if (pos <= 1e-9) {
+        const rest = t.quantity - q;
+        if (rest > 0) pos -= rest; // 초과 매도분은 빚으로 (날짜 어긋난 기록 대비)
+        if (Math.abs(pos) <= 1e-9) {
           // 순환 완료 → 원가 리셋 (다음 매수부터 새 사이클)
           pos = 0;
           cost = 0;
         }
+      } else {
+        // 매수 기록이 아직 없는(또는 날짜가 뒤인) 매도 — 빚으로 기록해 나중 매수와 상쇄
+        pos -= t.quantity;
       }
     }
-    openQty += pos;
-    openCost += cost;
+    openQty += Math.max(pos, 0);
+    openCost += pos > 0 ? cost : 0;
   }
 
   const avgBuy = openQty > 0 ? openCost / openQty : 0;
@@ -281,22 +297,36 @@ export function realizedEvents(trades: Trade[]): RealizedEvent[] {
   const events: RealizedEvent[] = [];
   for (const g of groups.values()) {
     g.sort((a, b) => (a.executed_at < b.executed_at ? -1 : a.executed_at > b.executed_at ? 1 : 0));
-    let pos = 0;
+    let pos = 0; // 음수 허용 (computePnL 과 동일한 날짜 어긋남 대비)
     let cost = 0;
     for (const t of g) {
       if (t.side === 'buy') {
-        pos += t.quantity;
-        cost += t.quantity * t.price;
+        if (pos < 0) {
+          const repay = Math.min(t.quantity, -pos);
+          pos += repay;
+          const rest = t.quantity - repay;
+          if (rest > 0) {
+            pos += rest;
+            cost += rest * t.price;
+          }
+        } else {
+          pos += t.quantity;
+          cost += t.quantity * t.price;
+        }
       } else if (pos > 0) {
         const avg = cost / pos;
         const q = Math.min(t.quantity, pos);
         events.push({ at: t.executed_at, amount: round4((t.price - avg) * q), trade: t });
         pos -= q;
         cost -= avg * q;
-        if (pos <= 1e-9) {
+        const rest = t.quantity - q;
+        if (rest > 0) pos -= rest;
+        if (Math.abs(pos) <= 1e-9) {
           pos = 0;
           cost = 0;
         }
+      } else {
+        pos -= t.quantity; // 짝 없는 매도 — 실현손익은 계산 불가, 수량만 상쇄 대기
       }
     }
   }
