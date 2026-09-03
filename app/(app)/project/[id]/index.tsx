@@ -12,7 +12,7 @@ import { alignToKrxTick, computePnL, estimatedShares, findBudgetMismatches, pnlP
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
 import { useAutoTrader } from '@/services/autoTrader';
-import { getOrderFill, inspectOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
+import { getOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import { orderWindow } from '@/services/marketHours';
 import { getUnifiedQuote } from '@/services/prices/unified';
 import { savePocketTargets, STOP_PRICE_MIGRATION_HINT } from '@/services/pocketTargets';
@@ -22,7 +22,7 @@ import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/d
 export default function ProjectDetailScreen() {
   const { id, close: closeParam } = useLocalSearchParams<{ id: string; close?: string }>();
   const router = useRouter();
-  const { tier, session, isAdmin } = useAuth();
+  const { tier, session } = useAuth();
 
   const [project, setProject] = useState<Project | null>(null);
   const [pockets, setPockets] = useState<Pocket[]>([]);
@@ -98,47 +98,6 @@ export default function ProjectDetailScreen() {
     useCallback(() => {
       load();
     }, [load])
-  );
-
-  /**
-   * 체결 조회 진단 — 증권사가 실제로 뭐라고 답하는지 그대로 보여준다.
-   * 체결이 확인되면 그 자리에서 반영까지 한다(조회는 됐는데 자동 동기화가 안 도는 경우 구제).
-   */
-  const diagnoseFill = useCallback(
-    async (k: Pocket) => {
-      const po = pendingOrders[k.id];
-      if (!project) return;
-      if (!account) return notify('진단 불가', '증권사 계좌가 연결돼 있지 않아요. MY 탭 → 한국투자증권 계좌 연결을 확인해 주세요.');
-      if (!po) return notify('진단 불가', '이 포켓에 미체결 주문 기록이 없어요.');
-      const d = await inspectOrderFill(account, project.market === 'US' ? 'US' : 'KRX', po.kis_order_no ?? '', project.symbol);
-      const lines = [
-        `주문번호: ${po.kis_order_no || '(없음)'}`,
-        `증권사 응답: ${d.ok ? '정상' : '실패'}`,
-        `조회된 체결 건수: ${d.rows}`,
-        `이 주문 일치: ${d.matched ? '예' : '아니오'}`,
-        d.sampleOdnos.length > 0 ? `조회된 주문번호: ${d.sampleOdnos.join(', ')}` : null,
-        `메시지: ${d.message || '-'}`,
-      ].filter(Boolean) as string[];
-
-      // 체결조회가 못 잡아도 잔고에 실제로 들어와 있으면 반영된다 → 동기화를 한 번 돌려보고 결과로 판단
-      const changed = await reconcilePendingOrders(account, project.id);
-      if (changed) {
-        await load();
-        return notify(
-          '체결 확인 ✅',
-          `${lines.join('\n')}\n\n${
-            d.fill
-              ? `체결가 ${formatPrice(d.fill.avgPrice, project.market)} · ${money(d.fill.filledQty, 0)}주`
-              : '체결조회로는 못 찾았지만 계좌 잔고로 체결이 확인됐어요.'
-          }\n\n보유중으로 반영했어요.`
-        );
-      }
-      notify(
-        '체결이 확인되지 않았어요',
-        `${lines.join('\n')}\n\n계좌 잔고로도 확인되지 않았어요.\n증권사에서 이미 체결됐다면 '＋ 체결 직접 입력'으로 반영해 주세요.`
-      );
-    },
-    [account, project, pendingOrders, load]
   );
 
   // 자동매매 (AUTO 등급 + 프로젝트 자동매매 ON 일 때만 실제 주문)
@@ -956,8 +915,6 @@ export default function ProjectDetailScreen() {
                 setAutoOrderPocket(k);
               }}
               onCancelOrder={() => cancelPocketOrder(k)}
-              onDiagnose={() => diagnoseFill(k)}
-              showDiagnose={isAdmin}
               projectClosed={!!project.closed_at}
               onUpdateTargets={async (buyP, sellP, stopP) => {
                 const r = await savePocketTargets(k.id, buyP, sellP, stopP);
@@ -1069,12 +1026,6 @@ export default function ProjectDetailScreen() {
       pocket={autoOrderPocket}
       market={mkt}
       pending={orderChange}
-      onCancelOnly={() => {
-        const k = autoOrderPocket;
-        setAutoOrderPocket(null);
-        setOrderChange(null);
-        if (k) cancelPocketOrder(k);
-      }}
       defaultPrice={
         autoOrderPocket
           ? (() => {
@@ -1289,7 +1240,6 @@ function AutoOrderModal({
   pending,
   onClose,
   onSubmit,
-  onCancelOnly,
 }: {
   pocket: Pocket | null;
   market: string;
@@ -1298,8 +1248,6 @@ function AutoOrderModal({
   pending: AutoOrder | null; // 있으면 '미체결 주문가 변경' 모드
   onClose: () => void;
   onSubmit: (price: number) => void;
-  /** 재주문 없이 미체결 주문만 취소 (주문가 변경 모드에서만 보인다) */
-  onCancelOnly?: () => void;
 }) {
   const [raw, setRaw] = useState('');
   useEffect(() => {
@@ -1356,23 +1304,6 @@ function AutoOrderModal({
             <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}>
               <Text style={{ color: colors.textDim, fontWeight: '800' }}>닫기</Text>
             </Pressable>
-            {/* 재주문 없이 '주문만 취소' — 가격이 확 올라 체결 가능성이 없을 때 쓴다 */}
-            {pending && onCancelOnly && (
-              <Pressable
-                onPress={onCancelOnly}
-                style={{
-                  flex: 1.4,
-                  borderRadius: radius.md,
-                  paddingVertical: 12,
-                  alignItems: 'center',
-                  borderWidth: 1,
-                  borderColor: colors.danger,
-                  backgroundColor: 'rgba(248,113,113,0.12)',
-                }}
-              >
-                <Text style={{ color: colors.danger, fontWeight: '800' }}>🚫 주문 취소</Text>
-              </Pressable>
-            )}
             <Pressable
               onPress={() => aligned > 0 && onSubmit(aligned)}
               disabled={aligned <= 0}
@@ -1446,8 +1377,6 @@ function PocketCard({
   pendingOrder,
   onChangeOrderPrice,
   onCancelOrder,
-  showDiagnose,
-  onDiagnose,
   projectClosed,
   onUpdateTargets,
   onTrade,
@@ -1471,8 +1400,6 @@ function PocketCard({
   pendingOrder: AutoOrder | null; // 미체결(주문완료) 주문 — 주문가·수량 표시용
   onChangeOrderPrice: () => void; // 미체결 매수 주문가 변경 (취소 후 재주문)
   onCancelOrder: () => void; // 미체결 주문 취소 (매수 → 대기중 / 매도 → 보유중)
-  showDiagnose: boolean; // '체결 조회 진단'(개발용) 노출 — 관리자만
-  onDiagnose: () => void; // 증권사 체결조회 결과를 그대로 보여주는 진단
   projectClosed: boolean; // 프로젝트 종료 시 재시작 버튼 숨김
   onUpdateTargets: (buyPrice: number, sellPrice: number | null, stopPrice: number | null) => Promise<void>; // 목표 매수·매도가·마지노선 직접 수정
   onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number, budget?: number) => void;
@@ -1815,14 +1742,6 @@ function PocketCard({
                     <Text style={{ color: pendingWord === '매수' ? colors.buy : colors.sell, fontSize: 12, fontWeight: '800' }}>
                       🚫 {pendingWord} 주문 취소
                     </Text>
-                  </Pressable>
-                )}
-                {/* 체결 조회 진단 — 증권사 원문 응답(주문번호·체결 건수)을 그대로 보여주는 개발용 도구.
-                    체결 감지가 잔고 대조까지 이중으로 돌고 '＋ 체결 직접 입력'이라는 복구 수단도 있으므로
-                    일반 사용자에게는 감추고 관리자만 쓴다. */}
-                {pendingOrder && showDiagnose && (
-                  <Pressable onPress={onDiagnose} hitSlop={6}>
-                    <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '800' }}>🔍 체결 조회 진단</Text>
                   </Pressable>
                 )}
               </View>

@@ -1056,11 +1056,6 @@ export default function PocketsScreen() {
       <AutoOrderModal
         target={autoOrder}
         onClose={() => setAutoOrder(null)}
-        onCancelOnly={() => {
-          const t = autoOrder;
-          setAutoOrder(null);
-          if (t?.pending) cancelPocketOrder(t.pocket, t.proj, t.pending);
-        }}
         onSubmit={async (customPrice) => {
           const t = autoOrder;
           setAutoOrder(null);
@@ -1211,13 +1206,10 @@ function AutoOrderModal({
   target,
   onClose,
   onSubmit,
-  onCancelOnly,
 }: {
   target: { pocket: Pocket; proj: Project; pending?: AutoOrder } | null;
   onClose: () => void;
   onSubmit: (price: number) => void;
-  /** 재주문 없이 미체결 주문만 취소 (주문가 변경 모드에서만 보인다) */
-  onCancelOnly?: () => void;
 }) {
   const [raw, setRaw] = useState('');
   const market = target?.proj.market ?? 'KRX';
@@ -1279,23 +1271,6 @@ function AutoOrderModal({
             <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}>
               <Text style={{ color: colors.textDim, fontWeight: '800' }}>닫기</Text>
             </Pressable>
-            {/* 재주문 없이 '주문만 취소' — 가격이 확 올라 체결 가능성이 없을 때 쓴다 */}
-            {changing && onCancelOnly && (
-              <Pressable
-                onPress={onCancelOnly}
-                style={{
-                  flex: 1.4,
-                  borderRadius: radius.md,
-                  paddingVertical: 12,
-                  alignItems: 'center',
-                  borderWidth: 1,
-                  borderColor: colors.danger,
-                  backgroundColor: 'rgba(248,113,113,0.12)',
-                }}
-              >
-                <Text style={{ color: colors.danger, fontWeight: '800' }}>🚫 주문 취소</Text>
-              </Pressable>
-            )}
             <Pressable
               onPress={() => aligned > 0 && onSubmit(aligned)}
               disabled={aligned <= 0}
