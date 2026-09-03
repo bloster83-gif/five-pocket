@@ -31,6 +31,14 @@ Expo(React Native) + Supabase 기반 **5분할 매수·매도 일지** 앱. 멀�
 - **미국주식 실시간 시세**: priceTracker가 US 프로젝트 + KIS 계좌 연결 + 네이티브면 `getOverseasPrice`(kis.ts, tr HHDFS00000300, 거래소 NAS/NYS/AMS 자동탐색)로 실시간에 가까운 시세를 우선 사용, 실패 시 Yahoo 폴백. 자동 주문은 여전히 KRX만(해외 주문 미구현).
 - 웹(react-native-web)에서 `Alert.alert`는 아무것도 안 뜸 → `src/lib/alert.ts`의 `notify`/`confirmAction` 사용.
 
+## Edge Functions — ★수정하면 반드시 재배포★
+- `supabase/functions/*` 코드는 **git에 커밋해도 서버에 반영되지 않는다.** 수정 후 반드시:
+  `npx supabase functions deploy <함수이름> --project-ref ohqkfdvgjqcjsmstftzs`
+- 특히 `auto-trade-runner`는 24시간 자동매매의 실체 — 재배포를 잊으면 구버전이 계속 돈다.
+  (실사례: 2026-08-14 마지노선 기능 추가 후 미재배포 → 서버가 손절을 못 해 69,000원 라인이 66,200원까지 밀림. 2026-08-25 재배포로 해결.)
+- `send-phone-otp`/`verify-phone-otp`는 배포 시 `--no-verify-jwt` 필수(가입 전 호출됨). 함수별 개별 배포 권장 — 일괄 배포 금지.
+- 러너 수정 커밋의 메시지에는 `[deploy-needed]`를 붙여, PC에서 pull 후 배포 누락을 알아챌 수 있게 할 것.
+
 ## DB (Supabase)
 - 전체 스키마: `supabase/schema.sql`(신규 설치용). 기존 DB에는 `supabase/migrations/*.sql`을 날짜순 실행.
 - 모든 테이블 RLS로 사용자별 격리. 스키마 변경 시 새 마이그레이션 파일 추가 + schema.sql 동기화 + 앱은 미실행 상태에서도 깨지지 않게 방어(누락 감지 시 안내).

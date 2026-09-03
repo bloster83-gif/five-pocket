@@ -16,7 +16,7 @@ import { getOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, place
 import { orderWindow } from '@/services/marketHours';
 import { savePocketTargets, STOP_PRICE_MIGRATION_HINT } from '@/services/pocketTargets';
 import { useAccountCash } from '@/services/deposits';
-import { cancelPendingOrder, findHoldingMismatches, healBoughtPockets, loadPendingOrders, markOrderProgress, reconcilePendingOrders, releasePendingOrderLocally, type HoldingMismatch } from '@/services/pendingOrders';
+import { cancelPendingOrder, demoteEmptyBoughtPockets, findHoldingMismatches, healBoughtPockets, loadPendingOrders, markOrderProgress, reconcilePendingOrders, releasePendingOrderLocally, type HoldingMismatch } from '@/services/pendingOrders';
 import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 export default function PocketsScreen() {
@@ -166,10 +166,11 @@ export default function PocketsScreen() {
     return m;
   }, [trades]);
 
-  // 상태 불일치 자동 정리 — '매수 주문완료'인데 실제 체결 기록이 있는 포켓은 '보유중'으로 승격.
-  // (체결 감지가 늦어 DB status 만 buy_ordered 로 남은 포켓을 조용히 바로잡는다)
-  // 단, 아직 살아 있는 주문이 걸린 포켓은 건드리지 않는다 — 부분체결이라 남은 수량을
-  // 계속 추적해야 하고, '보유중'으로 올리면 미체결 카드와 취소 버튼이 사라진다.
+  // 상태 불일치 자동 정리 —
+  //  ① '매수 주문완료'인데 실제 체결 기록이 있는 포켓 → '보유중'으로 승격
+  //  ② '보유중'인데 매수 기록이 하나도 없는 포켓(잘못된 기록을 지운 뒤 등) → '대기중'으로 강등
+  // 어느 쪽이든 아직 살아 있는 주문이 걸린 포켓은 건드리지 않는다 — 부분체결이라
+  // 남은 수량을 계속 추적해야 하고, 상태를 바꾸면 미체결 카드와 취소 버튼이 사라진다.
   const healedRef = useRef(false);
   useEffect(() => {
     if (loading || healedRef.current) return;
@@ -181,12 +182,20 @@ export default function PocketsScreen() {
           Math.floor(computePnL(tradesByPocket[k.id] ?? [], null).totalQtyOpen) > 0
       )
       .map((k) => k.id);
-    if (stale.length === 0) return;
+    const empty = pockets
+      .filter(
+        (k) =>
+          k.status === 'bought' &&
+          !pendingOrders[k.id] &&
+          Math.floor(computePnL(tradesByPocket[k.id] ?? [], null).totalQtyOpen) <= 0
+      )
+      .map((k) => k.id);
+    if (stale.length === 0 && empty.length === 0) return;
     healedRef.current = true;
-    void healBoughtPockets(stale).then((n) => {
-      if (n > 0) load();
+    void Promise.all([healBoughtPockets(stale), demoteEmptyBoughtPockets(empty)]).then(([a, b]) => {
+      if (a + b > 0) load();
     });
-  }, [loading, pockets, tradesByPocket, load]);
+  }, [loading, pockets, tradesByPocket, pendingOrders, load]);
 
   // 프로젝트 예산 합산 (진행중 프로젝트, 시장별)
   const budgetByMarket = useMemo(() => {

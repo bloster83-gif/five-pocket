@@ -8,8 +8,33 @@ import { Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { getDomesticPrice, getOverseasPrice } from '@/services/broker/kis';
 import { priceProvider } from './index';
-import { setStoredQuote } from './quoteStore';
+import { getStoredQuote, setStoredQuote } from './quoteStore';
 import type { BrokerAccount } from '@/types/db';
+
+// ---- KIS 호출 폭주 방지 ----
+// 여러 화면이 종목별 시세를 병렬로 쏘면(+서버 러너 매분) KIS 초당 거래건수
+// 제한(EGW00201 '초당 거래건수를 초과')에 걸려 시세가 자주 빠진다.
+//  1) 신선도 캐시: 2.5초 안에 받은 시세는 그대로 재사용 (네트워크 0회)
+//  2) 동시요청 합치기: 같은 심볼을 여러 화면이 동시에 요청하면 1회만 호출
+//  3) 전역 직렬 스로틀: KIS 호출 사이에 220ms 간격을 강제해 초당 건수를 억제
+const FRESH_MS = 2500;
+const KIS_GAP_MS = 220;
+
+let kisChain: Promise<unknown> = Promise.resolve();
+function throttleKis<T>(fn: () => Promise<T>): Promise<T> {
+  const p = kisChain.then(
+    () => fn(),
+    () => fn()
+  );
+  // 다음 호출은 이번 호출이 끝나고 GAP 이 지난 뒤에 시작된다 (실패해도 간격 유지)
+  kisChain = p.then(
+    () => new Promise((r) => setTimeout(r, KIS_GAP_MS)),
+    () => new Promise((r) => setTimeout(r, KIS_GAP_MS))
+  );
+  return p;
+}
+
+const inFlight = new Map<string, Promise<UnifiedQuote>>();
 
 // KIS 계좌 1회 로드 캐시 (유저별)
 let cachedAccount: BrokerAccount | null | undefined;
@@ -48,8 +73,29 @@ export interface UnifiedQuote {
   changePct: number | null; // 전일 대비 %
 }
 
-/** KIS 우선 → Yahoo 폴백 현재가 1건 */
+/** KIS 우선 → Yahoo 폴백 현재가 1건 (신선도 캐시 + 동시요청 합치기 + KIS 스로틀) */
 export async function getUnifiedQuote(
+  account: BrokerAccount | null,
+  symbol: string,
+  market?: string
+): Promise<UnifiedQuote> {
+  // 1) 방금 받은 시세가 있으면 그대로 사용 (화면 여러 개가 겹쳐 불러도 네트워크 1회)
+  const stored = getStoredQuote(symbol);
+  if (stored && Date.now() - stored.at < FRESH_MS) {
+    return { price: stored.price, previousClose: stored.previousClose, changePct: stored.changePct };
+  }
+  // 2) 같은 심볼 동시요청 합치기
+  const existing = inFlight.get(symbol);
+  if (existing) return existing;
+
+  const p = fetchUnifiedQuote(account, symbol, market).finally(() => {
+    inFlight.delete(symbol);
+  });
+  inFlight.set(symbol, p);
+  return p;
+}
+
+async function fetchUnifiedQuote(
   account: BrokerAccount | null,
   symbol: string,
   market?: string
@@ -60,11 +106,11 @@ export async function getUnifiedQuote(
   if (account && Platform.OS !== 'web') {
     try {
       if (mkt === 'US') {
-        const oq = await getOverseasPrice(account, symbol); // 정규장+주간거래
+        const oq = await throttleKis(() => getOverseasPrice(account, symbol)); // 정규장+주간거래
         price = oq.price;
         previousClose = oq.previousClose;
       } else {
-        const dq = await getDomesticPrice(account, symbol); // 통합(UN)→NXT(NX)→KRX(J)
+        const dq = await throttleKis(() => getDomesticPrice(account, symbol)); // 통합(UN)→NXT(NX)→KRX(J)
         price = dq.price;
         previousClose = dq.previousClose;
       }
