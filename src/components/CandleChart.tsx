@@ -11,7 +11,7 @@
 // 상승=빨강(buy) / 하락=파랑(sell) — 한국 관례.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -19,6 +19,9 @@ import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Circle, Ellipse, G, Line, Polygon, Polyline, Rect, Text as SvgText } from 'react-native-svg';
 import { colors, formatPrice, num, radius, spacing } from '@/theme';
+import { fetchCandles } from '@/services/prices/yahooProvider';
+import { searchSymbols } from '@/services/symbols';
+import type { SymbolResult } from '@/types/db';
 import type { Candle, CandleMode } from '@/services/prices/yahooProvider';
 
 const MODES: { key: CandleMode; label: string }[] = [
@@ -136,18 +139,21 @@ async function saveDrawings(symbol: string, mode: CandleMode, list: Drawing[]) {
 }
 
 export function CandleChart({
-  symbol,
-  market,
-  candles: allCandles,
+  symbol: propSymbol,
+  name: propName,
+  market: propMarket,
+  candles: propCandles,
   mode,
   onMode,
-  loading,
+  loading: propLoading,
   error,
   lines = NO_LINES,
   markers = NO_MARKERS,
   height = 320,
 }: {
   symbol: string;
+  /** 종목명 — 가로 보기 왼쪽 위에 표시 */
+  name?: string;
   market: string;
   candles: Candle[];
   mode: CandleMode;
@@ -159,6 +165,35 @@ export function CandleChart({
   height?: number;
 }) {
   const [candleW, setCandleW] = useState(9);
+
+  // ── 가로 보기에서 다른 종목 둘러보기 ──────────────────────────
+  // 검색해서 고른 종목의 봉을 이 자리에서 바로 불러와 보여준다.
+  // 매매 마커·가격선은 원래 종목의 것이므로 둘러보는 동안에는 감춘다.
+  const [browse, setBrowse] = useState<{ symbol: string; name: string; market: string } | null>(null);
+  const [browseCandles, setBrowseCandles] = useState<Candle[]>([]);
+  const [browseLoading, setBrowseLoading] = useState(false);
+  useEffect(() => {
+    if (!browse) return;
+    let alive = true;
+    setBrowseLoading(true);
+    setBrowseCandles([]);
+    fetchCandles(browse.symbol, mode)
+      .then(({ candles: c }) => alive && setBrowseCandles(c))
+      .catch(() => alive && setBrowseCandles([]))
+      .finally(() => alive && setBrowseLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [browse?.symbol, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 아래 계산은 전부 '지금 보고 있는 종목' 기준
+  const symbol = browse?.symbol ?? propSymbol;
+  const name = browse?.name ?? propName;
+  const market = browse?.market ?? propMarket;
+  const allCandles = browse ? browseCandles : propCandles;
+  const loading = browse ? browseLoading : propLoading;
+  const lines2 = browse ? NO_LINES : lines;
+  const markers2 = browse ? NO_MARKERS : markers;
 
   // 지금 담아 둔 기간 (0=3년, 1=5년, 2=10년). 왼쪽 끝까지 밀면 한 칸씩 넓어진다.
   const [spanIdx, setSpanIdx] = useState(0);
@@ -281,17 +316,17 @@ export function CandleChart({
     const src = shown.length > 0 ? shown : candles;
     let lo = Math.min(...src.map((c) => c.l));
     let hi = Math.max(...src.map((c) => c.h));
-    markers.forEach((t) => {
+    markers2.forEach((t) => {
       lo = Math.min(lo, t.price);
       hi = Math.max(hi, t.price);
     });
-    lines.forEach((g) => {
+    lines2.forEach((g) => {
       lo = Math.min(lo, g.price);
       hi = Math.max(hi, g.price);
     });
     const pad = (hi - lo) * 0.06 || 1;
     return { minP: lo - pad, maxP: hi + pad };
-  }, [candles, markers, lines, view]);
+  }, [candles, markers2, lines2, view]);
 
   const priceToY = (p: number) => PAD_TOP + ((maxP - p) / (maxP - minP)) * plotH;
   const yToPrice = (y: number) => maxP - ((y - PAD_TOP) / plotH) * (maxP - minP);
@@ -373,7 +408,7 @@ export function CandleChart({
 
   // 좌우로 밀어도 항상 보이도록, 가격선과 라벨은 스크롤되지 않는 오버레이에 그린다
   const overlayLines = useMemo(() => {
-    const rows = lines
+    const rows = lines2
       .map((g) => ({ ...g, y: PAD_TOP + ((maxP - g.price) / (maxP - minP)) * plotH }))
       .sort((a, b) => a.y - b.y);
     let last = -Infinity;
@@ -382,7 +417,7 @@ export function CandleChart({
       last = labelY;
       return { ...r, labelY };
     });
-  }, [lines, minP, maxP, plotH]);
+  }, [lines2, minP, maxP, plotH]);
 
   // 이동평균 (단순이동평균). 봉이 모자란 구간은 null → 그 지점부터 선이 시작된다.
   const [maOn, setMaOn] = useState<Record<number, boolean>>({ 5: true, 20: true, 60: true, 120: true });
@@ -422,6 +457,30 @@ export function CandleChart({
     const n = 4;
     return Array.from({ length: n + 1 }, (_, i) => minP + ((maxP - minP) * i) / n);
   }, [minP, maxP]);
+
+  // ── 가로 보기 종목 검색 ─────────────────────────────────────
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SymbolResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  useEffect(() => {
+    const q = query.trim();
+    if (!searchOpen || q.length < 1) {
+      setResults([]);
+      return;
+    }
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        setResults(await searchSymbols(q));
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [query, searchOpen]);
 
   // ── 그리기 ─────────────────────────────────────────────────
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -1009,7 +1068,7 @@ export function CandleChart({
                     })}
 
                     {/* 체결된 매수/매도 = 포인트(포켓번호 표시) */}
-                    {markers.map((t) => {
+                    {markers2.map((t) => {
                       const di = markerIndex(t.at);
                       if (di < 0) return null;
                       const x = idxToX(di);
@@ -1120,6 +1179,88 @@ export function CandleChart({
               gap: spacing.sm,
             }}
           >
+            {/* 왼쪽 위: 지금 보고 있는 종목. 오른쪽: 다른 종목을 바로 찾아보기 */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+              <View style={{ flexShrink: 1 }}>
+                <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>
+                  {name || symbol}
+                </Text>
+                <Text numberOfLines={1} style={{ color: colors.textDim, fontSize: 11 }}>
+                  {symbol} · {market === 'KRX' ? '🇰🇷 한국' : '🇺🇸 미국'}
+                  {browse ? '  ·  둘러보는 중' : ''}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }} />
+              {browse && (
+                <Pressable
+                  onPress={() => {
+                    setBrowse(null);
+                    setSearchOpen(false);
+                  }}
+                  style={{ ...zoomBtn, width: 'auto', paddingHorizontal: 10 }}
+                >
+                  <Text style={{ color: colors.textDim, fontWeight: '800', fontSize: 12 }}>↩ 원래 종목</Text>
+                </Pressable>
+              )}
+              <Pressable
+                onPress={() => {
+                  setSearchOpen((v) => !v);
+                  setQuery('');
+                }}
+                style={{ ...zoomBtn, width: 'auto', paddingHorizontal: 12 }}
+              >
+                <Text style={{ color: searchOpen ? colors.buy : colors.text, fontWeight: '900', fontSize: 13 }}>
+                  🔍 종목 검색
+                </Text>
+              </Pressable>
+            </View>
+
+            {searchOpen && (
+              <View style={{ gap: 6 }}>
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  autoFocus
+                  placeholder="종목명 또는 티커 (예: 삼성전자, AAPL)"
+                  placeholderTextColor={colors.textDim}
+                  style={{
+                    backgroundColor: colors.cardAlt,
+                    borderRadius: radius.md,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: 8,
+                    color: colors.text,
+                    fontSize: 15,
+                  }}
+                />
+                {searching && <ActivityIndicator color={colors.primary} />}
+                {results.length > 0 && (
+                  <ScrollView style={{ maxHeight: 132 }} keyboardShouldPersistTaps="handled">
+                    <View style={{ gap: 1, backgroundColor: colors.border, borderRadius: 8, overflow: 'hidden' }}>
+                      {results.map((r) => (
+                        <Pressable
+                          key={`${r.market}:${r.symbol}`}
+                          onPress={() => {
+                            setBrowse({ symbol: r.symbol, name: r.name, market: r.market });
+                            setSearchOpen(false);
+                            setQuery('');
+                            setSelectedId(null);
+                          }}
+                          style={{ backgroundColor: colors.cardAlt, paddingHorizontal: spacing.md, paddingVertical: 8 }}
+                        >
+                          <Text style={{ color: colors.text, fontWeight: '700' }}>{r.name}</Text>
+                          <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                            {r.symbol} · {r.exchange} · {r.market === 'KRX' ? '한국' : '미국/기타'}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </ScrollView>
+                )}
+              </View>
+            )}
+
             {controls}
             {chartBlock}
           </View>

@@ -199,6 +199,7 @@ export default function StockValuationScreen() {
         <Card>
           <CandleChart
             symbol={symbol as string}
+            name={(name as string) || (symbol as string)}
             market={mkt}
             candles={candles}
             mode={mode}

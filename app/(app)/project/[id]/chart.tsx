@@ -107,6 +107,7 @@ export default function ChartScreen() {
       <BackHeader fallback="/" />
       <CandleChart
         symbol={project?.symbol ?? ''}
+        name={project?.name}
         market={mkt}
         candles={candles}
         mode={mode}
