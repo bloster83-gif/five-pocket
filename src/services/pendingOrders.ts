@@ -88,7 +88,7 @@ export async function checkHolding(
 function confirmByBalance(
   order: AutoOrder,
   chk: HoldingCheck
-): { avgPrice: number; filledQty: number; estimated: true } | null {
+): { avgPrice: number; filledQty: number; orderQty: number; estimated: true } | null {
   if (!chk.ok) return null;
   const orderQty = Math.floor(Number(order.quantity));
   if (orderQty <= 0) return null;
@@ -101,14 +101,70 @@ function confirmByBalance(
     // 체결가는 이 주문의 지정가를 쓴다.
     // 계좌 평단(heldAvg)은 이전 매수들이 섞인 혼합값이라 개별 주문의 체결가가 될 수 없다.
     // (실제로 $12.35 에 체결된 주문이 계좌 평단 $10.87 로 잘못 기록됐다)
-    return { avgPrice: limit, filledQty: orderQty, estimated: true };
+    return { avgPrice: limit, filledQty: orderQty, orderQty, estimated: true };
   }
 
   // 매도: 앱에 기록된 보유분이 계좌에서 그만큼 빠져나갔으면 체결된 것
   if (chk.recordedQty <= 0) return null;
   if (chk.heldQty > chk.recordedQty - orderQty) return null;
   // 지정가 매도는 지정가 이상으로 체결 — 정확한 체결가는 알 수 없으므로 지정가로 기록(매매일지에서 수정 가능)
-  return { avgPrice: limit, filledQty: orderQty, estimated: true };
+  return { avgPrice: limit, filledQty: orderQty, orderQty, estimated: true };
+}
+
+/**
+ * 주문을 넣은 직후 확인한 체결을 auto_orders 에 반영한다.
+ *  · 전량 체결 → status='filled' (더 추적하지 않는다)
+ *  · 부분체결   → status='sent' 유지 + 체결 누계만 기록해, 남은 수량을 계속 추적한다
+ * 누계를 남기지 않으면 나중에 동기화가 같은 체결을 또 세서 잔고 검증에 막힌다.
+ */
+export async function markOrderProgress(orderId: string, filledQty: number, fullyFilled: boolean): Promise<void> {
+  const { error } = await supabase
+    .from('auto_orders')
+    .update({ filled_qty: filledQty, status: fullyFilled ? 'filled' : 'sent' })
+    .eq('id', orderId);
+  if (error && isMissingColumn(error)) {
+    hasFilledQtyCol = false;
+    // 컬럼이 없는 DB(마이그레이션 20260903a 미실행) — 상태만 예전처럼 처리
+    if (fullyFilled) await supabase.from('auto_orders').update({ status: 'filled' }).eq('id', orderId);
+  }
+}
+
+/**
+ * 체결 누계를 키우며 주문을 '선점'한다 (동시 실행 중 한쪽만 이긴다).
+ *
+ * filled_qty 컬럼(마이그레이션 20260903a)이 없는 DB 에서는 예전 방식으로 물러난다 —
+ * 부분체결을 구분하지 못하고 한 번만 기록하지만, 앱이 깨지지는 않는다.
+ * 반환값 true = 내가 선점했으니 기록해도 된다.
+ */
+let hasFilledQtyCol = true;
+
+async function claimOrder(o: AutoOrder, filledQty: number, fullyFilled: boolean): Promise<boolean> {
+  if (hasFilledQtyCol) {
+    const { data, error } = await supabase
+      .from('auto_orders')
+      .update({ filled_qty: filledQty, status: fullyFilled ? 'filled' : 'sent' })
+      .eq('id', o.id)
+      .eq('status', 'sent')
+      .lt('filled_qty', filledQty)
+      .select('id');
+    if (!error) return !!data && data.length > 0;
+    if (!isMissingColumn(error)) return false;
+    hasFilledQtyCol = false; // 컬럼 없음 → 아래 예전 방식으로
+  }
+  const { data } = await supabase
+    .from('auto_orders')
+    .update({ status: 'filled' })
+    .eq('id', o.id)
+    .eq('status', 'sent')
+    .select('id');
+  return !!data && data.length > 0;
+}
+
+/** filled_qty 컬럼이 아직 없는 DB 인지 (마이그레이션 20260903a 미실행) */
+function isMissingColumn(error: { code?: string; message?: string }): boolean {
+  return /42703|filled_qty|column .* does not exist|schema cache|PGRST204/i.test(
+    `${error.code ?? ''} ${error.message ?? ''}`
+  );
 }
 
 /**
@@ -152,7 +208,7 @@ async function reconcileOnce(account: BrokerAccount, projectId?: string): Promis
   for (const o of orders) {
     const p = o.project_id ? projMap[o.project_id] : null;
     if (!p) continue;
-    let fill: { avgPrice: number; filledQty: number; estimated?: boolean } | null = null;
+    let fill: { avgPrice: number; filledQty: number; orderQty?: number; estimated?: boolean } | null = null;
     try {
       fill = await getOrderFill(account, p.market === 'US' ? 'US' : 'KRX', o.kis_order_no!, p.symbol);
     } catch {
@@ -168,24 +224,30 @@ async function reconcileOnce(account: BrokerAccount, projectId?: string): Promis
     }
     if (!fill || fill.avgPrice <= 0 || fill.filledQty <= 0) continue;
 
+    // ── 부분체결 판정 ────────────────────────────────────────────────
+    // 15주를 주문했는데 5주만 체결되는 일이 있다. 체결분만 반영하고
+    // 남은 수량은 주문을 'sent' 로 남겨 계속 추적한다(카드에 표시되고 취소도 된다).
+    const orderQty = Math.floor(Number(fill.orderQty ?? o.quantity)) || Math.floor(Number(o.quantity));
+    const prevFilled = Math.floor(Number(o.filled_qty ?? 0));
+    const delta = fill.filledQty - prevFilled; // 이번에 새로 체결된 수량
+    if (delta <= 0) continue; // 이미 반영한 체결
+    const fullyFilled = orderQty > 0 ? fill.filledQty >= orderQty : true;
+
     // ── 기록 전 잔고 검증 ────────────────────────────────────────────
     // 계좌 잔고가 언제나 사실이다. 이 체결을 기록했을 때 앱의 보유수량이
     // 실제 계좌 보유수량을 넘어서면 = 이미 기록된 체결을 또 기록하려는 것이므로 막는다.
     // (잔고 조회에 실패했으면 검증하지 않고 통과 — 조회 장애로 정상 체결을 놓치면 안 되니까)
-    // 매수: 기록 후 앱 보유수량이 계좌를 넘으면 중복 기록
-    // 매도: 기록 후 앱 보유수량이 계좌보다 적어지면 중복 기록
+    // 이번에 '새로 늘어나는 만큼(delta)'으로 비교해야 부분체결이 반복돼도 어긋나지 않는다.
     const wouldOverRecord =
       chk.ok &&
-      (o.side === 'buy'
-        ? chk.recordedQty + fill.filledQty > chk.heldQty
-        : chk.recordedQty - fill.filledQty < chk.heldQty);
+      (o.side === 'buy' ? chk.recordedQty + delta > chk.heldQty : chk.recordedQty - delta < chk.heldQty);
     if (wouldOverRecord) {
       // 주문은 종결 처리해 매 주기마다 다시 조회하지 않게 한다.
       await supabase
         .from('auto_orders')
         .update({
           status: 'filled',
-          error_message: `잔고 검증으로 중복 기록 차단 (계좌 ${chk.heldQty}주 / 기록 ${chk.recordedQty}주 / 이번 ${o.side === 'buy' ? '+' : '-'}${fill.filledQty}주)`,
+          error_message: `잔고 검증으로 중복 기록 차단 (계좌 ${chk.heldQty}주 / 기록 ${chk.recordedQty}주 / 이번 ${o.side === 'buy' ? '+' : '-'}${delta}주)`,
         })
         .eq('id', o.id)
         .eq('status', 'sent');
@@ -196,15 +258,10 @@ async function reconcileOnce(account: BrokerAccount, projectId?: string): Promis
     // 이 동기화는 여러 화면(목록·포켓탭·상세)과 서버 러너에서 동시에 돌 수 있다.
     // '기록이 있나 읽고 → 없으면 쓴다'로는 두 실행이 동시에 "없다"고 판단해
     // 같은 체결을 두 번 기록해버린다(실제로 25주가 50주로 중복됨).
-    // status='sent' 인 행만 'filled' 로 바꾸는 단일 UPDATE 는 DB 에서 원자적이라,
+    // 체결 누계를 키운 쪽만 이기는 단일 UPDATE 는 DB 에서 원자적이라,
     // 갱신된 행이 0건이면 이미 다른 실행이 처리한 것이므로 건너뛴다.
-    const { data: claimed } = await supabase
-      .from('auto_orders')
-      .update({ status: 'filled' })
-      .eq('id', o.id)
-      .eq('status', 'sent')
-      .select('id');
-    if (!claimed || claimed.length === 0) continue; // 다른 실행이 이미 선점함
+    const claimed = await claimOrder(o, fill.filledQty, fullyFilled);
+    if (!claimed) continue; // 다른 실행이 이미 선점함
 
     // 같은 주문번호의 체결 기록이 이미 있으면 실제 체결가·수량으로 갱신, 없으면 새로 기록
     const { data: existing } = await supabase
@@ -214,6 +271,7 @@ async function reconcileOnce(account: BrokerAccount, projectId?: string): Promis
       .ilike('note', `%${o.kis_order_no}%`)
       .limit(1);
     if (existing && existing.length > 0) {
+      // 부분체결이 이어지는 동안에는 같은 기록의 수량을 '누계'로 키운다
       await supabase
         .from('trades')
         .update({ price: fill.avgPrice, quantity: fill.filledQty })
@@ -230,11 +288,14 @@ async function reconcileOnce(account: BrokerAccount, projectId?: string): Promis
         note:
           `자동주문(KIS ${o.kis_order_no}) ${o.side === 'sell' ? '매도' : '매수'}` +
           // 잔고로 확인한 경우 체결가는 지정가 기준의 추정치 — 매매일지에서 확인·수정하도록 표시
-          (fill.estimated ? ' · 체결가 추정(지정가)' : ''),
+          (fill.estimated ? ' · 체결가 추정(지정가)' : '') +
+          (fullyFilled ? '' : ` · 부분체결 ${fill.filledQty}/${orderQty}주`),
       });
     }
 
-    if (o.pocket_id) {
+    // 포켓 상태는 전량 체결된 뒤에 바꾼다. 부분체결 동안 '주문완료'로 두어야
+    // 카드에 남은 수량이 보이고 취소도 할 수 있다.
+    if (o.pocket_id && fullyFilled) {
       if (o.side === 'buy') {
         const rawSell = sellTargetFromFill(fill.avgPrice, Number(p.sell_target_pct));
         await supabase
@@ -364,22 +425,62 @@ export async function cancelPendingOrder(
   account: BrokerAccount | null
 ): Promise<void> {
   if (account && order.kis_order_no) {
-    await cancelOrder(account, market, order.kis_order_no, order.symbol, Number(order.quantity));
+    // 부분체결이면 아직 남아 있는 수량만 취소한다 (국내는 '잔량 전부' 플래그라 무관, 해외는 수량이 필요)
+    const remaining = Math.max(1, Math.floor(Number(order.quantity) - Number(order.filled_qty ?? 0)));
+    await cancelOrder(account, market, order.kis_order_no, order.symbol, remaining);
   }
   await supabase
     .from('auto_orders')
     .update({ status: 'failed', error_message: '사용자 취소 (주문가 변경)' })
     .eq('id', order.id);
-  if (order.pocket_id) {
-    await supabase
-      .from('pockets')
-      .update(order.side === 'buy' ? { status: 'waiting', sell_target_price: null } : { status: 'bought' })
-      .eq('id', order.pocket_id);
-  }
+  if (order.pocket_id) await restorePocketAfterCancel(order);
   // 매도 주문을 취소했다면 '체결되면 종료' 예약도 해제한다 (의도가 바뀐 것)
   if (order.side === 'sell' && order.project_id) {
     await supabase.from('projects').update({ close_after_sell: false }).eq('id', order.project_id);
   }
+}
+
+/**
+ * 주문을 취소한 뒤 포켓 상태를 되돌린다.
+ *
+ *  · 매수 취소 — 한 주도 안 샀으면 '대기중'(목표가 초기화).
+ *    부분체결로 이미 보유분이 있으면 '보유중'으로 두고 매도 목표가를 평균매수가 기준으로 다시 잡는다.
+ *    ('대기중'으로 되돌리면 실제로 들고 있는 주식을 앱이 잊어버린다)
+ *  · 매도 취소 — 남은 보유분이 있으므로 '보유중'.
+ */
+async function restorePocketAfterCancel(order: AutoOrder): Promise<void> {
+  if (!order.pocket_id) return;
+  if (order.side === 'sell') {
+    await supabase.from('pockets').update({ status: 'bought' }).eq('id', order.pocket_id);
+    return;
+  }
+
+  // 이 포켓에 실제로 남아 있는 보유분 (부분체결분이 기록돼 있다)
+  const { data: tradeRows } = await supabase.from('trades').select('*').eq('pocket_id', order.pocket_id);
+  const open = computePnL((tradeRows ?? []) as Trade[], null);
+  if (open.totalQtyOpen <= 0) {
+    await supabase
+      .from('pockets')
+      .update({ status: 'waiting', sell_target_price: null })
+      .eq('id', order.pocket_id);
+    return;
+  }
+
+  const { data: proj } = await supabase
+    .from('projects')
+    .select('market,sell_target_pct')
+    .eq('id', order.project_id!)
+    .maybeSingle();
+  const pct = Number((proj as { sell_target_pct?: number } | null)?.sell_target_pct ?? 0);
+  const market = (proj as { market?: string } | null)?.market ?? 'US';
+  const rawSell = sellTargetFromFill(open.avgOpenPrice, pct);
+  await supabase
+    .from('pockets')
+    .update({
+      status: 'bought',
+      sell_target_price: market === 'KRX' ? alignToKrxTick(rawSell, 'sell') : rawSell,
+    })
+    .eq('id', order.pocket_id);
 }
 
 /**
@@ -394,12 +495,7 @@ export async function releasePendingOrderLocally(order: AutoOrder): Promise<void
     .from('auto_orders')
     .update({ status: 'failed', error_message: '증권사에서 직접 취소 (앱 기록만 정리)' })
     .eq('id', order.id);
-  if (order.pocket_id) {
-    await supabase
-      .from('pockets')
-      .update(order.side === 'buy' ? { status: 'waiting', sell_target_price: null } : { status: 'bought' })
-      .eq('id', order.pocket_id);
-  }
+  if (order.pocket_id) await restorePocketAfterCancel(order);
   if (order.side === 'sell' && order.project_id) {
     await supabase.from('projects').update({ close_after_sell: false }).eq('id', order.project_id);
   }

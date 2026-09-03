@@ -23,6 +23,8 @@ Expo(React Native) + Supabase 기반 **5분할 매수·매도 일지** 앱. 멀�
 - **회원가입 휴대폰 인증**: 이메일 가입은 실명·이메일·비밀번호·휴대폰 필수 + SMS OTP(알리고). `supabase/functions/send-phone-otp`·`verify-phone-otp`(--no-verify-jwt) + `src/lib/phoneAuth.ts` + phone_otps 테이블. 알리고 시크릿 없으면 devMode로 코드 반환(테스트). 가입 트리거가 phone_verified 저장.
 - **SNS 가입 후 번호 게이트**: 로그인했는데 phone_verified=false면 `app/(app)/verify-phone.tsx`로 강제 이동(RootNavigator 게이트). verify-phone-otp가 Authorization 토큰 있으면 그 사용자 프로필의 phone/phone_verified를 직접 갱신. useAuth().phoneVerified/profileLoaded 사용.
 - `src/domain/pockets.ts` — 핵심 순수함수: 포켓 목표가, `computePnL`(포켓 순환 대응: 포지션 0이면 원가 리셋), `realizedEvents`(매도 1건별 실현손익), `evaluateSignals`(buy/sell/stop 신호 판정).
+- **부분체결**: 15주 주문에 5주만 체결되는 경우 — `auto_orders.filled_qty`(마이그레이션 20260903a)에 체결 누계를 남기고, 전량 체결될 때까지 주문을 `sent` 로 유지한다. 체결분만 trades 에 기록(같은 행 수량을 누계로 갱신)하고 포켓 상태는 전량 체결 뒤에만 bought/sold 로 바꾼다 → 카드에 '남은 수량'이 보이고 취소도 된다. 선점은 `filled_qty < 새 누계` 조건의 단일 UPDATE(원자적)로 중복 기록을 막는다. 부분체결 상태에서 취소하면 매수는 '보유중'(대기중 아님)으로 되돌린다. 클라이언트(`pendingOrders.ts`·`autoTrader.ts`)와 서버 러너 양쪽 동일.
+- **미체결 주문 취소**: 매수·매도 모두 포켓 카드의 '🚫 …주문 취소' 버튼, 매수는 주문가 변경 모달에도 '🚫 주문 취소' 버튼(닫기/주문취소/재주문 3개).
 - **마지노선(손절)**: 보유중 포켓에 `pockets.stop_price`(마이그레이션 20260813b)를 두면 현재가가 그 아래로 내려갈 때 `stop` 신호 → **현재가로** 전량 매도(마지노선 가격으로 걸면 더 떨어졌을 때 영영 안 팔림). 목표가 수정 모달에서 입력(매도 목표가보다 높으면 저장 차단). 컬럼 없으면 마지노선만 빼고 저장(`src/services/pocketTargets.ts`). 클라이언트 `autoTrader`와 서버 러너 양쪽에 동일 규칙.
 - `src/domain/goals.ts` — 인생목표 CAGR. 실제달성액 = 이월 ± 입출금 + 배당금 + 실현손익 (매매일지 자동 연동, 수동입력 없음).
 - `src/services/prices/` — 시세 추상화. 기본 Yahoo(키 불필요, 15분 지연, 웹은 CORS 막힘→실기기에서만 라이브). `EXPO_PUBLIC_USE_MOCK=1`로 목업. 한글 종목검색은 Naver(`src/services/symbols.ts`) — Yahoo는 한글 쿼리 400 에러.

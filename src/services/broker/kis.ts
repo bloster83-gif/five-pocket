@@ -799,7 +799,8 @@ function ymdOffset(days: number): string {
 
 export interface OrderFill {
   avgPrice: number; // 체결 평균단가
-  filledQty: number; // 총 체결수량
+  filledQty: number; // 총 체결수량 (부분체결이면 지금까지의 누계)
+  orderQty: number; // 원 주문수량 — filledQty 와 다르면 아직 남아 있는 주문
 }
 
 /**
@@ -908,11 +909,21 @@ export async function inspectOrderFill(
       return { ...base, ok: true, rows: rows.length, message: msg || '조회는 됐지만 이 주문번호의 체결이 없어요.', sampleOdnos };
     }
     const qty = isUs ? Number(row.ft_ccld_qty ?? row.ccld_qty ?? 0) : Number(row.tot_ccld_qty ?? 0);
+    // 원 주문수량 — 체결수량과 다르면 부분체결이라 주문이 아직 살아 있다
+    const ordQty = isUs ? Number(row.ft_ord_qty ?? row.ord_qty ?? 0) : Number(row.ord_qty ?? 0);
     const avg = isUs
       ? Number(row.ft_ccld_unpr3 ?? row.ccld_unpr ?? 0)
       : Number(row.avg_prvs ?? 0) || (qty > 0 ? Number(row.tot_ccld_amt ?? 0) / qty : 0);
     if (qty > 0 && avg > 0) {
-      return { ok: true, rows: rows.length, matched: true, message: msg || '체결 확인', sampleOdnos, fill: { avgPrice: avg, filledQty: qty } };
+      return {
+        ok: true,
+        rows: rows.length,
+        matched: true,
+        message: msg || '체결 확인',
+        sampleOdnos,
+        // 주문수량을 못 읽으면 체결수량을 그대로 써서 '전량 체결'로 본다 (예전 동작)
+        fill: { avgPrice: avg, filledQty: qty, orderQty: ordQty > 0 ? ordQty : qty },
+      };
     }
     return { ...base, ok: true, rows: rows.length, matched: true, message: '주문은 찾았지만 체결수량이 0이에요 (미체결).', sampleOdnos };
   } catch (e: any) {

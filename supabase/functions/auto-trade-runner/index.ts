@@ -418,7 +418,7 @@ async function getOrderFill(
   market: 'KRX' | 'US',
   orderNo: string,
   symbol: string
-): Promise<{ avgPrice: number; filledQty: number } | null> {
+): Promise<{ avgPrice: number; filledQty: number; orderQty: number } | null> {
   if (!orderNo) return null;
   try {
     if (market === 'US') {
@@ -456,7 +456,9 @@ async function getOrderFill(
       const row = rows.find((r) => sameOrderNo(r.odno, orderNo));
       const qty = Number(row?.ft_ccld_qty ?? row?.ccld_qty ?? 0);
       const price = Number(row?.ft_ccld_unpr3 ?? row?.ccld_unpr ?? 0);
-      return qty > 0 && price > 0 ? { avgPrice: price, filledQty: qty } : null;
+      // 원 주문수량 — 체결수량과 다르면 부분체결이라 주문이 아직 살아 있다
+      const ordQty = Number(row?.ft_ord_qty ?? row?.ord_qty ?? 0);
+      return qty > 0 && price > 0 ? { avgPrice: price, filledQty: qty, orderQty: ordQty > 0 ? ordQty : qty } : null;
     }
     const u = new URL(`${baseUrl(acc)}/uapi/domestic-stock/v1/trading/inquire-daily-ccld`);
     const params: Record<string, string> = {
@@ -494,7 +496,8 @@ async function getOrderFill(
     const qty = Number(row?.tot_ccld_qty ?? 0);
     const amt = Number(row?.tot_ccld_amt ?? 0);
     const avg = Number(row?.avg_prvs ?? 0) || (qty > 0 ? amt / qty : 0);
-    return qty > 0 && avg > 0 ? { avgPrice: avg, filledQty: qty } : null;
+    const ordQty = Number(row?.ord_qty ?? 0);
+    return qty > 0 && avg > 0 ? { avgPrice: avg, filledQty: qty, orderQty: ordQty > 0 ? ordQty : qty } : null;
   } catch {
     return null;
   }
@@ -505,7 +508,7 @@ async function reconcilePendingFills(admin: SupabaseClient): Promise<number> {
   const since = new Date(Date.now() - 2 * 86400 * 1000).toISOString(); // 최근 2일
   const { data: pending } = await admin
     .from('auto_orders')
-    .select('id,user_id,project_id,pocket_id,side,symbol,kis_order_no')
+    .select('id,user_id,project_id,pocket_id,side,symbol,quantity,filled_qty,kis_order_no')
     .eq('status', 'sent')
     .gte('created_at', since);
   if (!pending?.length) return 0;
@@ -528,15 +531,25 @@ async function reconcilePendingFills(admin: SupabaseClient): Promise<number> {
       const token = await getToken(admin, acc);
       const fill = await getOrderFill(acc, token, proj.market === 'US' ? 'US' : 'KRX', o.kis_order_no, o.symbol);
       if (!fill || fill.avgPrice <= 0) continue;
+
+      // ── 부분체결 판정 ──
+      // 15주를 주문했는데 5주만 체결되는 일이 있다. 체결분만 반영하고,
+      // 남은 수량은 주문을 'sent' 로 남겨 다음 주기에 계속 확인한다.
+      const orderQty = Math.floor(Number(fill.orderQty ?? o.quantity)) || Math.floor(Number(o.quantity));
+      const prevFilled = Math.floor(Number(o.filled_qty ?? 0));
+      if (fill.filledQty - prevFilled <= 0) continue; // 이미 반영한 체결
+      const fullyFilled = orderQty > 0 ? fill.filledQty >= orderQty : true;
+
       // ── 주문 '선점' (중복 기록 방지) ──
       // 앱(여러 화면)과 이 러너가 동시에 같은 주문을 처리하면 체결이 두 번 기록된다.
-      // status='sent' 인 행만 'filled' 로 바꾸는 단일 UPDATE 는 원자적이므로,
+      // 체결 누계를 키운 쪽만 이기는 단일 UPDATE 는 원자적이므로,
       // 갱신된 행이 0건이면 이미 다른 쪽이 처리한 것이라 건너뛴다.
       const { data: claimed } = await admin
         .from('auto_orders')
-        .update({ status: 'filled' })
+        .update({ filled_qty: fill.filledQty, status: fullyFilled ? 'filled' : 'sent' })
         .eq('id', o.id)
         .eq('status', 'sent')
+        .lt('filled_qty', fill.filledQty)
         .select('id');
       if (!claimed || claimed.length === 0) continue;
       // 이 주문의 체결 기록이 이미 있으면 실제 체결가로 갱신(주로 매수), 없으면(주문완료 매도 등) 생성.
@@ -561,11 +574,14 @@ async function reconcilePendingFills(admin: SupabaseClient): Promise<number> {
           price: fill.avgPrice,
           quantity: fill.filledQty,
           executed_at: new Date().toISOString(),
-          note: `자동주문·서버(KIS ${o.kis_order_no}) ${o.side === 'sell' ? '매도' : '매수'}`,
+          note:
+            `자동주문·서버(KIS ${o.kis_order_no}) ${o.side === 'sell' ? '매도' : '매수'}` +
+            (fullyFilled ? '' : ` · 부분체결 ${fill.filledQty}/${orderQty}주`),
         });
       }
-      // 주문완료 → 체결 확인되면 보유중/매도완료로 전환
-      if (o.pocket_id) {
+      // 주문완료 → '전량' 체결 확인되면 보유중/매도완료로 전환.
+      // 부분체결 동안에는 주문완료로 두어야 앱 카드에 남은 수량이 보이고 취소도 된다.
+      if (o.pocket_id && fullyFilled) {
         if (o.side === 'buy') {
           await admin
             .from('pockets')
@@ -785,33 +801,40 @@ Deno.serve(async (req: Request) => {
           ? await placeUsOrder(acc, token, side, proj.symbol, usExch, qty, limitPrice, useDaytime)
           : await placeOrder(acc, token, side, proj.symbol, qty, limitPrice);
 
-        await admin.from('auto_orders').insert({
-          user_id: proj.user_id,
-          project_id: proj.id,
-          pocket_id: k.id,
-          side,
-          symbol: proj.symbol,
-          order_price: limitPrice,
-          quantity: qty,
-          status: 'sent',
-          kis_order_no: order.orderNo,
-        });
+        const { data: ordRow } = await admin
+          .from('auto_orders')
+          .insert({
+            user_id: proj.user_id,
+            project_id: proj.id,
+            pocket_id: k.id,
+            side,
+            symbol: proj.symbol,
+            order_price: limitPrice,
+            quantity: qty,
+            status: 'sent',
+            kis_order_no: order.orderNo,
+          })
+          .select('id')
+          .maybeSingle();
 
         // 실제 체결 여부·단가 확인 (미체결이면 지정가 기록 + '주문완료' 상태)
+        // 체결수량이 주문수량보다 적으면 '부분체결' — 그만큼만 기록하고 주문은 계속 살려 둔다.
         let fillPrice = limitPrice;
         let fillQty = qty;
-        let filledNow = false;
+        let anyFill = false; // 한 주라도 체결됐나
+        let filledNow = false; // 주문수량 전부 체결됐나
         await new Promise((r) => setTimeout(r, 2500));
         const fill = await getOrderFill(acc, token, proj.market, order.orderNo, proj.symbol);
         if (fill && fill.filledQty > 0 && fill.avgPrice > 0) {
-          filledNow = true;
+          anyFill = true;
           fillPrice = fill.avgPrice;
           fillQty = fill.filledQty;
+          filledNow = fill.filledQty >= qty;
         }
 
         // 매수·매도 모두 '체결이 확인된 경우에만' 기록한다.
         // 미체결이면 주문완료 상태로만 두고, reconcilePendingFills 가 체결 확인 시 기록을 생성.
-        if (filledNow) {
+        if (anyFill) {
           await admin.from('trades').insert({
             user_id: proj.user_id,
             project_id: proj.id,
@@ -820,8 +843,17 @@ Deno.serve(async (req: Request) => {
             price: fillPrice,
             quantity: fillQty,
             executed_at: new Date().toISOString(),
-            note: `자동주문·서버(KIS ${order.orderNo || '-'})${isStop ? ' 마지노선' : ''}`,
+            note:
+              `자동주문·서버(KIS ${order.orderNo || '-'})${isStop ? ' 마지노선' : ''}` +
+              (filledNow ? '' : ` · 부분체결 ${fillQty}/${qty}주`),
           });
+          // 체결 누계를 남겨야 reconcilePendingFills 가 같은 체결을 다시 세지 않는다
+          if (ordRow?.id) {
+            await admin
+              .from('auto_orders')
+              .update({ filled_qty: fillQty, status: filledNow ? 'filled' : 'sent' })
+              .eq('id', ordRow.id);
+          }
         }
         if (side === 'buy') {
           const sellTarget =

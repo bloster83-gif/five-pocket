@@ -15,6 +15,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notifyNow } from '@/lib/notifications';
 import { alignToKrxTick, estimatedShares, sellTargetFromFill, type PriceSignal } from '@/domain/pockets';
+import { markOrderProgress } from '@/services/pendingOrders';
 import { computePnL } from '@/domain/pockets';
 import { getOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import { orderWindow } from '@/services/marketHours';
@@ -153,7 +154,7 @@ export function useAutoTrader(
               : await placeDomesticOrder(account, orderInput);
 
           // 주문 이력 저장
-          await supabase.from('auto_orders').insert({
+          const { data: ordRow } = await supabase.from('auto_orders').insert({
             user_id: uid,
             project_id: proj.id,
             pocket_id: sig.pocket.id,
@@ -163,19 +164,22 @@ export function useAutoTrader(
             quantity: qty,
             status: 'sent',
             kis_order_no: result.orderNo,
-          });
+          }).select('id').maybeSingle();
 
           // 실제 체결 여부·단가 확인: 잠시 후 체결내역 조회. 미체결이면 지정가로 기록하고 '주문완료' 상태.
+          //  체결수량이 주문수량보다 적으면 '부분체결' — 그만큼만 기록하고 주문은 계속 살려 둔다.
           let fillPrice = limitPrice;
           let fillQty = qty;
-          let filled = false;
+          let anyFill = false; // 한 주라도 체결됐나
+          let filled = false; // 주문수량 전부 체결됐나
           try {
             await new Promise((r) => setTimeout(r, 2500));
             const fill = await getOrderFill(account, proj.market === 'US' ? 'US' : 'KRX', result.orderNo, proj.symbol);
             if (fill && fill.filledQty > 0 && fill.avgPrice > 0) {
-              filled = true;
+              anyFill = true;
               fillPrice = fill.avgPrice;
               fillQty = fill.filledQty;
+              filled = fill.filledQty >= qty;
             }
           } catch {
             /* 조회 실패 → 미체결로 간주(주문완료), 지정가 기록 */
@@ -185,7 +189,7 @@ export function useAutoTrader(
           //  매수·매도 모두 '체결이 확인된 경우에만' 기록한다.
           //  미체결이면 주문완료(buy_ordered/sell_ordered) 상태로만 두고,
           //  나중에 체결이 확인될 때(재조회·서버 러너) 체결 기록이 생성된다.
-          if (filled) {
+          if (anyFill) {
             await supabase.from('trades').insert({
               user_id: uid,
               project_id: proj.id,
@@ -194,8 +198,12 @@ export function useAutoTrader(
               price: fillPrice,
               quantity: fillQty,
               executed_at: new Date().toISOString(),
-              note: `자동주문(KIS ${result.orderNo || '-'})${sig.kind === 'stop' ? ' 마지노선' : ''}`,
+              note:
+                `자동주문(KIS ${result.orderNo || '-'})${sig.kind === 'stop' ? ' 마지노선' : ''}` +
+                (filled ? '' : ` · 부분체결 ${fillQty}/${qty}주`),
             });
+            // 체결 누계를 남겨야 나중 동기화가 같은 체결을 다시 세지 않는다
+            if (ordRow?.id) await markOrderProgress(ordRow.id, fillQty, filled);
           }
           if (sig.kind === 'buy') {
             await supabase
@@ -215,7 +223,9 @@ export function useAutoTrader(
           await report(
             { at: Date.now(), kind: sig.kind, pocketIdx: sig.pocket.idx, ok: true, message: result.message },
             `🤖 자동 ${label} 주문 완료 · ${proj.symbol}`,
-            `${proj.name} · 포켓 ${sig.pocket.idx + 1} · ${fillQty}주 @ ${fillPrice} (주문번호 ${result.orderNo || '-'})`
+            `${proj.name} · 포켓 ${sig.pocket.idx + 1} · ${fillQty}주 @ ${fillPrice}` +
+              (anyFill && !filled ? ` (부분체결 ${fillQty}/${qty}주 · 남은 수량 대기중)` : '') +
+              ` (주문번호 ${result.orderNo || '-'})`
           );
           onExecuted?.();
         } catch (e: any) {

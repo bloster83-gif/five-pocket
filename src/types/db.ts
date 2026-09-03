@@ -153,6 +153,8 @@ export interface AutoOrder {
   symbol: string;
   order_price: number;
   quantity: number;
+  /** 지금까지 체결된 누계 수량. quantity 보다 작으면 부분체결 (마이그레이션 20260903a) */
+  filled_qty?: number | null;
   status: AutoOrderStatus;
   kis_order_no: string | null;
   error_message: string | null;

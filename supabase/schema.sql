@@ -271,6 +271,8 @@ create table if not exists public.auto_orders (
   symbol        text not null,
   order_price   numeric(20,4) not null,
   quantity      numeric(20,4) not null,
+  -- 지금까지 체결된 누계. quantity 보다 작으면 부분체결(주문은 계속 살아 있다)
+  filled_qty    numeric(20,4) not null default 0,
   status        text not null default 'sent'
                   check (status in ('sent', 'filled', 'failed')),
   kis_order_no  text,           -- KIS 주문번호(ODNO)

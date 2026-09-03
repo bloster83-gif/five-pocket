@@ -16,7 +16,7 @@ import { getOrderFill, inspectOrderFill, isNxtTradable, kisOrderBlocked, placeDo
 import { orderWindow } from '@/services/marketHours';
 import { getUnifiedQuote } from '@/services/prices/unified';
 import { savePocketTargets, STOP_PRICE_MIGRATION_HINT } from '@/services/pocketTargets';
-import { cancelPendingOrder, loadPendingOrders, reconcilePendingOrders, releasePendingOrderLocally } from '@/services/pendingOrders';
+import { cancelPendingOrder, loadPendingOrders, markOrderProgress, reconcilePendingOrders, releasePendingOrderLocally } from '@/services/pendingOrders';
 import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 export default function ProjectDetailScreen() {
@@ -250,7 +250,7 @@ export default function ProjectDetailScreen() {
       try {
         const input = { side: 'sell' as const, symbol: project.symbol, quantity: qty, price: sellPrice };
         const r = project.market === 'US' ? await placeOverseasOrder(account, input) : await placeDomesticOrder(account, input);
-        await supabase.from('auto_orders').insert({
+        const { data: ordRow } = await supabase.from('auto_orders').insert({
           user_id: session.user.id,
           project_id: project.id,
           pocket_id: k.id,
@@ -260,19 +260,22 @@ export default function ProjectDetailScreen() {
           quantity: qty,
           status: 'sent',
           kis_order_no: r.orderNo,
-        });
+        }).select('id').maybeSingle();
 
         // 실제 체결 여부·단가 확인 (미체결이면 지정가로 기록하고 '매도 주문완료' 상태)
+        // 체결수량이 주문수량보다 적으면 '부분체결' — 그만큼만 기록하고 남은 수량은 계속 기다린다.
         let fillPrice = sellPrice;
         let fillQty = qty;
-        let filled = false;
+        let anyFill = false; // 한 주라도 체결됐나
+        let filled = false; // 주문수량 전부 체결됐나
         try {
           await new Promise((res) => setTimeout(res, 2500));
           const fill = await getOrderFill(account, project.market === 'US' ? 'US' : 'KRX', r.orderNo, project.symbol);
           if (fill && fill.filledQty > 0 && fill.avgPrice > 0) {
-            filled = true;
+            anyFill = true;
             fillPrice = fill.avgPrice;
             fillQty = fill.filledQty;
+            filled = fill.filledQty >= qty;
           }
         } catch {
           /* 조회 실패 → 미체결로 간주(주문완료), 지정가 기록 */
@@ -280,7 +283,7 @@ export default function ProjectDetailScreen() {
 
         // 매도는 '체결'되어야 매매일지에 기록(실현손익 반영). 미체결(주문완료)이면 기록하지 않음.
         // (체결 대기중엔 여전히 보유 상태이므로 매수 기록만 남고, 체결되면 재조회가 매도 기록을 생성)
-        if (filled) {
+        if (anyFill) {
           await supabase.from('trades').insert({
             user_id: session.user.id,
             project_id: project.id,
@@ -289,9 +292,13 @@ export default function ProjectDetailScreen() {
             price: fillPrice,
             quantity: fillQty,
             executed_at: new Date().toISOString(),
-            note: `자동주문(KIS ${r.orderNo || '-'}) ${word}`,
+            note:
+              `자동주문(KIS ${r.orderNo || '-'}) ${word}` + (filled ? '' : ` · 부분체결 ${fillQty}/${qty}주`),
           });
+          // 체결 누계를 남겨야 나중 동기화가 같은 체결을 다시 세지 않는다
+          if (ordRow?.id) await markOrderProgress(ordRow.id, fillQty, filled);
         }
+        // 일부만 팔렸으면 아직 '매도 주문완료' — 남은 수량이 카드에 보이고 취소도 된다
         await supabase.from('pockets').update({ status: filled ? 'sold' : 'sell_ordered' }).eq('id', k.id);
         return { ok: true, word, ordered: !filled };
       } catch (e: any) {
@@ -329,28 +336,34 @@ export default function ProjectDetailScreen() {
     );
   };
 
-  // 미체결 매도 주문 취소 → 포켓을 '보유중'으로 되돌린다.
-  // (엉뚱한 가격에 걸려 영영 체결되지 않는 주문을 풀고 현재가로 다시 익절/손절하기 위함)
-  const cancelSellOrder = (k: Pocket) => {
+  // 미체결 주문 취소 (매수·매도 공통).
+  //  · 매수 취소 → '대기중' (부분체결로 이미 산 게 있으면 '보유중' 유지)
+  //  · 매도 취소 → '보유중' — 엉뚱한 가격에 걸려 영영 체결되지 않는 주문을 풀고
+  //    현재가로 다시 익절/손절할 수 있게 한다.
+  const cancelPocketOrder = (k: Pocket) => {
     const po = pendingOrders[k.id];
     if (!po || !project) return;
+    const isBuy = po.side === 'buy';
+    const word = isBuy ? '매수' : '매도';
+    const done = Math.floor(Number(po.filled_qty ?? 0));
+    const rest = Math.max(0, Math.floor(Number(po.quantity)) - done);
+    const backTo = isBuy ? (done > 0 ? '보유중' : '대기중') : '보유중';
     confirmAction(
-      '매도 주문 취소',
-      `포켓 ${k.idx + 1}의 미체결 매도 주문(${formatPrice(Number(po.order_price), project.market)} · ${money(
-        Math.floor(Number(po.quantity)),
-        0
-      )}주)을 취소할까요?\n취소하면 다시 ‘보유중’으로 돌아가요.` +
-        (project.close_after_sell ? '\n예약해 둔 ‘매도 후 자동 종료’도 함께 해제돼요.' : ''),
+      `${word} 주문 취소`,
+      `포켓 ${k.idx + 1}의 미체결 ${word} 주문(${formatPrice(Number(po.order_price), project.market)} · ${money(rest, 0)}주)을 취소할까요?` +
+        (done > 0 ? `\n이미 체결된 ${money(done, 0)}주는 그대로 남아요.` : '') +
+        `\n취소하면 ‘${backTo}’으로 돌아가요.` +
+        (!isBuy && project.close_after_sell ? '\n예약해 둔 ‘매도 후 자동 종료’도 함께 해제돼요.' : ''),
       async () => {
         try {
           await cancelPendingOrder(po, project.market, account);
         } catch (e: any) {
           await load();
           // 증권사 취소가 실패해도 사용자가 증권사 앱에서 직접 취소할 수 있다.
-          // 그 경우 포켓이 '매도 주문완료'에 영영 갇히지 않도록 기록만 정리하는 길을 열어준다.
+          // 그 경우 포켓이 '주문완료'에 영영 갇히지 않도록 기록만 정리하는 길을 열어준다.
           return chooseAction(
             '주문 취소 실패',
-            `${e?.message ?? '취소하지 못했어요.'}\n\n증권사 앱에서 직접 취소하셨다면 앱 기록만 정리할 수 있어요.\n(주문이 아직 살아 있는데 정리하면 이중 매도가 될 수 있으니 증권사 앱에서 먼저 확인해 주세요)`,
+            `${e?.message ?? '취소하지 못했어요.'}\n\n증권사 앱에서 직접 취소하셨다면 앱 기록만 정리할 수 있어요.\n(주문이 아직 살아 있는데 정리하면 이중 ${word}가 될 수 있으니 증권사 앱에서 먼저 확인해 주세요)`,
             [
               {
                 text: '증권사에서 이미 취소했어요',
@@ -358,7 +371,7 @@ export default function ProjectDetailScreen() {
                 onPress: async () => {
                   await releasePendingOrderLocally(po);
                   await load();
-                  notify('기록 정리 완료', `포켓 ${k.idx + 1}이(가) 보유중으로 돌아갔어요.`);
+                  notify('기록 정리 완료', `포켓 ${k.idx + 1}이(가) ${backTo}으로 돌아갔어요.`);
                 },
               },
               { text: '닫기', style: 'cancel' },
@@ -366,7 +379,7 @@ export default function ProjectDetailScreen() {
           );
         }
         await load();
-        notify('매도 주문 취소됨', `포켓 ${k.idx + 1}이(가) 보유중으로 돌아갔어요.`);
+        notify(`${word} 주문 취소됨`, `포켓 ${k.idx + 1}이(가) ${backTo}으로 돌아갔어요.`);
       },
       '주문 취소'
     );
@@ -400,7 +413,7 @@ export default function ProjectDetailScreen() {
       try {
         const input = { side: 'buy' as const, symbol: project.symbol, quantity: qty, price: buyPrice };
         const r = project.market === 'US' ? await placeOverseasOrder(account, input) : await placeDomesticOrder(account, input);
-        await supabase.from('auto_orders').insert({
+        const { data: ordRow } = await supabase.from('auto_orders').insert({
           user_id: session.user.id,
           project_id: project.id,
           pocket_id: k.id,
@@ -410,18 +423,20 @@ export default function ProjectDetailScreen() {
           quantity: qty,
           status: 'sent',
           kis_order_no: r.orderNo,
-        });
+        }).select('id').maybeSingle();
 
         let fillPrice = buyPrice;
         let fillQty = qty;
-        let filled = false;
+        let anyFill = false; // 한 주라도 체결됐나
+        let filled = false; // 주문수량 전부 체결됐나
         try {
           await new Promise((res) => setTimeout(res, 2500));
           const fill = await getOrderFill(account, project.market === 'US' ? 'US' : 'KRX', r.orderNo, project.symbol);
           if (fill && fill.filledQty > 0 && fill.avgPrice > 0) {
-            filled = true;
+            anyFill = true;
             fillPrice = fill.avgPrice;
             fillQty = fill.filledQty;
+            filled = fill.filledQty >= qty;
           }
         } catch {
           /* 조회 실패 → 미체결(주문완료)로 간주, 지정가 기록 */
@@ -430,7 +445,8 @@ export default function ProjectDetailScreen() {
         // 체결이 확인된 경우에만 기록한다(매도와 동일 규칙).
         // 미체결이면 '매수 주문완료'로만 두고, 나중에 체결이 확인될 때
         // (화면 진입 시 동기화·서버 러너) 체결 기록이 생성된다.
-        if (filled) {
+        // 부분체결이면 체결된 만큼만 기록하고 주문은 계속 살려 둔다.
+        if (anyFill) {
           await supabase.from('trades').insert({
             user_id: session.user.id,
             project_id: project.id,
@@ -439,8 +455,9 @@ export default function ProjectDetailScreen() {
             price: fillPrice,
             quantity: fillQty,
             executed_at: new Date().toISOString(),
-            note: `자동주문(KIS ${r.orderNo || '-'})`,
+            note: `자동주문(KIS ${r.orderNo || '-'})` + (filled ? '' : ` · 부분체결 ${fillQty}/${qty}주`),
           });
+          if (ordRow?.id) await markOrderProgress(ordRow.id, fillQty, filled);
         }
         await supabase
           .from('pockets')
@@ -938,7 +955,7 @@ export default function ProjectDetailScreen() {
                 setOrderChange(po);
                 setAutoOrderPocket(k);
               }}
-              onCancelSellOrder={() => cancelSellOrder(k)}
+              onCancelOrder={() => cancelPocketOrder(k)}
               onDiagnose={() => diagnoseFill(k)}
               showDiagnose={isAdmin}
               projectClosed={!!project.closed_at}
@@ -1052,6 +1069,12 @@ export default function ProjectDetailScreen() {
       pocket={autoOrderPocket}
       market={mkt}
       pending={orderChange}
+      onCancelOnly={() => {
+        const k = autoOrderPocket;
+        setAutoOrderPocket(null);
+        setOrderChange(null);
+        if (k) cancelPocketOrder(k);
+      }}
       defaultPrice={
         autoOrderPocket
           ? (() => {
@@ -1266,6 +1289,7 @@ function AutoOrderModal({
   pending,
   onClose,
   onSubmit,
+  onCancelOnly,
 }: {
   pocket: Pocket | null;
   market: string;
@@ -1274,6 +1298,8 @@ function AutoOrderModal({
   pending: AutoOrder | null; // 있으면 '미체결 주문가 변경' 모드
   onClose: () => void;
   onSubmit: (price: number) => void;
+  /** 재주문 없이 미체결 주문만 취소 (주문가 변경 모드에서만 보인다) */
+  onCancelOnly?: () => void;
 }) {
   const [raw, setRaw] = useState('');
   useEffect(() => {
@@ -1328,14 +1354,33 @@ function AutoOrderModal({
           )}
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 2 }}>
             <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}>
-              <Text style={{ color: colors.textDim, fontWeight: '800' }}>취소</Text>
+              <Text style={{ color: colors.textDim, fontWeight: '800' }}>닫기</Text>
             </Pressable>
+            {/* 재주문 없이 '주문만 취소' — 가격이 확 올라 체결 가능성이 없을 때 쓴다 */}
+            {pending && onCancelOnly && (
+              <Pressable
+                onPress={onCancelOnly}
+                style={{
+                  flex: 1.4,
+                  borderRadius: radius.md,
+                  paddingVertical: 12,
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: colors.danger,
+                  backgroundColor: 'rgba(248,113,113,0.12)',
+                }}
+              >
+                <Text style={{ color: colors.danger, fontWeight: '800' }}>🚫 주문 취소</Text>
+              </Pressable>
+            )}
             <Pressable
               onPress={() => aligned > 0 && onSubmit(aligned)}
               disabled={aligned <= 0}
               style={{ flex: 2, backgroundColor: aligned > 0 ? colors.buy : colors.border, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}
             >
-              <Text style={{ color: '#fff', fontWeight: '800' }}>{pending ? '취소 후 이 가격으로 재주문' : '🤖 자동주문 넣기'}</Text>
+              <Text style={{ color: '#fff', fontWeight: '800', textAlign: 'center' }}>
+                {pending ? '취소 후 이 가격으로 재주문' : '🤖 자동주문 넣기'}
+              </Text>
             </Pressable>
           </View>
         </Pressable>
@@ -1400,7 +1445,7 @@ function PocketCard({
   onRestart,
   pendingOrder,
   onChangeOrderPrice,
-  onCancelSellOrder,
+  onCancelOrder,
   showDiagnose,
   onDiagnose,
   projectClosed,
@@ -1425,7 +1470,7 @@ function PocketCard({
   onRestart: () => void;
   pendingOrder: AutoOrder | null; // 미체결(주문완료) 주문 — 주문가·수량 표시용
   onChangeOrderPrice: () => void; // 미체결 매수 주문가 변경 (취소 후 재주문)
-  onCancelSellOrder: () => void; // 미체결 매도 주문 취소 (→ 보유중 복귀)
+  onCancelOrder: () => void; // 미체결 주문 취소 (매수 → 대기중 / 매도 → 보유중)
   showDiagnose: boolean; // '체결 조회 진단'(개발용) 노출 — 관리자만
   onDiagnose: () => void; // 증권사 체결조회 결과를 그대로 보여주는 진단
   projectClosed: boolean; // 프로젝트 종료 시 재시작 버튼 숨김
@@ -1718,7 +1763,12 @@ function PocketCard({
             >
               <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 13 }}>🕐 {pendingWord} 주문완료 · 체결 대기중</Text>
               {/* 체결 전에는 체결 기록이 없어 보유 정보가 비므로, 실제 주문가·수량을 보여준다 */}
-              {pendingOrder && (
+              {pendingOrder && (() => {
+                // 부분체결(15주 주문 → 5주 체결)이면 아직 안 된 수량만 '남은 수량'으로 보여준다
+                const totalQty = Math.floor(Number(pendingOrder.quantity));
+                const doneQty = Math.floor(Number(pendingOrder.filled_qty ?? 0));
+                const restQty = Math.max(0, totalQty - doneQty);
+                return (
                 <View style={{ marginTop: 6, gap: 3 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                     <Text style={{ color: colors.textDim, fontSize: 12 }}>{pendingWord} 주문가</Text>
@@ -1727,21 +1777,31 @@ function PocketCard({
                     </Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: colors.textDim, fontSize: 12 }}>주문 수량</Text>
+                    <Text style={{ color: colors.textDim, fontSize: 12 }}>{doneQty > 0 ? '남은 수량' : '주문 수량'}</Text>
                     <Text style={{ color: num.position, fontSize: 14, fontWeight: '900' }}>
-                      {money(Math.floor(Number(pendingOrder.quantity)), 0)}주
+                      {money(restQty, 0)}주
                     </Text>
                   </View>
+                  {doneQty > 0 && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ color: colors.textDim, fontSize: 12 }}>부분체결</Text>
+                      <Text style={{ color: colors.warn, fontSize: 13, fontWeight: '800' }}>
+                        {money(totalQty, 0)}주 중 {money(doneQty, 0)}주 체결
+                      </Text>
+                    </View>
+                  )}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                     <Text style={{ color: colors.textDim, fontSize: 12 }}>주문 금액</Text>
                     <Text style={{ color: num.position, fontSize: 14, fontWeight: '900' }}>
-                      {formatMoney(Number(pendingOrder.order_price) * Math.floor(Number(pendingOrder.quantity)), market)}
+                      {formatMoney(Number(pendingOrder.order_price) * restQty, market)}
                     </Text>
                   </View>
                 </View>
-              )}
+                );
+              })()}
               <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 4 }}>
-                체결이 확인되면 자동으로 {pendingWord === '매수' ? '보유중' : '매도완료'}으로 바뀌어요.
+                전량 체결되면 자동으로 {pendingWord === '매수' ? '보유중' : '매도완료'}으로 바뀌어요.{'\n'}
+                일부만 체결되면 그만큼 먼저 기록하고, 남은 수량은 계속 기다려요.
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: 6, flexWrap: 'wrap' }}>
                 {pendingWord === '매수' && pendingOrder && !projectClosed && (
@@ -1749,10 +1809,12 @@ function PocketCard({
                     <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>✏️ 주문 취소하고 매수가 변경</Text>
                   </Pressable>
                 )}
-                {/* 매도 미체결 — 취소하면 '보유중'으로 돌아가 현재가로 다시 익절/손절할 수 있다 */}
-                {pendingWord === '매도' && pendingOrder && !projectClosed && (
-                  <Pressable onPress={onCancelSellOrder} hitSlop={6}>
-                    <Text style={{ color: colors.sell, fontSize: 12, fontWeight: '800' }}>🚫 매도 주문 취소</Text>
+                {/* 미체결 주문 취소 — 매수는 '대기중', 매도는 '보유중'으로 돌아간다 */}
+                {pendingOrder && !projectClosed && (
+                  <Pressable onPress={onCancelOrder} hitSlop={6}>
+                    <Text style={{ color: pendingWord === '매수' ? colors.buy : colors.sell, fontSize: 12, fontWeight: '800' }}>
+                      🚫 {pendingWord} 주문 취소
+                    </Text>
                   </Pressable>
                 )}
                 {/* 체결 조회 진단 — 증권사 원문 응답(주문번호·체결 건수)을 그대로 보여주는 개발용 도구.
