@@ -388,16 +388,17 @@ export default function JournalScreen() {
                   {isBuy ? '매수' : '매도'}
                 </Text>
               </View>
-              {/* 자동주문 / 수동주문 구분 배지 */}
+              {/* 자동주문 / 수동주문 구분 배지.
+                  파란색은 '매도'라 헷갈리므로 자동은 초록(primary), 수동은 흰색으로 둔다. */}
               <View
                 style={{
                   paddingHorizontal: 6,
                   paddingVertical: 2,
                   borderRadius: 6,
-                  backgroundColor: isAutoOrder ? 'rgba(91,141,239,0.16)' : colors.cardAlt,
+                  backgroundColor: isAutoOrder ? 'rgba(34,211,166,0.16)' : colors.cardAlt,
                 }}
               >
-                <Text style={{ color: isAutoOrder ? colors.accent : colors.textDim, fontWeight: '800', fontSize: 10 }}>
+                <Text style={{ color: isAutoOrder ? colors.primary : colors.text, fontWeight: '800', fontSize: 10 }}>
                   {isAutoOrder ? '🤖 자동' : '수동'}
                 </Text>
               </View>
@@ -796,7 +797,8 @@ function TradeDetailModal({
     { label: '티커', value: ticker },
     { label: '시장', value: mkt === 'KRX' ? '한국 (KRX)' : mkt === 'US' ? '미국 (US)' : mkt },
     { label: '구분', value: isBuy ? '매수' : '매도', color: isBuy ? colors.buy : colors.sell },
-    { label: '주문유형', value: isAutoOrder ? '🤖 자동주문' : '수동주문', color: isAutoOrder ? colors.accent : colors.textDim },
+    // 자동=초록, 수동=흰색 (파란색은 '매도'라 헷갈린다)
+    { label: '주문유형', value: isAutoOrder ? '🤖 자동주문' : '수동주문', color: isAutoOrder ? colors.primary : colors.text },
     { label: '체결가', value: formatPrice(t.price, mkt) },
     { label: '수량', value: `${money(t.quantity, 0)}주` },
     { label: '체결금액', value: formatMoney(amount, mkt) },
