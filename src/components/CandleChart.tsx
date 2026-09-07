@@ -214,9 +214,39 @@ export function CandleChart({
   const { width: winW, height: winH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isLandscape = winW > winH;
+  // ── 가로 보기 종목 검색 ─────────────────────────────────────
+  const [searchOpen, setSearchOpen] = useState(false);
+  const backToWide = useRef(false); // 검색이 끝나면 가로 보기로 되돌아갈지
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SymbolResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  useEffect(() => {
+    const q = query.trim();
+    if (!searchOpen || q.length < 1) {
+      setResults([]);
+      return;
+    }
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        setResults(await searchSymbols(q));
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [query, searchOpen]);
+
   const [wideView, setWideView] = useState(false);
+  // 기기가 실제로 가로로 누웠으면 회전 흉내가 필요 없다 (자판·안전영역도 정상으로 동작)
+  const realLandscape = isLandscape;
   const chartH = wideView
-    ? Math.max(200, winW - insets.left - insets.right - 150) // 회전 시에는 '기기 가로폭'이 차트 높이가 된다
+    ? realLandscape
+      ? // 검색창이 열려 있으면 그만큼 차트를 줄여 화면 밖으로 밀리지 않게 한다
+        Math.max(160, winH - insets.top - insets.bottom - 190 - (searchOpen ? 150 : 0))
+      : Math.max(200, winW - insets.left - insets.right - 150) // 흉내 낼 때는 '기기 가로폭'이 차트 높이가 된다
     : isLandscape
       ? Math.max(200, winH - 170)
       : height;
@@ -230,6 +260,14 @@ export function CandleChart({
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
     };
   }, []);
+
+  // '가로 보기'를 켜면 기기를 실제로 눕혀 본다.
+  // 되는 기기에서는 자판·안전영역이 전부 정상으로 동작하고, 안 되면 아래 회전 흉내로 넘어간다.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    if (wideView) ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+    else ScreenOrientation.unlockAsync().catch(() => {});
+  }, [wideView]);
 
   // ── 확대·축소 / 스크롤 ──────────────────────────────────────
   const candleWRef = useRef(candleW);
@@ -458,29 +496,28 @@ export function CandleChart({
     return Array.from({ length: n + 1 }, (_, i) => minP + ((maxP - minP) * i) / n);
   }, [minP, maxP]);
 
-  // ── 가로 보기 종목 검색 ─────────────────────────────────────
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SymbolResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  useEffect(() => {
-    const q = query.trim();
-    if (!searchOpen || q.length < 1) {
-      setResults([]);
-      return;
+  /** 검색 열기 — 실제 가로면 그 자리에서, 회전 흉내 중이면 잠시 세로로 나가서 (자판이 안 돌아가므로) */
+  const openSearch = () => {
+    setQuery('');
+    if (wideView && !realLandscape) {
+      backToWide.current = true;
+      setWideView(false);
     }
-    setSearching(true);
-    const t = setTimeout(async () => {
-      try {
-        setResults(await searchSymbols(q));
-      } catch {
-        setResults([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 350);
-    return () => clearTimeout(t);
-  }, [query, searchOpen]);
+    setSearchOpen(true);
+  };
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery('');
+    if (backToWide.current) {
+      backToWide.current = false;
+      setWideView(true);
+    }
+  };
+  const pickSymbol = (r: SymbolResult) => {
+    setBrowse({ symbol: r.symbol, name: r.name, market: r.market });
+    setSelectedId(null);
+    closeSearch();
+  };
 
   // ── 그리기 ─────────────────────────────────────────────────
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -1157,115 +1194,150 @@ export function CandleChart({
     </>
   );
 
-  // 가로 보기 — 화면 전체를 덮고 내용을 90° 돌려 크게 보여준다
-  if (wideView) {
-    return (
-      <Modal visible transparent={false} animationType="fade" onRequestClose={() => setWideView(false)}>
-        <StatusBar hidden />
-        <View style={{ flex: 1, backgroundColor: colors.bg }}>
-          <View
-            style={{
-              position: 'absolute',
-              top: (winH - winW) / 2,
-              left: (winW - winH) / 2,
-              width: winH,
-              height: winW,
-              transform: [{ rotate: '90deg' }],
-              // 90° 돌린 좌표계라 기기의 상·하단(노치·홈 인디케이터)이 좌·우가 된다
-              paddingLeft: insets.top + spacing.md,
-              paddingRight: insets.bottom + spacing.lg,
-              paddingTop: insets.right + spacing.sm,
-              paddingBottom: insets.left + spacing.sm,
-              gap: spacing.sm,
-            }}
-          >
-            {/* 왼쪽 위: 지금 보고 있는 종목. 오른쪽: 다른 종목을 바로 찾아보기 */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-              <View style={{ flexShrink: 1 }}>
-                <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>
-                  {name || symbol}
-                </Text>
-                <Text numberOfLines={1} style={{ color: colors.textDim, fontSize: 11 }}>
-                  {symbol} · {market === 'KRX' ? '🇰🇷 한국' : '🇺🇸 미국'}
-                  {browse ? '  ·  둘러보는 중' : ''}
-                </Text>
-              </View>
-              <View style={{ flex: 1 }} />
-              {browse && (
-                <Pressable
-                  onPress={() => {
-                    setBrowse(null);
-                    setSearchOpen(false);
-                  }}
-                  style={{ ...zoomBtn, width: 'auto', paddingHorizontal: 10 }}
-                >
-                  <Text style={{ color: colors.textDim, fontWeight: '800', fontSize: 12 }}>↩ 원래 종목</Text>
-                </Pressable>
-              )}
+  // 지금 보고 있는 종목 머리줄 (가로 보기 전용)
+  const wideHeader = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+      <View style={{ flexShrink: 1 }}>
+        <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>
+          {name || symbol}
+        </Text>
+        <Text numberOfLines={1} style={{ color: colors.textDim, fontSize: 11 }}>
+          {symbol} · {market === 'KRX' ? '🇰🇷 한국' : '🇺🇸 미국'}
+          {browse ? '  ·  둘러보는 중' : ''}
+        </Text>
+      </View>
+      <View style={{ flex: 1 }} />
+      {browse && (
+        <Pressable onPress={() => setBrowse(null)} style={{ ...zoomBtn, width: 'auto', paddingHorizontal: 10 }}>
+          <Text style={{ color: colors.textDim, fontWeight: '800', fontSize: 12 }}>↩ 원래 종목</Text>
+        </Pressable>
+      )}
+      <Pressable onPress={openSearch} style={{ ...zoomBtn, width: 'auto', paddingHorizontal: 12 }}>
+        <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>🔍 종목 검색</Text>
+      </Pressable>
+    </View>
+  );
+
+  // 종목 검색 — 실제 가로일 때는 그 자리에서, 회전 흉내 중이면 세로 시트에서 (자판이 돌아가지 않으므로)
+  const searchPanel = (
+    <View style={{ gap: 6 }}>
+      <TextInput
+        value={query}
+        onChangeText={setQuery}
+        autoFocus
+        placeholder="종목명 또는 티커 (예: 삼성전자, AAPL)"
+        placeholderTextColor={colors.textDim}
+        style={{
+          backgroundColor: colors.cardAlt,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingHorizontal: spacing.md,
+          paddingVertical: 10,
+          color: colors.text,
+          fontSize: 16,
+        }}
+      />
+      {searching && <ActivityIndicator color={colors.primary} />}
+      {results.length > 0 && (
+        <ScrollView style={{ maxHeight: 200 }} keyboardShouldPersistTaps="handled">
+          <View style={{ gap: 1, backgroundColor: colors.border, borderRadius: 8, overflow: 'hidden' }}>
+            {results.map((r) => (
               <Pressable
-                onPress={() => {
-                  setSearchOpen((v) => !v);
-                  setQuery('');
-                }}
-                style={{ ...zoomBtn, width: 'auto', paddingHorizontal: 12 }}
+                key={`${r.market}:${r.symbol}`}
+                onPress={() => pickSymbol(r)}
+                style={{ backgroundColor: colors.cardAlt, paddingHorizontal: spacing.md, paddingVertical: 10 }}
               >
-                <Text style={{ color: searchOpen ? colors.buy : colors.text, fontWeight: '900', fontSize: 13 }}>
-                  🔍 종목 검색
+                <Text style={{ color: colors.text, fontWeight: '700' }}>{r.name}</Text>
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                  {r.symbol} · {r.exchange} · {r.market === 'KRX' ? '한국' : '미국/기타'}
                 </Text>
               </Pressable>
-            </View>
+            ))}
+          </View>
+        </ScrollView>
+      )}
+    </View>
+  );
 
-            {searchOpen && (
-              <View style={{ gap: 6 }}>
-                <TextInput
-                  value={query}
-                  onChangeText={setQuery}
-                  autoFocus
-                  placeholder="종목명 또는 티커 (예: 삼성전자, AAPL)"
-                  placeholderTextColor={colors.textDim}
-                  style={{
-                    backgroundColor: colors.cardAlt,
-                    borderRadius: radius.md,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    paddingHorizontal: spacing.md,
-                    paddingVertical: 8,
-                    color: colors.text,
-                    fontSize: 15,
-                  }}
-                />
-                {searching && <ActivityIndicator color={colors.primary} />}
-                {results.length > 0 && (
-                  <ScrollView style={{ maxHeight: 132 }} keyboardShouldPersistTaps="handled">
-                    <View style={{ gap: 1, backgroundColor: colors.border, borderRadius: 8, overflow: 'hidden' }}>
-                      {results.map((r) => (
-                        <Pressable
-                          key={`${r.market}:${r.symbol}`}
-                          onPress={() => {
-                            setBrowse({ symbol: r.symbol, name: r.name, market: r.market });
-                            setSearchOpen(false);
-                            setQuery('');
-                            setSelectedId(null);
-                          }}
-                          style={{ backgroundColor: colors.cardAlt, paddingHorizontal: spacing.md, paddingVertical: 8 }}
-                        >
-                          <Text style={{ color: colors.text, fontWeight: '700' }}>{r.name}</Text>
-                          <Text style={{ color: colors.textDim, fontSize: 11 }}>
-                            {r.symbol} · {r.exchange} · {r.market === 'KRX' ? '한국' : '미국/기타'}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  </ScrollView>
-                )}
+  // 회전 흉내 중에 검색할 때만 쓰는 세로 시트 (그 상태에선 자판이 90° 돌아가 못 쓴다)
+  const searchSheet = (
+    <Modal visible={searchOpen && !wideView} transparent animationType="slide" onRequestClose={closeSearch}>
+      <Pressable
+        onPress={closeSearch}
+        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-start', paddingTop: insets.top + 40, padding: spacing.lg }}
+      >
+        <Pressable
+          onPress={() => {}}
+          style={{ backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, borderWidth: 1, borderColor: colors.border }}
+        >
+          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>🔍 종목 검색</Text>
+          {backToWide.current && (
+            <Text style={{ color: colors.textDim, fontSize: 12 }}>
+              가로 화면에서는 자판이 같이 돌아가지 않아 잠시 세로로 찾아요. 고르면 바로 가로 차트로 돌아갑니다.
+            </Text>
+          )}
+          {searchPanel}
+          <Pressable onPress={closeSearch} style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}>
+            <Text style={{ color: colors.textDim, fontWeight: '800' }}>닫기</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+
+  // 가로 보기 —
+  //  · 기기가 실제로 가로가 되면(회전 잠금이 풀리고 앱이 가로를 지원하면) 그대로 크게 그린다.
+  //    이때는 자판도 정상이라 종목 검색을 이 화면 안에서 바로 할 수 있다.
+  //  · 가로로 못 눕는 기기·빌드에서는 예전처럼 화면 안에서 90° 돌려 흉내 낸다.
+  if (wideView) {
+    return (
+      <>
+        <Modal visible transparent={false} animationType="fade" onRequestClose={() => setWideView(false)}>
+          <StatusBar hidden />
+          <View style={{ flex: 1, backgroundColor: colors.bg }}>
+            {realLandscape ? (
+              <View
+                style={{
+                  flex: 1,
+                  paddingLeft: insets.left + spacing.md,
+                  paddingRight: insets.right + spacing.md,
+                  paddingTop: insets.top + spacing.sm,
+                  paddingBottom: insets.bottom + spacing.sm,
+                  gap: spacing.sm,
+                }}
+              >
+                {wideHeader}
+                {searchOpen && searchPanel}
+                {controls}
+                {chartBlock}
+              </View>
+            ) : (
+              <View
+                style={{
+                  position: 'absolute',
+                  top: (winH - winW) / 2,
+                  left: (winW - winH) / 2,
+                  width: winH,
+                  height: winW,
+                  transform: [{ rotate: '90deg' }],
+                  // 90° 돌린 좌표계라 기기의 상·하단(노치·홈 인디케이터)이 좌·우가 된다
+                  paddingLeft: insets.top + spacing.md,
+                  paddingRight: insets.bottom + spacing.lg,
+                  paddingTop: insets.right + spacing.sm,
+                  paddingBottom: insets.left + spacing.sm,
+                  gap: spacing.sm,
+                }}
+              >
+                {wideHeader}
+                {controls}
+                {chartBlock}
               </View>
             )}
-
-            {controls}
-            {chartBlock}
           </View>
-        </View>
-      </Modal>
+        </Modal>
+        {searchSheet}
+      </>
     );
   }
 
@@ -1273,6 +1345,7 @@ export function CandleChart({
     <View style={{ gap: spacing.md }}>
       {controls}
       {chartBlock}
+      {searchSheet}
     </View>
   );
 }
