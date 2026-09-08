@@ -96,6 +96,21 @@ export function FixHoldingModal({
       return notify('저장 실패', error.message);
     }
 
+    // 매수로 채워 넣었으면 그만큼 예산도 늘린다.
+    // 배분 예산은 그대로 둔 채 보유수량만 늘리면 '사용예산 < 평가금액' 같은
+    // 앞뒤 안 맞는 숫자가 나온다 (총예산 = Σ 포켓 배분액 이라는 전제도 깨진다).
+    if (side === 'buy') {
+      const add = priceN * qty;
+      await supabase
+        .from('pockets')
+        .update({ budget: Number(chosen.pocket.budget ?? 0) + add })
+        .eq('id', chosen.pocket.id);
+      await supabase
+        .from('projects')
+        .update({ total_budget: Number(chosen.project.total_budget ?? 0) + add })
+        .eq('id', chosen.project.id);
+    }
+
     // 포켓 상태를 남은 보유수량으로 다시 계산
     const after = computePnL(
       [
@@ -123,7 +138,9 @@ export function FixHoldingModal({
     onClose();
     notify(
       '바로잡았어요',
-      `${mismatch.name} ${money(qty, 0)}주를 ${side === 'buy' ? '매수' : '매도'}로 기록했어요.\n잠시 후 경고가 사라집니다.`
+      `${mismatch.name} ${money(qty, 0)}주를 ${side === 'buy' ? '매수' : '매도'}로 기록했어요.` +
+        (side === 'buy' ? `\n배분 예산도 ${formatPrice(priceN * qty, market)} 늘렸어요.` : '') +
+        '\n잠시 후 경고가 사라집니다.'
     );
   };
 
@@ -211,9 +228,14 @@ export function FixHoldingModal({
           <Field label="체결 날짜" value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" autoCapitalize="none" />
 
           {chosen && priceN > 0 && (
-            <Text style={{ color: colors.textDim, fontSize: 12 }}>
+            <Text style={{ color: colors.textDim, fontSize: 12, lineHeight: 18 }}>
               {chosen.project.name} 포켓 {chosen.pocket.idx + 1}에 {formatPrice(priceN, market)} × {money(qty, 0)}주{' '}
               {side === 'buy' ? '매수' : '매도'} 기록이 추가돼요.
+              {side === 'buy' && (
+                <Text style={{ color: num.budget }}>
+                  {'\n'}배분 예산도 {formatPrice(priceN * qty, market)} 늘어나요 (총예산에 함께 반영).
+                </Text>
+              )}
             </Text>
           )}
 
