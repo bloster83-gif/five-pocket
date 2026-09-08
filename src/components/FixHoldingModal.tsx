@@ -11,7 +11,7 @@
 // 여기서만 project_id·pocket_id 를 달아 기록하므로 프로젝트 보유수량에 제대로 반영된다.
 
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { notify } from '@/lib/alert';
 import { Field, NumberField } from '@/components/ui';
@@ -146,21 +146,26 @@ export function FixHoldingModal({
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable
-        onPress={onClose}
-        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}
-      >
+      {/* 자판이 올라와도 아래 버튼이 가려지지 않도록 창을 밀어 올리고, 내용은 스크롤되게 둔다 */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <Pressable
-          onPress={() => {}}
-          style={{
-            backgroundColor: colors.card,
-            borderRadius: radius.lg,
-            padding: spacing.lg,
-            gap: spacing.md,
-            borderWidth: 1,
-            borderColor: colors.warn,
-          }}
+          onPress={onClose}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}
         >
+          <Pressable
+            onPress={() => {}}
+            style={{
+              backgroundColor: colors.card,
+              borderRadius: radius.lg,
+              borderWidth: 1,
+              borderColor: colors.warn,
+              maxHeight: '100%',
+            }}
+          >
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}
+            >
           <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>🩹 {mismatch.name} 보유수량 바로잡기</Text>
 
           <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 4 }}>
@@ -182,8 +187,7 @@ export function FixHoldingModal({
           {/* 어느 포켓에 붙일지 */}
           <View style={{ gap: 6 }}>
             <Text style={{ color: colors.textDim, fontSize: 13 }}>어느 포켓의 체결인가요?</Text>
-            <ScrollView style={{ maxHeight: 150 }}>
-              <View style={{ gap: 6 }}>
+            <View style={{ gap: 6 }}>
                 {targets.length === 0 && (
                   <Text style={{ color: colors.warn, fontSize: 12 }}>이 종목의 진행중 프로젝트가 없어요.</Text>
                 )}
@@ -214,8 +218,7 @@ export function FixHoldingModal({
                     </Pressable>
                   );
                 })}
-              </View>
-            </ScrollView>
+            </View>
           </View>
 
           <NumberField
@@ -262,8 +265,10 @@ export function FixHoldingModal({
               </Text>
             </Pressable>
           </View>
+            </ScrollView>
+          </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
