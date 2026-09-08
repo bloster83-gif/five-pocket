@@ -255,9 +255,17 @@ export function CandleChart({
   // 이 화면에서는 회전 허용, 나가면 다시 세로 고정
   useEffect(() => {
     if (Platform.OS === 'web') return;
-    ScreenOrientation.unlockAsync().catch(() => {});
+    try {
+      ScreenOrientation.unlockAsync().catch(() => {});
+    } catch {
+      /* 무시 */
+    }
     return () => {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+      try {
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+      } catch {
+        /* 무시 */
+      }
     };
   }, []);
 
@@ -265,8 +273,13 @@ export function CandleChart({
   // 되는 기기에서는 자판·안전영역이 전부 정상으로 동작하고, 안 되면 아래 회전 흉내로 넘어간다.
   useEffect(() => {
     if (Platform.OS === 'web') return;
-    if (wideView) ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
-    else ScreenOrientation.unlockAsync().catch(() => {});
+    // 가로를 지원하지 않는 빌드에서는 여기서 예외가 날 수 있다 — 실패해도 아래 회전 흉내로 계속 동작한다
+    try {
+      if (wideView) ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+      else ScreenOrientation.unlockAsync().catch(() => {});
+    } catch {
+      /* 방향 전환 실패 — 회전 흉내로 처리 */
+    }
   }, [wideView]);
 
   // ── 확대·축소 / 스크롤 ──────────────────────────────────────
@@ -1262,7 +1275,14 @@ export function CandleChart({
 
   // 회전 흉내 중에 검색할 때만 쓰는 세로 시트 (그 상태에선 자판이 90° 돌아가 못 쓴다)
   const searchSheet = (
-    <Modal visible={searchOpen && !wideView} transparent animationType="slide" onRequestClose={closeSearch}>
+    <Modal
+      visible={searchOpen && !wideView}
+      transparent
+      animationType="slide"
+      onRequestClose={closeSearch}
+      // iOS 의 Modal 은 기본이 세로 전용이라, 가로로 눕히면 앱이 죽는다. 두 방향 모두 허용.
+      supportedOrientations={['portrait', 'landscape']}
+    >
       <Pressable
         onPress={closeSearch}
         style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-start', paddingTop: insets.top + 40, padding: spacing.lg }}
@@ -1293,7 +1313,15 @@ export function CandleChart({
   if (wideView) {
     return (
       <>
-        <Modal visible transparent={false} animationType="fade" onRequestClose={() => setWideView(false)}>
+        <Modal
+          visible
+          transparent={false}
+          animationType="fade"
+          onRequestClose={() => setWideView(false)}
+          // iOS 의 Modal 은 기본이 세로 전용(supportedOrientations=['portrait'])이라,
+          // 이 상태에서 기기를 가로로 눕히면 UIApplicationInvalidInterfaceOrientation 으로 앱이 죽는다.
+          supportedOrientations={['portrait', 'landscape']}
+        >
           <StatusBar hidden />
           <View style={{ flex: 1, backgroundColor: colors.bg }}>
             {realLandscape ? (
