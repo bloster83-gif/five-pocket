@@ -20,6 +20,7 @@ import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatChangePct, formatMoney, formatPrice, num, radius, signColor, spacing } from '@/theme';
 import { computePnL, findBudgetMismatches } from '@/domain/pockets';
 import { PortfolioSummary, computeMarketSummaries } from '@/components/PortfolioSummary';
+import { HoldingMismatchCard } from '@/components/HoldingMismatchCard';
 import { getUnifiedQuote } from '@/services/prices/unified';
 import { reconcilePendingOrders } from '@/services/pendingOrders';
 import { useAccountCash } from '@/services/deposits';
@@ -512,7 +513,13 @@ export default function ProjectsScreen() {
           keyboardDismissMode="interactive"
           automaticallyAdjustKeyboardInsets
           refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.buy} />}
-          ListHeaderComponent={<PortfolioSummary summaries={summaries} />}
+          ListHeaderComponent={
+            <>
+              <PortfolioSummary summaries={summaries} />
+              {/* 앱 기록 ↔ 증권사 계좌가 어긋나면 여기서도 바로 맞출 수 있게 */}
+              <HoldingMismatchCard onFixed={load} />
+            </>
+          }
           ListEmptyComponent={
             <Card>
               <Text style={{ color: colors.text, fontWeight: '700' }}>표시할 프로젝트가 없어요</Text>

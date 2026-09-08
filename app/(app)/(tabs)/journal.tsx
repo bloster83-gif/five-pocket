@@ -5,6 +5,7 @@ import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { confirmAction, notify } from '@/lib/alert';
 import { SummaryTable } from '@/components/PortfolioSummary';
+import { HoldingMismatchCard } from '@/components/HoldingMismatchCard';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { alignToKrxTick, computePnL, realizedEvents, sellTargetFromFill } from '@/domain/pockets';
 import { colors, formatKRW, formatMoney, formatPrice, money, num, radius, signColor, spacing } from '@/theme';
@@ -502,6 +503,9 @@ export default function JournalScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.md, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets>
+
+      {/* 앱 기록 ↔ 증권사 계좌가 어긋나면 여기서도 바로 맞출 수 있게 */}
+      <HoldingMismatchCard onFixed={load} />
 
       {showSearch && (
         <Card>

@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
-import { FixHoldingModal, type FixTarget } from '@/components/FixHoldingModal';
+import { HoldingMismatchCard } from '@/components/HoldingMismatchCard';
 import { PortfolioSummary, computeMarketSummaries } from '@/components/PortfolioSummary';
 import { colors, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { alignToKrxTick, computePnL, estimatedShares, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
@@ -17,7 +17,7 @@ import { getOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, place
 import { orderWindow } from '@/services/marketHours';
 import { savePocketTargets, STOP_PRICE_MIGRATION_HINT } from '@/services/pocketTargets';
 import { useAccountCash } from '@/services/deposits';
-import { cancelPendingOrder, demoteEmptyBoughtPockets, findHoldingMismatches, healBoughtPockets, loadPendingOrders, markOrderProgress, reconcilePendingOrders, releasePendingOrderLocally, type HoldingMismatch } from '@/services/pendingOrders';
+import { cancelPendingOrder, demoteEmptyBoughtPockets, healBoughtPockets, loadPendingOrders, markOrderProgress, reconcilePendingOrders, releasePendingOrderLocally } from '@/services/pendingOrders';
 import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 export default function PocketsScreen() {
@@ -42,8 +42,6 @@ export default function PocketsScreen() {
   // 왼쪽 스와이프 자동주문(AUTO). pending 이 있으면 '주문가 변경'(취소 후 재주문) 모드.
   const [autoOrder, setAutoOrder] = useState<{ pocket: Pocket; proj: Project; pending?: AutoOrder } | null>(null);
   const [pendingOrders, setPendingOrders] = useState<Record<string, AutoOrder>>({}); // pocket_id → 미체결 주문
-  const [mismatches, setMismatches] = useState<HoldingMismatch[]>([]); // 앱 기록 ↔ 계좌 잔고 불일치
-  const [fixTarget, setFixTarget] = useState<HoldingMismatch | null>(null); // '바로잡기' 대상 종목
 
   const load = useCallback(async () => {
     const [{ data: p }, { data: k }, { data: t }, po] = await Promise.all([
@@ -130,18 +128,6 @@ export default function PocketsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account, hasPending]);
 
-  // 앱 기록 ↔ 증권사 잔고 대조 — 어긋나면 화면 위에 경고를 띄운다 (중복 기록·앱 밖 매매 감지)
-  useEffect(() => {
-    if (!account || loading) return;
-    let alive = true;
-    findHoldingMismatches(account)
-      .then((m) => alive && setMismatches(m))
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [account, loading, trades]);
-
   // 전체 요약 (한국/미국 열) — 프로젝트탭과 같은 표
   const cash = useAccountCash(account); // 총자산·사용가능 예산 (증권사 계좌 실제 금액)
   const summaries = useMemo(
@@ -198,24 +184,6 @@ export default function PocketsScreen() {
       if (a + b > 0) load();
     });
   }, [loading, pockets, tradesByPocket, pendingOrders, load]);
-
-  // '바로잡기' 대상 종목의 포켓 목록 (진행중 프로젝트만) — 어디에 붙일지 고르게 한다
-  const fixTargets: FixTarget[] = useMemo(() => {
-    if (!fixTarget) return [];
-    return pockets
-      .flatMap((k) => {
-        const proj = projMap[k.project_id];
-        if (!proj || proj.closed_at || proj.symbol !== fixTarget.symbol) return [];
-        return [
-          {
-            pocket: k,
-            project: proj,
-            openQty: Math.floor(computePnL(tradesByPocket[k.id] ?? [], null).totalQtyOpen),
-          },
-        ];
-      })
-      .sort((a, b) => a.project.name.localeCompare(b.project.name) || a.pocket.idx - b.pocket.idx);
-  }, [fixTarget, pockets, projMap, tradesByPocket]);
 
   // 프로젝트 예산 합산 (진행중 프로젝트, 시장별)
   const budgetByMarket = useMemo(() => {
@@ -683,42 +651,8 @@ export default function PocketsScreen() {
       >
       <PortfolioSummary summaries={summaries} />
 
-      {/* 앱 기록 ↔ 증권사 계좌 대조 결과 — 어긋나면 바로 알 수 있게 경고 */}
-      {mismatches.length > 0 && (
-        <Card style={{ borderColor: colors.warn, backgroundColor: 'rgba(251,191,36,0.08)' }}>
-          <Text style={{ color: colors.warn, fontWeight: '900', fontSize: 14 }}>⚠️ 보유수량이 계좌와 달라요</Text>
-          <Text style={{ color: colors.textDim, fontSize: 11, marginBottom: 4, lineHeight: 16 }}>
-            계좌가 많으면 앱 밖에서 샀거나 체결을 놓친 거예요 — ‘바로잡기’로 그 수량을 포켓에 채워 넣으세요.{'\n'}
-            앱이 많으면 앱 밖에서 팔았거나(바로잡기) 체결이 중복 기록된 거예요(매매일지에서 그 기록 삭제).{'\n'}
-            매매일지의 ‘＋ 수동 입력’은 프로젝트에 붙지 않는 독립 기록이라 이 경고를 없애지 못해요.
-          </Text>
-          {mismatches.map((m) => (
-            <View key={m.symbol} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
-              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flexShrink: 1 }} numberOfLines={1}>
-                {m.name}
-              </Text>
-              <Text style={{ fontSize: 13, fontWeight: '800' }}>
-                <Text style={{ color: m.recordedQty > m.heldQty ? colors.buy : colors.sell }}>앱 {money(m.recordedQty, 0)}주</Text>
-                <Text style={{ color: colors.textDim }}> · 계좌 {money(m.heldQty, 0)}주</Text>
-              </Text>
-              <Pressable
-                onPress={() => setFixTarget(m)}
-                hitSlop={6}
-                style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                  borderRadius: radius.md,
-                  borderWidth: 1,
-                  borderColor: colors.warn,
-                  backgroundColor: 'rgba(251,191,36,0.14)',
-                }}
-              >
-                <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '900' }}>🩹 바로잡기</Text>
-              </Pressable>
-            </View>
-          ))}
-        </Card>
-      )}
+      {/* 앱 기록 ↔ 증권사 계좌 대조 — 어긋나면 경고하고 그 자리에서 바로잡는다 */}
+      <HoldingMismatchCard onFixed={load} />
 
       {filtered.length === 0 && (
         <Card>
@@ -1089,16 +1023,6 @@ export default function PocketsScreen() {
       </ScrollView>
 
       {/* AUTO 자동주문 — 매수 가격 직접입력 모달 (왼쪽 스와이프로 열림) */}
-      {/* 보유수량 바로잡기 — 차이만큼을 고른 포켓에 체결 기록으로 붙인다 */}
-      <FixHoldingModal
-        mismatch={fixTarget}
-        targets={fixTargets}
-        trades={tradesByPocket}
-        userId={session?.user?.id}
-        onClose={() => setFixTarget(null)}
-        onSaved={load}
-      />
-
       <AutoOrderModal
         target={autoOrder}
         onClose={() => setAutoOrder(null)}
