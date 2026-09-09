@@ -388,6 +388,11 @@ export interface HoldingMismatch {
    * true = 주문이 체결됐는데 앱이 아직 반영 못 한 '시차'일 뿐 — 진짜 불일치가 아니다.
    */
   explainedByOrders: boolean;
+  market: string; // 'KRX' | 'US'
+  /** 진행중 프로젝트가 아예 없는 종목 (계좌에만 있음) */
+  unmanaged: boolean;
+  /** 계좌 매입평균가 — 프로젝트를 새로 만들 때 기준가·예산 미리 채우기에 쓴다 */
+  avgPrice?: number;
 }
 
 /**
@@ -412,17 +417,26 @@ export async function findHoldingMismatches(account: BrokerAccount | null): Prom
     bySymbol.set(p.symbol, e);
   }
 
-  // 잔고는 시장별로 한 번씩만 조회
-  const balCache = new Map<string, Map<string, number>>();
-  const loadBal = async (market: string): Promise<Map<string, number> | null> => {
-    if (balCache.has(market)) return balCache.get(market)!;
+  // 잔고는 시장별로 한 번씩만 조회.
+  // 프로젝트가 없는 종목도 찾아내야 하므로 국내·해외 둘 다 읽는다 (실패한 쪽은 판단 보류).
+  type Held = { qty: number; name: string; avgPrice: number };
+  const balCache = new Map<string, Map<string, Held> | null>();
+  const loadBal = async (market: string): Promise<Map<string, Held> | null> => {
+    if (balCache.has(market)) return balCache.get(market) ?? null;
     try {
       const bal = market === 'US' ? await getOverseasBalance(account) : await getDomesticBalance(account);
-      const m = new Map<string, number>();
-      bal.holdings.forEach((h) => m.set(toKisSymbol(h.symbol).toUpperCase(), Math.floor(h.quantity)));
+      const m = new Map<string, Held>();
+      bal.holdings.forEach((h) =>
+        m.set(toKisSymbol(h.symbol).toUpperCase(), {
+          qty: Math.floor(h.quantity),
+          name: h.name || h.symbol,
+          avgPrice: h.avgPrice,
+        })
+      );
       balCache.set(market, m);
       return m;
     } catch {
+      balCache.set(market, null);
       return null;
     }
   };
@@ -454,12 +468,42 @@ export async function findHoldingMismatches(account: BrokerAccount | null): Prom
     const m = await loadBal(e.market);
     if (!m) continue; // 잔고 조회 실패 → 판단 보류
     const key = toKisSymbol(symbol).toUpperCase();
-    const heldQty = m.get(key) ?? 0;
+    const heldQty = m.get(key)?.qty ?? 0;
     if (recordedQty === heldQty) continue;
     // 살아 있는 주문이 설명할 수 있는 범위 안이면 '시차'로 본다
     const explainedByOrders =
       heldQty <= recordedQty + (pendingBuy.get(key) ?? 0) && heldQty >= recordedQty - (pendingSell.get(key) ?? 0);
-    out.push({ symbol, name: e.name, recordedQty, heldQty, explainedByOrders });
+    out.push({
+      symbol,
+      name: e.name,
+      recordedQty,
+      heldQty,
+      explainedByOrders,
+      market: e.market,
+      unmanaged: false,
+      avgPrice: m.get(key)?.avgPrice,
+    });
+  }
+
+  // 계좌에는 있는데 진행중 프로젝트가 아예 없는 종목 — 앱이 전혀 모르는 보유분이다.
+  // (프로젝트를 만들어 관리하거나, 관리 대상이 아니면 숨길 수 있게 알려준다)
+  const managed = new Set(Array.from(bySymbol.keys()).map((sym) => toKisSymbol(sym).toUpperCase()));
+  for (const market of ['KRX', 'US']) {
+    const m = await loadBal(market);
+    if (!m) continue;
+    for (const [key, h] of m) {
+      if (h.qty <= 0 || managed.has(key)) continue;
+      out.push({
+        symbol: key,
+        name: h.name,
+        recordedQty: 0,
+        heldQty: h.qty,
+        explainedByOrders: false,
+        market,
+        unmanaged: true,
+        avgPrice: h.avgPrice,
+      });
+    }
   }
   return out;
 }

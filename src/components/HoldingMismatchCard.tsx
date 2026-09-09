@@ -8,17 +8,20 @@
 
 import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { Card } from '@/components/ui';
 import { FixHoldingModal, type FixTarget } from '@/components/FixHoldingModal';
-import { colors, money, radius, spacing } from '@/theme';
+import { colors, formatPrice, money, radius, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import { findHoldingMismatches, reconcilePendingOrders, type HoldingMismatch } from '@/services/pendingOrders';
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 const TTL_MS = 60_000;
+// 프로젝트로 관리하지 않기로 한 종목 (장기보유 등) — 매번 알리면 잔소리가 된다
+const IGNORE_KEY = 'ignoredHoldings';
 let cache: { at: number; value: HoldingMismatch[] } | null = null;
 let inflight: Promise<HoldingMismatch[]> | null = null;
 
@@ -48,6 +51,8 @@ async function loadMismatches(account: BrokerAccount | null): Promise<HoldingMis
 
 export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
   const { session } = useAuth();
+  const router = useRouter();
+  const [ignored, setIgnored] = useState<string[]>([]);
   const [mismatches, setMismatches] = useState<HoldingMismatch[]>([]);
   const [fixTarget, setFixTarget] = useState<HoldingMismatch | null>(null);
   const [targets, setTargets] = useState<FixTarget[]>([]);
@@ -80,8 +85,21 @@ export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
   useFocusEffect(
     useCallback(() => {
       void refresh();
+      AsyncStorage.getItem(IGNORE_KEY)
+        .then((raw) => {
+          const arr = raw ? JSON.parse(raw) : [];
+          if (Array.isArray(arr)) setIgnored(arr as string[]);
+        })
+        .catch(() => {});
     }, [refresh])
   );
+
+  /** 이 종목은 앱으로 관리하지 않겠다 — 다시 알리지 않는다 */
+  const ignoreSymbol = async (symbol: string) => {
+    const next = Array.from(new Set([...ignored, symbol]));
+    setIgnored(next);
+    AsyncStorage.setItem(IGNORE_KEY, JSON.stringify(next)).catch(() => {});
+  };
 
   /** '바로잡기'를 누른 종목의 포켓 목록을 그때 준비한다 (평소엔 굳이 안 읽는다) */
   const openFix = async (m: HoldingMismatch) => {
@@ -115,12 +133,24 @@ export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
     setFixTarget(m);
   };
 
-  if (mismatches.length === 0) return null;
+  const visible = mismatches.filter((m) => !(m.unmanaged && ignored.includes(m.symbol)));
+  if (visible.length === 0) return null;
 
   // 살아 있는 주문으로 설명되는 차이는 '체결 확인 중'일 뿐이라 경고하지 않는다.
   // (주문을 넣어 뒀는데 체결이 앱에 늦게 반영되는 구간 — 잠시 뒤 저절로 맞는다)
-  const pendingOnly = mismatches.filter((m) => m.explainedByOrders);
-  const real = mismatches.filter((m) => !m.explainedByOrders);
+  const pendingOnly = visible.filter((m) => m.explainedByOrders && !m.unmanaged);
+  const real = visible.filter((m) => !m.explainedByOrders && !m.unmanaged);
+  const unmanaged = visible.filter((m) => m.unmanaged);
+
+  /** 계좌에만 있는 종목 → 그 정보로 프로젝트 생성 화면을 미리 채워 연다 */
+  const createProject = (m: HoldingMismatch) => {
+    const base = m.avgPrice && m.avgPrice > 0 ? m.avgPrice : 0;
+    router.push(
+      `/project/new?symbol=${encodeURIComponent(m.symbol)}&name=${encodeURIComponent(m.name)}` +
+        `&market=${m.market}` +
+        (base > 0 ? `&base=${base}&budget=${Math.round(base * m.heldQty)}` : '')
+    );
+  };
 
   return (
     <>
@@ -192,6 +222,37 @@ export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
           </View>
         ))}
       </Card>
+      )}
+
+      {unmanaged.length > 0 && (
+        <Card style={{ borderColor: colors.warn, backgroundColor: 'rgba(251,191,36,0.08)' }}>
+          <Text style={{ color: colors.warn, fontWeight: '900', fontSize: 14 }}>⚠️ 앱이 모르는 보유 종목</Text>
+          <Text style={{ color: colors.textDim, fontSize: 11, marginBottom: 4, lineHeight: 16 }}>
+            계좌에는 있는데 진행중 프로젝트가 없어요. 프로젝트를 만들면 5분할로 관리할 수 있어요.{'\n'}
+            (장기보유처럼 앱으로 관리하지 않는 종목이면 ‘숨기기’를 누르세요)
+          </Text>
+          {unmanaged.map((m) => (
+            <View key={m.symbol} style={{ gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 6 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flexShrink: 1 }} numberOfLines={1}>
+                  {m.name}
+                </Text>
+                <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '800' }}>
+                  계좌 {money(m.heldQty, 0)}주
+                  {m.avgPrice ? ` · 평단 ${formatPrice(m.avgPrice, m.market)}` : ''}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.md }}>
+                <Pressable onPress={() => void ignoreSymbol(m.symbol)} hitSlop={6}>
+                  <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '800' }}>숨기기</Text>
+                </Pressable>
+                <Pressable onPress={() => createProject(m)} hitSlop={6}>
+                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '900' }}>＋ 프로젝트 만들기</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))}
+        </Card>
       )}
 
       <FixHoldingModal
