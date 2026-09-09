@@ -44,6 +44,7 @@ export default function ProjectsScreen() {
   const [account, setAccount] = useState<BrokerAccount | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [metrics, setMetrics] = useState<Record<string, Metric>>({});
+  const [refreshing, setRefreshing] = useState(false); // 표의 '🔄 최신화'
   const [pocketsByProject, setPocketsByProject] = useState<Record<string, Pocket[]>>({});
   const [allPockets, setAllPockets] = useState<Pocket[]>([]);
   const [allTrades, setAllTrades] = useState<Trade[]>([]);
@@ -515,7 +516,15 @@ export default function ProjectsScreen() {
           refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.buy} />}
           ListHeaderComponent={
             <>
-              <PortfolioSummary summaries={summaries} />
+              <PortfolioSummary
+                summaries={summaries}
+                refreshing={refreshing}
+                onRefresh={async () => {
+                  setRefreshing(true);
+                  await load();
+                  setRefreshing(false);
+                }}
+              />
               {/* 앱 기록 ↔ 증권사 계좌가 어긋나면 여기서도 바로 맞출 수 있게 */}
               <HoldingMismatchCard onFixed={load} />
             </>

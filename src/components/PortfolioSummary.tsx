@@ -15,9 +15,9 @@
 // 프로젝트탭·포켓탭이 같은 계산을 쓰도록 집계 함수도 여기 둔다.
 // ---------------------------------------------------------------
 
-import { Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Card } from '@/components/ui';
-import { colors, formatMoney, num, radius, signColor } from '@/theme';
+import { colors, formatMoney, num, radius, signColor, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
 import type { Pocket, Project, Trade } from '@/types/db';
 
@@ -203,6 +203,8 @@ export function SummaryTable({
   rows,
   footnote,
   accent = colors.primary,
+  onRefresh,
+  refreshing,
 }: {
   title: string;
   subtitle?: string;
@@ -210,6 +212,9 @@ export function SummaryTable({
   rows: SummaryRow[];
   footnote?: string;
   accent?: string;
+  /** 있으면 제목 옆에 '최신화' 버튼이 생긴다 (현재가를 다시 읽어 평가금액·평가이익 갱신) */
+  onRefresh?: () => void;
+  refreshing?: boolean;
 }) {
   if (markets.length === 0) return null;
   const label = (m: string) => (m === 'KRX' ? '🇰🇷 한국주식' : '🇺🇸 미국주식');
@@ -238,10 +243,19 @@ export function SummaryTable({
           borderBottomColor: colors.border,
         }}
       >
-        <View style={{ width: 74 }}>
+        <View style={{ width: 74, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           <Text numberOfLines={1} style={{ color: accent, fontWeight: '900', fontSize: 12 }}>
             {title}
           </Text>
+          {/* 현재가를 다시 읽어 평가금액·평가이익을 바로 갱신 (진입 직후 값이 늦게 뜨는 경우 대비) */}
+          {onRefresh &&
+            (refreshing ? (
+              <ActivityIndicator size="small" color={accent} />
+            ) : (
+              <Pressable onPress={onRefresh} hitSlop={10}>
+                <Text style={{ color: accent, fontSize: 13 }}>🔄</Text>
+              </Pressable>
+            ))}
         </View>
         {markets.map((m) => (
           <View key={m} style={{ flex: 1, alignItems: 'flex-end', paddingLeft: 4 }}>
@@ -267,7 +281,16 @@ export function SummaryTable({
 }
 
 /** 전체 요약 표 (예산 + 포지션). 진행중 프로젝트가 없으면 아무것도 그리지 않는다. */
-export function PortfolioSummary({ summaries }: { summaries: MarketSummary[] }) {
+export function PortfolioSummary({
+  summaries,
+  onRefresh,
+  refreshing,
+}: {
+  summaries: MarketSummary[];
+  /** 있으면 표 제목 옆에 '🔄' 최신화 버튼이 뜬다 */
+  onRefresh?: () => void;
+  refreshing?: boolean;
+}) {
   if (summaries.length === 0) return null;
   const markets = summaries.map((s) => s.market);
   const rows: SummaryRow[] = [
@@ -300,6 +323,8 @@ export function PortfolioSummary({ summaries }: { summaries: MarketSummary[] }) 
       title="📊 전체"
       markets={markets}
       rows={rows}
+      onRefresh={onRefresh}
+      refreshing={refreshing}
       subtitle={rate || undefined}
       footnote="박스 = 증권사 계좌 실제 금액 · 총자산 = 평가금액 + 예수금 · 사용가능 예산 = 예수금 − 대기중 포켓 예산 (프로젝트 생성 화면과 같은 금액) · 아래는 앱에서 세운 계획 — 사용예산 = 매수 주문·보유 중인 포켓에 묶인 배분 예산 · 잔여예산 = 총예산 − 사용예산"
     />

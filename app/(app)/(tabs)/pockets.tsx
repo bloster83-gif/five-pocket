@@ -39,6 +39,7 @@ export default function PocketsScreen() {
   const [market, setMarket] = useState<'KRX' | 'US' | null>(null); // null = 전체 시장
   const [expanded, setExpanded] = useState<string | null>(null);
   const [prices, setPrices] = useState<Record<string, { price: number; changePct: number | null }>>({}); // symbol → 실시간가·등락률
+  const [refreshing, setRefreshing] = useState(false); // 표의 '🔄 최신화'
   // 왼쪽 스와이프 자동주문(AUTO). pending 이 있으면 '주문가 변경'(취소 후 재주문) 모드.
   const [autoOrder, setAutoOrder] = useState<{ pocket: Pocket; proj: Project; pending?: AutoOrder } | null>(null);
   const [pendingOrders, setPendingOrders] = useState<Record<string, AutoOrder>>({}); // pocket_id → 미체결 주문
@@ -65,32 +66,34 @@ export default function PocketsScreen() {
 
   // 프로젝트별 실시간 시세 — 앱 공통 통합 시세(KIS 우선, 전역 캐시 공유).
   // 진입 시 다른 화면이 받아둔 마지막 가격을 즉시 표시해 화면 간 가격 불일치를 없앤다.
-  useFocusEffect(
-    useCallback(() => {
-      let alive = true;
-      const uniq = Array.from(new Map(projects.filter((p) => p.symbol).map((p) => [p.symbol, p])).values());
-      // 1) 전역 캐시 프리필 (즉시, 네트워크 없이)
-      const cached = getStoredQuotes(uniq.map((p) => p.symbol));
-      if (Object.keys(cached).length > 0) {
-        setPrices((m) => {
-          const next = { ...m };
-          for (const [sym, q] of Object.entries(cached)) next[sym] = { price: q.price, changePct: q.changePct };
-          return next;
-        });
-      }
-      // 2) 최신 시세로 갱신
-      uniq.forEach(async (p) => {
+  const loadPrices = useCallback(async () => {
+    const uniq = Array.from(new Map(projects.filter((p) => p.symbol).map((p) => [p.symbol, p])).values());
+    // 1) 전역 캐시 프리필 (즉시, 네트워크 없이)
+    const cached = getStoredQuotes(uniq.map((p) => p.symbol));
+    if (Object.keys(cached).length > 0) {
+      setPrices((m) => {
+        const next = { ...m };
+        for (const [sym, q] of Object.entries(cached)) next[sym] = { price: q.price, changePct: q.changePct };
+        return next;
+      });
+    }
+    // 2) 최신 시세로 갱신
+    await Promise.all(
+      uniq.map(async (p) => {
         try {
           const q = await getUnifiedQuote(account ?? null, p.symbol, p.market);
-          if (alive) setPrices((m) => ({ ...m, [p.symbol]: { price: q.price, changePct: q.changePct } }));
+          setPrices((m) => ({ ...m, [p.symbol]: { price: q.price, changePct: q.changePct } }));
         } catch {
           /* 시세 실패는 무시 (— 표시) */
         }
-      });
-      return () => {
-        alive = false;
-      };
-    }, [projects, account])
+      })
+    );
+  }, [projects, account]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadPrices();
+    }, [loadPrices])
   );
 
   // 손절 주문용 증권사 계좌 (AUTO 등급)
@@ -242,7 +245,11 @@ export default function PocketsScreen() {
   }, [pockets, projMap, tradesByPocket, onlyHolding, onlyRealized, pocketFilter, q, market]);
 
   // 포켓 1개 손절 (전량 매도). AUTO+계좌+네이티브면 실제 KIS 주문, 그 외엔 체결 기록만.
-  const stopLossPocket = async (k: Pocket, proj: Project): Promise<{ ok: boolean; msg?: string; ordered?: boolean }> => {
+  const stopLossPocket = async (
+    k: Pocket,
+    proj: Project,
+    customPrice?: number // 주문가를 직접 정할 때 (매도가 변경 → 취소 후 재주문)
+  ): Promise<{ ok: boolean; msg?: string; ordered?: boolean }> => {
     if (!session?.user?.id) return { ok: false };
     const pocketTrades = tradesByPocket[k.id] ?? [];
     const openPnl = computePnL(pocketTrades, null);
@@ -250,7 +257,7 @@ export default function PocketsScreen() {
     if (qty <= 0) return { ok: false, msg: '보유 수량 없음' };
     // 익절/손절은 '지금 정리한다'는 뜻이므로 반드시 현재가로 주문한다.
     // 매도 목표가로 넣으면 현재가보다 훨씬 높아 영영 체결되지 않는다.
-    let live: number | null = prices[proj.symbol]?.price ?? null;
+    let live: number | null = customPrice && customPrice > 0 ? customPrice : prices[proj.symbol]?.price ?? null;
     if (live == null || live <= 0) {
       try {
         live = (await getUnifiedQuote(account ?? null, proj.symbol, proj.market)).price;
@@ -649,7 +656,15 @@ export default function PocketsScreen() {
         keyboardDismissMode="interactive"
         automaticallyAdjustKeyboardInsets
       >
-      <PortfolioSummary summaries={summaries} />
+      <PortfolioSummary
+        summaries={summaries}
+        refreshing={refreshing}
+        onRefresh={async () => {
+          setRefreshing(true);
+          await Promise.all([load(), loadPrices()]);
+          setRefreshing(false);
+        }}
+      />
 
       {/* 앱 기록 ↔ 증권사 계좌 대조 — 어긋나면 경고하고 그 자리에서 바로잡는다 */}
       <HoldingMismatchCard onFixed={load} />
@@ -868,7 +883,7 @@ export default function PocketsScreen() {
                           🕐 체결 대기중
                           {po?.created_at ? ` · ${po.created_at.slice(5, 16).replace('T', ' ')}` : ''}
                         </Text>
-                        {isBuy && po && (
+                        {po && (
                           <Pressable onPress={() => setAutoOrder({ pocket: k, proj, pending: po })} hitSlop={6}>
                             <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>✏️ 주문가 변경</Text>
                           </Pressable>
@@ -1039,12 +1054,17 @@ export default function PocketsScreen() {
               return notify('주문 취소 실패', e?.message ?? '이미 체결됐을 수 있어요. 잠시 후 다시 확인해 주세요.');
             }
           }
-          const r = await buyPocket({ ...t.pocket, status: 'waiting' }, t.proj, customPrice);
+          const sellMode = t.pending?.side === 'sell';
+          const r = sellMode
+            ? await stopLossPocket({ ...t.pocket, status: 'bought' }, t.proj, customPrice)
+            : await buyPocket({ ...t.pocket, status: 'waiting' }, t.proj, customPrice);
           await load();
           if (r.ok)
             notify(
               t.pending ? '주문가 변경 완료' : '자동주문 전송',
-              `포켓 ${t.pocket.idx + 1} · ${formatPrice(customPrice, t.proj.market)} 지정가로 ${t.pending ? '다시 주문했어요.' : '자동주문을 넣었어요.'}`
+              `포켓 ${t.pocket.idx + 1} · ${formatPrice(customPrice, t.proj.market)} 지정가로 ${
+                t.pending ? `다시 ${sellMode ? '매도 ' : ''}주문했어요.` : '자동주문을 넣었어요.'
+              }`
             );
           else notify(t.pending ? '재주문 실패' : '자동주문 실패', r.msg ?? '처리하지 못했어요.');
         }}
@@ -1184,16 +1204,19 @@ function AutoOrderModal({
   const [raw, setRaw] = useState('');
   const market = target?.proj.market ?? 'KRX';
   const changing = !!target?.pending; // 미체결 주문가 변경 모드
+  const isSell = target?.pending?.side === 'sell';
   // 변경 모드면 현재 주문가를, 새 주문이면 매수 목표가를 기본값으로.
   const basePrice = target ? (changing ? Number(target.pending!.order_price) : target.pocket.buy_target_price) : 0;
-  const defaultPrice = target ? (market === 'KRX' ? alignToKrxTick(basePrice, 'buy') : basePrice) : 0;
+  const defaultPrice = target ? (market === 'KRX' ? alignToKrxTick(basePrice, isSell ? 'sell' : 'buy') : basePrice) : 0;
   useEffect(() => {
     if (target) setRaw(String(Math.round(defaultPrice)));
   }, [target, defaultPrice]);
   if (!target) return null;
   const price = Number(rawNumeric(raw)) || 0;
-  const aligned = market === 'KRX' ? alignToKrxTick(price, 'buy') : price;
-  const qty = estimatedShares(target.pocket.budget, aligned);
+  const accent = isSell ? colors.sell : colors.buy;
+  const aligned = market === 'KRX' ? alignToKrxTick(price, isSell ? 'sell' : 'buy') : price;
+  // 매도는 미체결 주문 수량(=보유 전량) 그대로, 매수는 배분 예산으로 살 수 있는 수량
+  const qty = isSell ? Math.floor(Number(target.pending!.quantity)) : estimatedShares(target.pocket.budget, aligned);
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
@@ -1202,7 +1225,9 @@ function AutoOrderModal({
           style={{ backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, borderWidth: 1, borderColor: colors.primary }}
         >
           <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>
-            {changing ? `✏️ 포켓 ${target.pocket.idx + 1} 매수 주문가 변경` : `🤖 포켓 ${target.pocket.idx + 1} 자동주문`}
+            {changing
+              ? `✏️ 포켓 ${target.pocket.idx + 1} ${isSell ? '매도' : '매수'} 주문가 변경`
+              : `🤖 포켓 ${target.pocket.idx + 1} 자동주문`}
           </Text>
           <Text style={{ color: colors.textDim, fontSize: 13 }}>
             {changing
@@ -1210,7 +1235,9 @@ function AutoOrderModal({
               : `${target.proj.name} · 매수 가격을 직접 입력해 지정가 자동주문을 넣습니다.`}
           </Text>
           <View>
-            <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 4 }}>매수 가격 ({market === 'KRX' ? '₩' : '$'})</Text>
+            <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 4 }}>
+              {isSell ? '매도' : '매수'} 가격 ({market === 'KRX' ? '₩' : '$'})
+            </Text>
             <TextInput
               value={withCommas(raw)}
               onChangeText={(t) => setRaw(rawNumeric(t))}
@@ -1222,7 +1249,7 @@ function AutoOrderModal({
                 borderRadius: radius.md,
                 paddingHorizontal: spacing.md,
                 paddingVertical: 12,
-                color: colors.buy,
+                color: accent,
                 fontSize: 22,
                 fontWeight: '900',
                 borderWidth: 1,
@@ -1231,7 +1258,7 @@ function AutoOrderModal({
             />
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={{ color: colors.textDim, fontSize: 13 }}>예상 수량 (배분 예산 기준)</Text>
+            <Text style={{ color: colors.textDim, fontSize: 13 }}>{isSell ? '매도 수량 (보유 전량)' : '예상 수량 (배분 예산 기준)'}</Text>
             <Text style={{ color: num.position, fontWeight: '800', fontSize: 14 }}>{money(qty, 0)}주</Text>
           </View>
           {market === 'KRX' && price > 0 && aligned !== price && (
@@ -1244,7 +1271,7 @@ function AutoOrderModal({
             <Pressable
               onPress={() => aligned > 0 && onSubmit(aligned)}
               disabled={aligned <= 0}
-              style={{ flex: 2, backgroundColor: aligned > 0 ? colors.buy : colors.border, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}
+              style={{ flex: 2, backgroundColor: aligned > 0 ? accent : colors.border, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center' }}
             >
               <Text style={{ color: '#fff', fontWeight: '800', textAlign: 'center' }}>{changing ? '취소 후 이 가격으로 재주문' : '🤖 자동주문 넣기'}</Text>
             </Pressable>
