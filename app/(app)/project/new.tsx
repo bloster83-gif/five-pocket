@@ -27,6 +27,20 @@ function parseStart(date: string, time: string): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * 예정 시각은 '폰의 시간대'로 해석해 절대 시각으로 저장한다.
+ * 한국 폰이면 한국시간(KST)이고, 해외에서 시간대가 바뀐 폰이면 그 나라 시간이 된다 — 그걸 그대로 알려준다.
+ */
+function timezoneLabel(): string {
+  const offsetMin = -new Date().getTimezoneOffset(); // KST = +540
+  if (offsetMin === 540) return '한국시간(KST) 기준';
+  const sign = offsetMin >= 0 ? '+' : '-';
+  const abs = Math.abs(offsetMin);
+  const hh = Math.floor(abs / 60);
+  const mm = abs % 60;
+  return `폰 시간대 기준 (UTC${sign}${hh}${mm ? `:${String(mm).padStart(2, '0')}` : ''})`;
+}
+
 const UNITS: { key: ScheduleUnit; label: string }[] = [
   { key: 'day', label: '일' },
   { key: 'week', label: '주' },
@@ -484,6 +498,11 @@ export default function NewProjectScreen() {
                 <Field label="시각" value={startTime} onChangeText={setStartTime} placeholder="09:30" autoCapitalize="none" />
               </View>
             </View>
+            {/* 시간대를 분명히 — 미국 주식이라도 여기 적는 시각은 한국시간이다 */}
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800', marginTop: -6 }}>
+              🕘 {timezoneLabel()}
+              {market === 'US' ? ' — 미국 주식도 한국시간으로 적어요 (미국 정규장 = 한국시간 밤 22:30~05:00, 서머타임엔 1시간 빠름)' : ''}
+            </Text>
             <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-end' }}>
               <View style={{ width: 78 }}>
                 <Field label="간격" value={every} onChangeText={setEvery} keyboardType="number-pad" />
