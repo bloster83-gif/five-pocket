@@ -384,8 +384,8 @@ export default function NewProjectScreen() {
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>매수 방식</Text>
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           {([
-            { key: 'price' as const, title: '📉 가격 분할', desc: '기준가에서 간격만큼 내려갈 때마다' },
-            { key: 'schedule' as const, title: '📅 정기 매수', desc: '정해진 날짜·시각에 현재가로' },
+            { key: 'price' as const, title: '📉 정액매수법', desc: '기준가에서 간격만큼 내려갈 때마다' },
+            { key: 'schedule' as const, title: '📅 정기매수법', desc: '정해진 날짜·시각에 현재가로' },
           ]).map((o) => {
             const on = buyMode === o.key;
             return (
@@ -489,8 +489,8 @@ export default function NewProjectScreen() {
         )}
         <Text style={{ color: colors.textDim, fontSize: 12 }}>
           {buyMode === 'price'
-            ? '포켓 수는 5~10개로 선택할 수 있습니다.'
-            : '포켓 하나가 매수 1회예요. 예정 시각이 되면 그때 현재가로, 배분 예산으로 살 수 있는 최대 수량을 주문합니다. (자동매매 ON + AUTO 등급 필요)'}
+            ? '정액매수법 — 가격이 내려올 때마다 정해 둔 금액만큼 산다. 포켓 수는 5~10개.'
+            : '정기매수법 — 포켓 하나가 매수 1회예요. 예정 시각이 되면 그때 현재가로, 배분 예산으로 살 수 있는 최대 수량을 주문합니다. (자동매매 ON + AUTO 등급 필요)'}
         </Text>
       </Card>
 

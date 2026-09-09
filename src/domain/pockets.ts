@@ -58,7 +58,12 @@ export function alignToKrxTick(price: number, side?: 'buy' | 'sell'): number {
   return Math.max(t, aligned);
 }
 
-/** 정기 매수 간격 단위 */
+// ── 정기매수법 ────────────────────────────────────────────────
+// 매수법은 두 가지다.
+//   · 정액매수법(buy_mode='price')    — 가격이 간격만큼 내려갈 때마다 정해 둔 금액만큼 산다 (위 전략)
+//   · 정기매수법(buy_mode='schedule') — 정해진 날짜·시각이 되면 그때 현재가로 산다 (아래)
+
+/** 정기매수법 간격 단위 */
 export type ScheduleUnit = 'day' | 'week' | 'month';
 
 export interface ScheduleInput {
@@ -94,7 +99,7 @@ export function buyAtOf(p: { buy_at?: string | null }): number | null {
 }
 
 /**
- * 정기(적립식) 매수 포켓 생성.
+ * 정기매수법 포켓 생성.
  *
  * 가격 방식과 달리 '얼마에 살지'를 미리 정하지 않는다 — 예정 시각이 되면 그때 현재가로 산다.
  * buy_target_price 에는 기준가를 넣어 두는데, 이건 화면에서 예상 수량을 보여주기 위한 참고값일 뿐
