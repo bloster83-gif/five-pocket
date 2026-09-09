@@ -121,6 +121,8 @@ create table if not exists public.projects (
   base_price         numeric(20,4) not null,        -- 기준가(1번 포켓 매수 기준)
   buy_interval_pct   numeric(6,3) not null default 5,   -- 포켓 간 매수 간격 %
   sell_target_pct    numeric(6,3) not null default 10,  -- 매도 목표 수익률 %
+  -- 매수 방식 — price: 목표가 도달 시 / schedule: 정해진 시각에 현재가로
+  buy_mode           text not null default 'price' check (buy_mode in ('price', 'schedule')),
   pocket_count       int not null default 5 check (pocket_count between 1 and 10),
   total_budget       numeric(20,4),                 -- 프로젝트 전체 예산(선택)
   is_active          boolean not null default true, -- 실시간 추적/알림 on/off
@@ -142,6 +144,7 @@ create table if not exists public.pockets (
   buy_target_price   numeric(20,4) not null,           -- 이 가격 도달 시 매수 알림
   sell_target_price  numeric(20,4),                    -- 체결 후 이 가격 도달 시 매도 알림
   stop_price         numeric(20,4),                    -- 마지노선(손절) — 이 가격 이하면 전량 매도. null = 사용 안 함
+  buy_at             timestamptz,                      -- 정기 매수 예정 시각 (있으면 가격이 아니라 시각으로 매수). null = 가격 방식
   weight             numeric(6,3) not null default 20, -- 포켓 예산 비중(%)
   budget             numeric(20,4),                    -- 자동 배분된 금액(= total_budget * weight/100)
   status             text not null default 'waiting'   -- waiting|buy_ordered|bought|sell_ordered|sold

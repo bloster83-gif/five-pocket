@@ -9,7 +9,7 @@ import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
 import { HoldingMismatchCard } from '@/components/HoldingMismatchCard';
 import { PortfolioSummary, computeMarketSummaries } from '@/components/PortfolioSummary';
-import { colors, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
+import { colors, formatBuyAt, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { alignToKrxTick, computePnL, estimatedShares, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
 import { getUnifiedQuote } from '@/services/prices/unified';
 import { getStoredQuotes } from '@/services/prices/quoteStore';
@@ -421,14 +421,18 @@ export default function PocketsScreen() {
     if (!session?.user?.id) return { ok: false };
     const isKrx = proj.market === 'KRX';
     const nowPrice = prices[proj.symbol]?.price;
+    // 정기 매수 포켓(buy_at)은 목표가가 없다 — 언제나 현재가로 산다.
     const rawBuy =
       customPrice && customPrice > 0
         ? customPrice
-        : nowPrice != null && nowPrice > 0
-          ? Math.min(k.buy_target_price, nowPrice)
-          : k.buy_target_price;
+        : k.buy_at
+          ? nowPrice ?? 0
+          : nowPrice != null && nowPrice > 0
+            ? Math.min(k.buy_target_price, nowPrice)
+            : k.buy_target_price;
     const buyPrice = isKrx ? alignToKrxTick(rawBuy, 'buy') : rawBuy;
-    if (!buyPrice || buyPrice <= 0) return { ok: false, msg: '매수 가격이 없어요' };
+    if (!buyPrice || buyPrice <= 0)
+      return { ok: false, msg: k.buy_at ? '현재가를 확인할 수 없어 매수 주문을 넣지 않았어요' : '매수 가격이 없어요' };
     const qty = estimatedShares(k.budget, buyPrice);
     if (qty <= 0) return { ok: false, msg: '배분 예산으로 살 수 있는 수량이 없어요' };
     const rawSell = sellTargetFromFill(buyPrice, Number(proj.sell_target_pct));
@@ -762,10 +766,11 @@ export default function PocketsScreen() {
               {/* 목표 정보 — 현재가 아래. 대기: 매수목표+목표수량 / 보유: 매도목표만(매수가는 아래 박스 평균매수가로 표시) */}
               {effStatus === 'waiting' && (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md }}>
+                  {/* 정기 매수 포켓은 목표가가 아니라 '언제 사는지'가 조건이다 */}
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Text style={{ color: colors.textDim, fontSize: 11 }}>매수목표</Text>
+                    <Text style={{ color: colors.textDim, fontSize: 11 }}>{k.buy_at ? '매수예정' : '매수목표'}</Text>
                     <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>
-                      {formatPrice(buyTargetDisp, proj.market)}
+                      {k.buy_at ? (formatBuyAt(k.buy_at) ?? '-') : formatPrice(buyTargetDisp, proj.market)}
                     </Text>
                   </View>
                   {k.budget != null && (

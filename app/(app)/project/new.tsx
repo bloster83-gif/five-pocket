@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
 import { Button, Card, Field, NumberField } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, num, radius, spacing } from '@/theme';
-import { buildPocketSeeds, clampPocketCount, estimatedShares, MAX_POCKET_COUNT, MIN_POCKET_COUNT, normalizeWeights, POCKET_COUNT } from '@/domain/pockets';
+import { buildPocketSeeds, buildScheduleSeeds, clampPocketCount, estimatedShares, MAX_POCKET_COUNT, MIN_POCKET_COUNT, normalizeWeights, POCKET_COUNT, scheduleAt, type ScheduleUnit } from '@/domain/pockets';
 import { searchSymbols } from '@/services/symbols';
 import { getUnifiedQuote, loadBrokerAccount } from '@/services/prices/unified';
 import { getDomesticBalance, getOverseasBalance, kisOrderBlocked } from '@/services/broker/kis';
@@ -14,6 +14,24 @@ import type { BrokerAccount, SymbolResult } from '@/types/db';
 import { BackHeader } from '@/components/BackHeader';
 import { WeightInput } from '@/components/WeightInput';
 import { useAllocMode } from '@/lib/allocMode';
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const todayStr = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+/** 'YYYY-MM-DD' + 'HH:MM' → Date. 형식이 어긋나면 null */
+function parseStart(date: string, time: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
+  const t = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  if (!m || !t) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(t[1]), Number(t[2]), 0, 0);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+const UNITS: { key: ScheduleUnit; label: string }[] = [
+  { key: 'day', label: '일' },
+  { key: 'week', label: '주' },
+  { key: 'month', label: '개월' },
+];
 
 export default function NewProjectScreen() {
   const router = useRouter();
@@ -41,6 +59,13 @@ export default function NewProjectScreen() {
   const [sellTarget, setSellTarget] = useState('10');
   const [totalBudget, setTotalBudget] = useState('');
   const [pocketCount, setPocketCount] = useState(POCKET_COUNT); // 기본 5, 6~10 가능
+
+  // 매수 방식 — 'price'(목표가 도달) | 'schedule'(정해진 날짜·시각에 현재가로)
+  const [buyMode, setBuyMode] = useState<'price' | 'schedule'>('price');
+  const [startDate, setStartDate] = useState(todayStr());
+  const [startTime, setStartTime] = useState('09:30');
+  const [every, setEvery] = useState('1');
+  const [unit, setUnit] = useState<ScheduleUnit>('week');
   const [weights, setWeights] = useState<string[]>(Array(POCKET_COUNT).fill('20'));
   const [saving, setSaving] = useState(false);
 
@@ -181,11 +206,21 @@ export default function NewProjectScreen() {
   const overBudget =
     availableBudget != null && parsed.totalBudget != null && parsed.totalBudget > availableBudget;
 
+  const scheduleStart = useMemo(() => parseStart(startDate, startTime), [startDate, startTime]);
+  const scheduleEvery = Math.max(1, Math.floor(Number(every) || 1));
+
   const seeds = useMemo(() => {
     if (!parsed.basePrice || parsed.basePrice <= 0) return [];
+    if (buyMode === 'schedule') {
+      if (!scheduleStart) return [];
+      return buildScheduleSeeds({
+        ...parsed,
+        schedule: { startAt: scheduleStart, every: scheduleEvery, unit, count: pocketCount },
+      });
+    }
     return buildPocketSeeds(parsed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [basePrice, buyInterval, sellTarget, totalBudget, weights, pocketCount, market]);
+  }, [basePrice, buyInterval, sellTarget, totalBudget, weights, pocketCount, market, buyMode, scheduleStart, scheduleEvery, unit]);
 
   const setWeight = (i: number, v: string) => {
     const next = [...weights];
@@ -235,12 +270,16 @@ export default function NewProjectScreen() {
         sell_target_pct: parsed.sellTargetPct,
         pocket_count: pocketCount,
         total_budget: parsed.totalBudget,
+        buy_mode: buyMode,
       })
       .select()
       .single();
 
     if (perr || !proj) {
       setSaving(false);
+      if (perr && /buy_mode|42703|schema cache|PGRST204/i.test(`${perr.code} ${perr.message}`)) {
+        return notify('DB 준비 필요', '정기 매수에 필요한 마이그레이션(20260909a)을 Supabase에서 먼저 실행해 주세요.');
+      }
       return notify('저장 실패', perr?.message ?? '알 수 없는 오류');
     }
 
@@ -255,6 +294,7 @@ export default function NewProjectScreen() {
         weight: s.weight,
         budget: s.budget,
         status: 'waiting' as const,
+        ...(s.buy_at ? { buy_at: s.buy_at } : null),
       }));
     if (rows.length === 0) {
       setSaving(false);
@@ -263,7 +303,14 @@ export default function NewProjectScreen() {
     }
     const { error: kerr } = await supabase.from('pockets').insert(rows);
     setSaving(false);
-    if (kerr) return notify('포켓 생성 실패', kerr.message);
+    if (kerr) {
+      // 마이그레이션(20260909a) 미실행이면 buy_at 컬럼이 없다
+      if (/buy_at|buy_mode|42703|schema cache|PGRST204/i.test(`${kerr.code} ${kerr.message}`)) {
+        await supabase.from('projects').delete().eq('id', proj.id);
+        return notify('DB 준비 필요', '정기 매수에 필요한 마이그레이션(20260909a)을 Supabase에서 먼저 실행해 주세요.');
+      }
+      return notify('포켓 생성 실패', kerr.message);
+    }
 
     router.replace(`/project/${proj.id}`);
   };
@@ -332,18 +379,119 @@ export default function NewProjectScreen() {
         />
       </Card>
 
-      {/* 전략 — 포켓 수는 5개 고정 */}
+      {/* 전략 — 매수 방식(가격 분할 / 정기 매수) */}
       <Card>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>5분할 전략</Text>
-        <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          <View style={{ flex: 1 }}>
-            <Field label="매수 간격 %" value={buyInterval} onChangeText={setBuyInterval} keyboardType="decimal-pad" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Field label="매도 목표 %" value={sellTarget} onChangeText={setSellTarget} keyboardType="decimal-pad" />
-          </View>
+        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>매수 방식</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+          {([
+            { key: 'price' as const, title: '📉 가격 분할', desc: '기준가에서 간격만큼 내려갈 때마다' },
+            { key: 'schedule' as const, title: '📅 정기 매수', desc: '정해진 날짜·시각에 현재가로' },
+          ]).map((o) => {
+            const on = buyMode === o.key;
+            return (
+              <Pressable
+                key={o.key}
+                onPress={() => setBuyMode(o.key)}
+                style={{
+                  flex: 1,
+                  gap: 2,
+                  padding: spacing.md,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: on ? colors.primary : colors.border,
+                  backgroundColor: on ? 'rgba(34,211,166,0.12)' : colors.cardAlt,
+                }}
+              >
+                <Text style={{ color: on ? colors.primary : colors.text, fontWeight: '900', fontSize: 13 }}>{o.title}</Text>
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>{o.desc}</Text>
+              </Pressable>
+            );
+          })}
         </View>
-        <Text style={{ color: colors.textDim, fontSize: 12 }}>포켓 수는 5~10개로 선택할 수 있습니다.</Text>
+
+        {buyMode === 'price' ? (
+          <View style={{ flexDirection: 'row', gap: spacing.md }}>
+            <View style={{ flex: 1 }}>
+              <Field label="매수 간격 %" value={buyInterval} onChangeText={setBuyInterval} keyboardType="decimal-pad" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="매도 목표 %" value={sellTarget} onChangeText={setSellTarget} keyboardType="decimal-pad" />
+            </View>
+          </View>
+        ) : (
+          <>
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <View style={{ flex: 1.4 }}>
+                <Field label="첫 매수 날짜" value={startDate} onChangeText={setStartDate} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Field label="시각" value={startTime} onChangeText={setStartTime} placeholder="09:30" autoCapitalize="none" />
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-end' }}>
+              <View style={{ width: 78 }}>
+                <Field label="간격" value={every} onChangeText={setEvery} keyboardType="number-pad" />
+              </View>
+              <View style={{ flexDirection: 'row', gap: 6, flex: 1, paddingBottom: 8 }}>
+                {UNITS.map((u) => {
+                  const on = unit === u.key;
+                  return (
+                    <Pressable
+                      key={u.key}
+                      onPress={() => setUnit(u.key)}
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 10,
+                        borderRadius: radius.md,
+                        borderWidth: 1,
+                        borderColor: on ? colors.primary : colors.border,
+                        backgroundColor: on ? 'rgba(34,211,166,0.14)' : colors.cardAlt,
+                      }}
+                    >
+                      <Text style={{ color: on ? colors.primary : colors.textDim, fontWeight: '800' }}>{u.label}마다</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <View style={{ flex: 1 }}>
+                <Field label="매도 목표 %" value={sellTarget} onChangeText={setSellTarget} keyboardType="decimal-pad" />
+              </View>
+              <View style={{ flex: 1, justifyContent: 'flex-end', paddingBottom: 12 }}>
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>체결가 대비 이만큼 오르면 매도</Text>
+              </View>
+            </View>
+            {/* 언제 얼마씩 사는지 미리보기 — 날짜가 틀리면 여기서 바로 드러난다 */}
+            {scheduleStart ? (
+              <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 3 }}>
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>매수 예정 ({pocketCount}회)</Text>
+                {Array.from({ length: Math.min(pocketCount, 4) }, (_, i) => {
+                  const d = scheduleAt(scheduleStart, scheduleEvery, unit, i);
+                  const alloc = parsed.totalBudget ? (parsed.totalBudget * normalized[i]) / 100 : null;
+                  return (
+                    <Text key={i} numberOfLines={1} style={{ color: colors.text, fontSize: 12 }}>
+                      포켓 {i + 1} · {d.getFullYear()}-{String(d.getMonth() + 1).padStart(2, '0')}-
+                      {String(d.getDate()).padStart(2, '0')} {String(d.getHours()).padStart(2, '0')}:
+                      {String(d.getMinutes()).padStart(2, '0')}
+                      {alloc != null ? `  ·  ${formatPrice(alloc, market)}` : ''}
+                    </Text>
+                  );
+                })}
+                {pocketCount > 4 && (
+                  <Text style={{ color: colors.textDim, fontSize: 11 }}>… 외 {pocketCount - 4}회</Text>
+                )}
+              </View>
+            ) : (
+              <Text style={{ color: colors.warn, fontSize: 12 }}>날짜는 YYYY-MM-DD, 시각은 HH:MM 형식으로 입력하세요.</Text>
+            )}
+          </>
+        )}
+        <Text style={{ color: colors.textDim, fontSize: 12 }}>
+          {buyMode === 'price'
+            ? '포켓 수는 5~10개로 선택할 수 있습니다.'
+            : '포켓 하나가 매수 1회예요. 예정 시각이 되면 그때 현재가로, 배분 예산으로 살 수 있는 최대 수량을 주문합니다. (자동매매 ON + AUTO 등급 필요)'}
+        </Text>
       </Card>
 
       {/* 예산 + 포켓별 비율 */}

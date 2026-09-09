@@ -33,6 +33,8 @@ export interface Project {
   base_price: number;
   buy_interval_pct: number;
   sell_target_pct: number;
+  /** 매수 방식 — 'price'(목표가 도달) | 'schedule'(정해진 시각) (마이그레이션 20260909a) */
+  buy_mode?: 'price' | 'schedule' | null;
   pocket_count: number;
   total_budget: number | null;
   is_active: boolean;
@@ -71,6 +73,8 @@ export interface Pocket {
   stop_price?: number | null;
   weight: number;
   budget: number | null;
+  /** 정기 매수 예정 시각(ISO). 있으면 가격이 아니라 이 시각으로 매수한다 (마이그레이션 20260909a) */
+  buy_at?: string | null;
   status: PocketStatus;
   created_at: string;
 }
@@ -111,6 +115,8 @@ export interface PocketSeed {
   sell_target_price: number;
   weight: number;
   budget: number | null;
+  /** 정기 매수 예정 시각(ISO). 정기 매수 프로젝트에서만 채워진다 */
+  buy_at?: string | null;
 }
 
 export type CashFlowType = 'deposit' | 'withdrawal' | 'dividend';

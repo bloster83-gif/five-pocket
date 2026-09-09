@@ -6,6 +6,7 @@
 //   1) AUTO 등급 회원의 자동매매 ON 프로젝트(KRX·US)를 모두 조회
 //   2) 한국투자증권(KIS) 현재가 조회 (국내=국내시세 / 미국=해외시세, 거래소 자동탐색)
 //   3) 포켓 신호 판정 (waiting & 현재가<=매수목표 → 매수 / bought & 현재가>=매도목표 → 매도)
+//      정기 매수 포켓(pockets.buy_at)은 가격 대신 '예정 시각이 지났는가'로 판정하고 현재가로 산다
 //   4) KIS 지정가 주문 (국내=국내주문 / 미국=해외주문) → auto_orders/trades 기록 + 포켓 갱신
 //   5) Expo 푸시 알림 (profiles.expo_push_token 이 있으면)
 //
@@ -65,6 +66,7 @@ interface PocketRow {
   project_id: string;
   idx: number;
   buy_target_price: number;
+  buy_at?: string | null; // 정기 매수 예정 시각 (있으면 가격이 아니라 시각으로 매수)
   sell_target_price: number | null;
   /** 마지노선(손절) — 현재가가 이 값 이하면 전량 매도. 마이그레이션 20260813b */
   stop_price: number | null;
@@ -922,7 +924,7 @@ Deno.serve(async (req: Request) => {
   const projIds = targets.map((p) => p.id);
   const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
   const [{ data: pockets }, { data: trades }, { data: recentOrders }] = await Promise.all([
-    admin.from('pockets').select('id,project_id,idx,buy_target_price,sell_target_price,stop_price,budget,status').in('project_id', projIds),
+    admin.from('pockets').select('id,project_id,idx,buy_target_price,sell_target_price,stop_price,budget,status,buy_at').in('project_id', projIds),
     admin.from('trades').select('pocket_id,side,quantity').in('project_id', projIds),
     admin.from('auto_orders').select('pocket_id,side').gte('created_at', since),
   ]);
@@ -995,7 +997,15 @@ Deno.serve(async (req: Request) => {
       let limitPrice = 0;
       let isStop = false; // 마지노선(손절)으로 나가는 매도인지
       const stop = k.stop_price != null && Number(k.stop_price) > 0 ? Number(k.stop_price) : null;
-      if (k.status === 'waiting' && price <= Number(k.buy_target_price)) {
+      // 정기 매수 포켓(buy_at)은 가격을 보지 않는다 — 예정 시각이 지났으면 그때 현재가로 산다
+      const buyAt = k.buy_at ? Date.parse(k.buy_at) : NaN;
+      const scheduled = Number.isFinite(buyAt);
+      if (k.status === 'waiting' && scheduled) {
+        if (Date.now() >= buyAt) {
+          side = 'buy';
+          limitPrice = price;
+        }
+      } else if (k.status === 'waiting' && price <= Number(k.buy_target_price)) {
         side = 'buy';
         // 현재가가 목표매수가보다 낮으면 현재가로 지정가 주문 (더 싸게 체결)
         limitPrice = Math.min(Number(k.buy_target_price), price);

@@ -58,6 +58,71 @@ export function alignToKrxTick(price: number, side?: 'buy' | 'sell'): number {
   return Math.max(t, aligned);
 }
 
+/** 정기 매수 간격 단위 */
+export type ScheduleUnit = 'day' | 'week' | 'month';
+
+export interface ScheduleInput {
+  /** 1번 포켓을 살 시각 (로컬 기준 Date) */
+  startAt: Date;
+  /** 몇 단위마다 살지 (예: 1주마다 → every=1, unit='week') */
+  every: number;
+  unit: ScheduleUnit;
+  count: number;
+}
+
+/** i번째 회차의 매수 예정 시각 (달 단위는 같은 '일'을 유지, 없는 날짜면 그 달의 마지막 날) */
+export function scheduleAt(start: Date, every: number, unit: ScheduleUnit, i: number): Date {
+  const n = Math.max(1, Math.floor(every)) * i;
+  const d = new Date(start.getTime());
+  if (unit === 'day') d.setDate(d.getDate() + n);
+  else if (unit === 'week') d.setDate(d.getDate() + n * 7);
+  else {
+    const day = d.getDate();
+    d.setDate(1); // 말일(31일)에서 달을 넘길 때 달이 두 번 넘어가는 것을 막는다
+    d.setMonth(d.getMonth() + n);
+    const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(day, last));
+  }
+  return d;
+}
+
+/** 포켓의 매수 예정 시각(ms). 정기 매수 포켓이 아니면 null */
+export function buyAtOf(p: { buy_at?: string | null }): number | null {
+  if (!p.buy_at) return null;
+  const t = Date.parse(p.buy_at);
+  return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * 정기(적립식) 매수 포켓 생성.
+ *
+ * 가격 방식과 달리 '얼마에 살지'를 미리 정하지 않는다 — 예정 시각이 되면 그때 현재가로 산다.
+ * buy_target_price 에는 기준가를 넣어 두는데, 이건 화면에서 예상 수량을 보여주기 위한 참고값일 뿐
+ * 매수 조건으로는 쓰이지 않는다 (buy_at 이 있으면 시각만 본다).
+ */
+export function buildScheduleSeeds(s: StrategyInput & { schedule: ScheduleInput }): PocketSeed[] {
+  const count = clampPocketCount(s.schedule.count);
+  const rawWeights = s.weights && s.weights.length === count ? s.weights : Array(count).fill(100 / count);
+  const weights = normalizeWeights(rawWeights);
+  const isKrx = s.market === 'KRX';
+  const seeds: PocketSeed[] = [];
+  for (let i = 0; i < count; i++) {
+    const base = isKrx ? alignToKrxTick(s.basePrice, 'buy') : round4(s.basePrice);
+    let sell = round4(base * (1 + s.sellTargetPct / 100));
+    if (isKrx) sell = alignToKrxTick(sell, 'sell');
+    const budget = s.totalBudget && s.totalBudget > 0 ? round2((s.totalBudget * weights[i]) / 100) : null;
+    seeds.push({
+      idx: i,
+      buy_target_price: base,
+      sell_target_price: sell,
+      weight: weights[i],
+      budget,
+      buy_at: scheduleAt(s.schedule.startAt, s.schedule.every, s.schedule.unit, i).toISOString(),
+    });
+  }
+  return seeds;
+}
+
 /** 비중 배열을 정규화(합계 100%가 되도록). 합이 0이면 균등 분배. */
 export function normalizeWeights(weights: number[]): number[] {
   const clean = weights.map((w) => (Number.isFinite(w) && w > 0 ? w : 0));
@@ -163,12 +228,20 @@ export function stopPriceOf(p: Pocket): number | null {
  * 사용자가 마지노선을 매도목표 위로 잘못 넣었을 때 '무조건 판다'는 쪽이 안전하다.
  * (실제 발송 중복 방지는 price_alerts 이력으로 별도 처리)
  */
-export function evaluateSignals(pockets: Pocket[], currentPrice: number): PriceSignal[] {
+export function evaluateSignals(pockets: Pocket[], currentPrice: number, now = Date.now()): PriceSignal[] {
   const signals: PriceSignal[] = [];
   for (const p of pockets) {
-    if (p.status === 'waiting' && currentPrice <= p.buy_target_price) {
-      signals.push({ kind: 'buy', pocket: p, targetPrice: p.buy_target_price, currentPrice });
-      continue;
+    const at = buyAtOf(p);
+    if (p.status === 'waiting') {
+      if (at != null) {
+        // 정기 매수 포켓 — 가격은 보지 않는다. 예정 시각이 지났으면 '지금 현재가로' 산다.
+        if (now >= at) signals.push({ kind: 'buy', pocket: p, targetPrice: currentPrice, currentPrice });
+        continue;
+      }
+      if (currentPrice <= p.buy_target_price) {
+        signals.push({ kind: 'buy', pocket: p, targetPrice: p.buy_target_price, currentPrice });
+        continue;
+      }
     }
     if (p.status !== 'bought') continue;
 

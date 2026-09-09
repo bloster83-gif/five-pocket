@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { BottomTabsBar } from '@/components/BottomTabsBar';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
-import { colors, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
+import { colors, formatBuyAt, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
 import { alignToKrxTick, computePnL, estimatedShares, findBudgetMismatches, pnlPct, realizedEvents, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
@@ -353,14 +353,18 @@ export default function ProjectDetailScreen() {
     if (!project || !session?.user?.id) return { ok: false };
     const isKrx = project.market === 'KRX';
     // 매수 가격: 직접 입력(customPrice) > min(목표가, 현재가) — 현재가가 더 낮으면 현재가로 싸게 주문.
+    // 정기 매수 포켓(buy_at)은 목표가가 없다 — 언제나 현재가로 산다.
     const rawBuy =
       customPrice && customPrice > 0
         ? customPrice
-        : price != null && price > 0
-          ? Math.min(k.buy_target_price, price)
-          : k.buy_target_price;
+        : k.buy_at
+          ? price ?? 0
+          : price != null && price > 0
+            ? Math.min(k.buy_target_price, price)
+            : k.buy_target_price;
     const buyPrice = isKrx ? alignToKrxTick(rawBuy, 'buy') : rawBuy;
-    if (!buyPrice || buyPrice <= 0) return { ok: false, msg: '매수 가격이 없어요' };
+    if (!buyPrice || buyPrice <= 0)
+      return { ok: false, msg: k.buy_at ? '현재가를 확인할 수 없어 매수 주문을 넣지 않았어요' : '매수 가격이 없어요' };
     const qty = estimatedShares(k.budget, buyPrice);
     if (qty <= 0) return { ok: false, msg: '배분 예산으로 살 수 있는 수량이 없어요' };
     const rawSell = sellTargetFromFill(buyPrice, Number(project.sell_target_pct));
@@ -1537,20 +1541,28 @@ function PocketCard({
 
       {k.status === 'waiting' && (
         <>
-          {/* 매수 목표가 크게 (빨강) + 기준가 대비 할인율 배지 */}
-          <View style={{ marginTop: spacing.xs }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={{ color: colors.textDim, fontSize: 12 }}>💰 매수 목표가</Text>
-              <View style={{ backgroundColor: colors.buyBg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 1 }}>
-                <Text style={{ color: colors.buy, fontSize: 11, fontWeight: '800' }}>
-                  {k.idx === 0 ? '기준가' : `기준가 -${buyDiscPct}%`}
-                </Text>
-              </View>
+          {/* 정기 매수 포켓이면 목표가 대신 '언제 사는지'를 보여준다 (가격은 그때 현재가) */}
+          {k.buy_at ? (
+            <View style={{ marginTop: spacing.xs }}>
+              <Text style={{ color: colors.textDim, fontSize: 12 }}>📅 매수 예정</Text>
+              <Text style={{ color: colors.buy, fontSize: 22, fontWeight: '900' }}>{formatBuyAt(k.buy_at) ?? '-'}</Text>
+              <Text style={{ color: colors.textDim, fontSize: 11 }}>그 시각의 현재가로 살 수 있는 최대 수량을 주문해요.</Text>
             </View>
-            <Text style={{ color: colors.buy, fontSize: 26, fontWeight: '900' }}>
-              {formatPrice(buyTargetDisp, market)}
-            </Text>
-          </View>
+          ) : (
+            <View style={{ marginTop: spacing.xs }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={{ color: colors.textDim, fontSize: 12 }}>💰 매수 목표가</Text>
+                <View style={{ backgroundColor: colors.buyBg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 1 }}>
+                  <Text style={{ color: colors.buy, fontSize: 11, fontWeight: '800' }}>
+                    {k.idx === 0 ? '기준가' : `기준가 -${buyDiscPct}%`}
+                  </Text>
+                </View>
+              </View>
+              <Text style={{ color: colors.buy, fontSize: 26, fontWeight: '900' }}>
+                {formatPrice(buyTargetDisp, market)}
+              </Text>
+            </View>
+          )}
           {k.budget != null && (
             <Row label={`배분 예산 (비중 ${k.weight}%)`} value={formatPrice(k.budget, market)} valueColor={num.budget} />
           )}

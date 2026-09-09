@@ -203,3 +203,24 @@ export const pocketColors = ['#F59E0B', '#22D3A6', '#8B5CF6', '#EC4899', '#84CC1
 export function pocketColor(idx: number): string {
   return pocketColors[((idx % pocketColors.length) + pocketColors.length) % pocketColors.length];
 }
+
+
+/**
+ * 정기 매수 예정 시각 표기 — '9/12 09:30 · D-3' / '오늘 09:30 · 2시간 뒤' / '매수 예정 시각 지남'
+ * 카드에서 한 줄로 보여줄 용도.
+ */
+export function formatBuyAt(iso: string | null | undefined, now = Date.now()): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  const d = new Date(t);
+  const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const when = `${d.getMonth() + 1}/${d.getDate()} ${hhmm}`;
+  const diff = t - now;
+  if (diff <= 0) return `${when} · 매수 시각 지남`;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${when} · ${mins}분 뒤`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${when} · ${hours}시간 뒤`;
+  return `${when} · D-${Math.floor(hours / 24)}`;
+}
