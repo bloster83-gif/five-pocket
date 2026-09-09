@@ -11,6 +11,8 @@ import { Pressable, Text, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
+import { confirmAction, notify } from '@/lib/alert';
+import { adoptHolding } from '@/services/adoptHolding';
 import { useAuth } from '@/lib/auth';
 import { Card } from '@/components/ui';
 import { FixHoldingModal, type FixTarget } from '@/components/FixHoldingModal';
@@ -142,13 +144,49 @@ export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
   const real = visible.filter((m) => !m.explainedByOrders && !m.unmanaged);
   const unmanaged = visible.filter((m) => m.unmanaged);
 
-  /** 계좌에만 있는 종목 → 그 정보로 프로젝트 생성 화면을 미리 채워 연다 */
-  const createProject = (m: HoldingMismatch) => {
-    const base = m.avgPrice && m.avgPrice > 0 ? m.avgPrice : 0;
-    router.push(
-      `/project/new?symbol=${encodeURIComponent(m.symbol)}&name=${encodeURIComponent(m.name)}` +
-        `&market=${m.market}` +
-        (base > 0 ? `&base=${base}&budget=${Math.round(base * m.heldQty)}` : '')
+  /**
+   * 계좌에만 있는 종목을 한 번에 프로젝트로 잡아온다.
+   * 생성 화면으로 보내면 '사용가능 예산 초과'로 저장이 막힌다 —
+   * 이미 산 주식이라 그 돈이 예수금에 없기 때문. 그래서 여기서 바로 만든다.
+   */
+  const adopt = (m: HoldingMismatch) => {
+    const avg = m.avgPrice ?? 0;
+    if (!session?.user?.id) return;
+    if (avg <= 0) {
+      // 평단을 못 읽으면 직접 입력하도록 생성 화면으로 (드문 경우)
+      router.push(
+        `/project/new?symbol=${encodeURIComponent(m.symbol)}&name=${encodeURIComponent(m.name)}&market=${m.market}`
+      );
+      return;
+    }
+    confirmAction(
+      '프로젝트로 잡기',
+      `${m.name} ${money(m.heldQty, 0)}주(평단 ${formatPrice(avg, m.market)})를 새 프로젝트로 만들고\n` +
+        `포켓 1에 전부 보유중으로 잡을까요?\n\n` +
+        `· 기준가 ${formatPrice(avg, m.market)} · 총예산 ${formatPrice(avg * m.heldQty, m.market)}\n` +
+        `· 매수 간격 5% · 매도 목표 10% (나중에 포켓별 목표가 수정 가능)`,
+      async () => {
+        try {
+          await adoptHolding({
+            userId: session.user.id,
+            symbol: m.symbol,
+            name: m.name,
+            market: m.market,
+            qty: m.heldQty,
+            avgPrice: avg,
+          });
+        } catch (e: any) {
+          return notify('만들지 못했어요', e?.message ?? '잠시 후 다시 시도해 주세요.');
+        }
+        clearMismatchCache();
+        await refresh();
+        onFixed?.();
+        notify(
+          '프로젝트로 잡았어요',
+          `${m.name} ${money(m.heldQty, 0)}주가 포켓 1에 보유중으로 들어갔어요.\n매도 목표가는 포켓 카드의 '🎯 목표가 수정'에서 바꿀 수 있어요.`
+        );
+      },
+      '만들기'
     );
   };
 
@@ -228,7 +266,7 @@ export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
         <Card style={{ borderColor: colors.warn, backgroundColor: 'rgba(251,191,36,0.08)' }}>
           <Text style={{ color: colors.warn, fontWeight: '900', fontSize: 14 }}>⚠️ 앱이 모르는 보유 종목</Text>
           <Text style={{ color: colors.textDim, fontSize: 11, marginBottom: 4, lineHeight: 16 }}>
-            계좌에는 있는데 진행중 프로젝트가 없어요. 프로젝트를 만들면 5분할로 관리할 수 있어요.{'\n'}
+            계좌에는 있는데 진행중 프로젝트가 없어요. ‘바로잡기’를 누르면 프로젝트를 만들고 포켓 1에 전부 잡아요.{'\n'}
             (장기보유처럼 앱으로 관리하지 않는 종목이면 ‘숨기기’를 누르세요)
           </Text>
           {unmanaged.map((m) => (
@@ -246,8 +284,8 @@ export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
                 <Pressable onPress={() => void ignoreSymbol(m.symbol)} hitSlop={6}>
                   <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '800' }}>숨기기</Text>
                 </Pressable>
-                <Pressable onPress={() => createProject(m)} hitSlop={6}>
-                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '900' }}>＋ 프로젝트 만들기</Text>
+                <Pressable onPress={() => adopt(m)} hitSlop={6}>
+                  <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '900' }}>🩹 바로잡기</Text>
                 </Pressable>
               </View>
             </View>
