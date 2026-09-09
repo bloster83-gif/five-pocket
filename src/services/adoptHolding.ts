@@ -2,7 +2,7 @@
 //
 // 앱이 모르는 보유분(진행중 프로젝트가 없는 종목)을 한 번에 관리 대상으로 만든다.
 //   ① 종목명·계좌 평단으로 프로젝트 생성 (기준가 = 평단, 총예산 = 평단 × 수량)
-//   ② 포켓 1에 보유분 전부를 배정하고 '보유중'으로 (2~5번은 예산 0의 대기 포켓)
+//   ② 포켓 1에 보유분 전부를 배정하고 '보유중'으로 (배분할 돈이 없는 2~5번은 만들지 않는다)
 //   ③ 평단 기준 매수 체결을 기록 → 계좌와 수량이 바로 맞는다
 //
 // 프로젝트 생성 화면을 거치지 않는 이유: 그 화면은 '새로 쓸 돈'을 배분하는 곳이라
@@ -51,8 +51,7 @@ export async function adoptHolding(input: AdoptInput): Promise<string> {
     .single();
   if (perr || !proj) throw new Error(perr?.message ?? '프로젝트를 만들지 못했어요.');
 
-  // 보유분은 전부 포켓 1에 있다 → 비중 100/0/0/0/0.
-  // 2~5번은 예산 0으로 남겨 둔다 (나중에 쓸 돈을 아직 배정하지 않았다는 뜻).
+  // 보유분은 전부 포켓 1에 있다 → 비중 100/0/0/0/0 (2~5번은 예산이 0이라 만들지 않는다).
   const seeds = buildPocketSeeds({
     basePrice,
     buyIntervalPct: DEFAULT_BUY_INTERVAL_PCT,
@@ -63,19 +62,22 @@ export async function adoptHolding(input: AdoptInput): Promise<string> {
     market,
   });
 
+  // 배분 예산이 0인 포켓은 '아직 만들지 않은 것'으로 둔다 (프로젝트 생성 화면과 같은 규칙).
+  // 행을 만들어 두면 목록의 포켓 신호등에 2~5번이 빈 원으로 켜져 있는 것처럼 보인다.
   const { data: pocketRows, error: kerr } = await supabase
     .from('pockets')
     .insert(
-      seeds.map((s) => ({
-        project_id: proj.id,
-        idx: s.idx,
-        buy_target_price: s.buy_target_price,
-        sell_target_price: s.sell_target_price,
-        weight: s.weight,
-        budget: s.budget,
-        // 포켓 1은 이미 보유 중, 나머지는 대기
-        status: s.idx === 0 ? ('bought' as const) : ('waiting' as const),
-      }))
+      seeds
+        .filter((s) => (s.budget ?? 0) > 0)
+        .map((s) => ({
+          project_id: proj.id,
+          idx: s.idx,
+          buy_target_price: s.buy_target_price,
+          sell_target_price: s.sell_target_price,
+          weight: s.weight,
+          budget: s.budget,
+          status: 'bought' as const, // 이미 보유 중인 물량
+        }))
     )
     .select('id,idx');
   if (kerr) throw new Error(kerr.message);

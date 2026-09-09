@@ -28,6 +28,14 @@ import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 const fmtDate = (iso: string | null) => (iso ? iso.slice(0, 10) : '-');
 
+/**
+ * 신호등에 켤 포켓인가.
+ * 배분 예산이 0인 대기 포켓은 '아직 만들지 않은 자리'라 원을 그리지 않는다
+ * (포켓 목록에서도 같은 규칙으로 숨긴다).
+ */
+const litPocket = (k: Pocket | undefined): k is Pocket =>
+  !!k && !(k.status === 'waiting' && Number(k.budget ?? 0) <= 0);
+
 interface Metric {
   price: number | null; // 실시간 현재가
   changePct: number | null; // 오늘 등락률 % (전일 종가 대비)
@@ -266,7 +274,7 @@ export default function ProjectsScreen() {
     const m = metrics[p.id];
     const closed = !!p.closed_at;
     const pockets = pocketsByProject[p.id] ?? [];
-    const maxIdx = pockets.length ? Math.max(...pockets.map((x) => x.idx)) : -1;
+    const maxIdx = pockets.filter(litPocket).length ? Math.max(...pockets.filter(litPocket).map((x) => x.idx)) : -1;
     const rate = m?.buyValue && m.buyValue > 0 && m.pnl != null ? Math.round((m.pnl / m.buyValue) * 1000) / 10 : null;
     const showAuto = !closed && tier === 'auto' && (p.market === 'KRX' || p.market === 'US');
     return (
@@ -352,7 +360,7 @@ export default function ProjectsScreen() {
                   <View style={{ flexDirection: 'row', gap: 4 }}>
                     {Array.from({ length: maxIdx + 1 }, (_, i) => i).map((idx) => {
                       const pk = pockets.find((x) => x.idx === idx);
-                      if (!pk) return <View key={idx} style={{ width: 13, height: 13 }} />;
+                      if (!litPocket(pk)) return <View key={idx} style={{ width: 13, height: 13 }} />;
                       const st = pk.status;
                       const reached = st === 'waiting' && m?.price != null && m.price <= Number(pk.buy_target_price);
                       const fill =
@@ -851,7 +859,7 @@ export default function ProjectsScreen() {
                         {/* 포켓 신호등 — 실제 생성된 포켓만 표시(예산·수량 0이라 안 만들어진 포켓은 빈 자리).
                             5칸 그리드로 줄바꿈 → 6번은 1번 아래, 7번은 2번 아래에 정렬. */}
                         {(() => {
-                          const existing = pocketsByProject[item.id] ?? [];
+                          const existing = (pocketsByProject[item.id] ?? []).filter(litPocket);
                           const maxIdx = existing.length ? Math.max(...existing.map((p) => p.idx)) : -1;
                           if (maxIdx < 0) return <View />;
                           const dot = 16;
