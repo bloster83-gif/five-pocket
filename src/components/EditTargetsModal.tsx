@@ -29,7 +29,8 @@ export function EditTargetsModal({
   market: string;
   price: number | null;
   avgBuy: number; // 보유중이면 평균매수가, 대기중이면 0
-  onSave: (buyPrice: number, sellPrice: number | null, stopPrice: number | null) => Promise<void>;
+  /** buyAt: 정기매수법 포켓의 예정 시각(ISO). 가격 방식 포켓이면 undefined */
+  onSave: (buyPrice: number, sellPrice: number | null, stopPrice: number | null, buyAt?: string | null) => Promise<void>;
 }) {
   const isKrx = market === 'KRX';
   const dec = !isKrx; // 미국주식은 소수점 허용
@@ -38,6 +39,10 @@ export function EditTargetsModal({
   const [sellStr, setSellStr] = useState('');
   const [stopStr, setStopStr] = useState('');
   const [saving, setSaving] = useState(false);
+  // 정기매수법 포켓(대기중)은 매수 목표가 대신 '언제 살지'를 고친다
+  const scheduled = !held && !!pocket?.buy_at;
+  const [dateStr, setDateStr] = useState('');
+  const [timeStr, setTimeStr] = useState('');
 
   useEffect(() => {
     if (visible && pocket) {
@@ -52,8 +57,14 @@ export function EditTargetsModal({
       setBuyStr(bA != null ? String(bA) : '');
       setSellStr(sA != null ? String(sA) : '');
       setStopStr(stA != null ? String(stA) : '');
+      if (pocket.buy_at) {
+        const d = new Date(pocket.buy_at);
+        const p2 = (n: number) => String(n).padStart(2, '0');
+        setDateStr(`${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`);
+        setTimeStr(`${p2(d.getHours())}:${p2(d.getMinutes())}`);
+      }
     }
-  }, [visible, pocket?.buy_target_price, pocket?.sell_target_price, pocket?.stop_price, isKrx]);
+  }, [visible, pocket?.buy_target_price, pocket?.sell_target_price, pocket?.stop_price, pocket?.buy_at, isKrx]);
 
   if (!pocket) return null;
 
@@ -78,7 +89,7 @@ export function EditTargetsModal({
   // 배분 예산으로 이 목표가에 몇 주를 살 수 있는지.
   // 0주가 되면 목록에서 숨겨져 포켓이 사라진 것처럼 보이므로 저장 자체를 막는다.
   // (보유중 포켓은 매수 목표가를 못 바꾸므로 검사 대상이 아니다)
-  const buyableQty = held ? null : estimatedShares(pocket.budget, buyVal);
+  const buyableQty = held ? null : estimatedShares(pocket.budget, scheduled && price != null && price > 0 ? price : buyVal);
   const qtyBlocked = buyableQty != null && buyVal > 0 && buyableQty <= 0;
 
   // 마지노선 — 평균매수가 대비 손익률, 그리고 잘못 넣었을 때의 경고
@@ -90,6 +101,16 @@ export function EditTargetsModal({
 
   const submit = async () => {
     if (buyVal <= 0) return notify('입력 확인', '매수 목표가를 올바르게 입력해 주세요.');
+    // 정기매수법: 예정 시각을 다시 계산해 넘긴다 (형식이 어긋나면 막는다)
+    let buyAt: string | null | undefined = undefined;
+    if (scheduled) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
+      const t = /^(\d{1,2}):(\d{2})$/.exec(timeStr.trim());
+      if (!m || !t) return notify('입력 확인', '날짜는 YYYY-MM-DD, 시각은 HH:MM 형식으로 입력해 주세요.');
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(t[1]), Number(t[2]), 0, 0);
+      if (isNaN(d.getTime())) return notify('입력 확인', '날짜·시각을 확인해 주세요.');
+      buyAt = d.toISOString();
+    }
     if (stopAboveSell) {
       return notify(
         '저장할 수 없어요',
@@ -106,7 +127,7 @@ export function EditTargetsModal({
     }
     setSaving(true);
     try {
-      await onSave(buyVal, sellVal > 0 ? sellVal : null, stopVal > 0 ? stopVal : null);
+      await onSave(buyVal, sellVal > 0 ? sellVal : null, stopVal > 0 ? stopVal : null, buyAt);
     } catch (e: any) {
       notify('저장 실패', e?.message ?? '목표가를 저장하지 못했어요.');
     } finally {
@@ -150,10 +171,35 @@ export function EditTargetsModal({
             </Text>
           )}
 
-          {/* 매수 목표가 — 대기중이면 수정 가능, 보유중이면 읽기 전용 */}
+          {/* 매수 목표가 — 대기중이면 수정 가능, 보유중이면 읽기 전용.
+              정기매수법 대기 포켓은 목표가가 없으므로 '매수 예정 날짜·시각'을 고친다. */}
           <View style={{ gap: 4 }}>
-            <Text style={{ color: colors.buy, fontSize: 13, fontWeight: '800' }}>매수 목표가</Text>
-            {held ? (
+            <Text style={{ color: colors.buy, fontSize: 13, fontWeight: '800' }}>{scheduled ? '📅 매수 예정 (한국시간·폰 시간대 기준)' : '매수 목표가'}</Text>
+            {scheduled ? (
+              <>
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  <TextInput
+                    value={dateStr}
+                    onChangeText={setDateStr}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={colors.textDim}
+                    autoCapitalize="none"
+                    style={[inputStyle, { flex: 1.4 }]}
+                  />
+                  <TextInput
+                    value={timeStr}
+                    onChangeText={setTimeStr}
+                    placeholder="09:30"
+                    placeholderTextColor={colors.textDim}
+                    autoCapitalize="none"
+                    style={[inputStyle, { flex: 1 }]}
+                  />
+                </View>
+                <Text style={{ color: colors.textDim, fontSize: 12 }}>
+                  이 시각이 지나면 그때 현재가로 살 수 있는 최대 수량을 주문해요. (장이 닫혀 있으면 열릴 때까지 기다려요)
+                </Text>
+              </>
+            ) : held ? (
               <>
                 <View
                   style={{

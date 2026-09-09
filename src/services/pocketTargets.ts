@@ -20,9 +20,15 @@ export async function savePocketTargets(
   pocketId: string,
   buyPrice: number,
   sellPrice: number | null,
-  stopPrice: number | null
+  stopPrice: number | null,
+  /** 정기매수법 포켓의 예정 시각(ISO). undefined = 건드리지 않음 */
+  buyAt?: string | null
 ): Promise<SaveTargetsResult> {
-  const base = { buy_target_price: buyPrice, sell_target_price: sellPrice };
+  const base = {
+    buy_target_price: buyPrice,
+    sell_target_price: sellPrice,
+    ...(buyAt !== undefined ? { buy_at: buyAt } : null),
+  };
 
   const { error } = await supabase
     .from('pockets')

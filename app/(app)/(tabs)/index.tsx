@@ -232,7 +232,8 @@ export default function ProjectsScreen() {
   const copyProject = (p: Project) => {
     const q =
       `copy=1&name=${encodeURIComponent(p.name)}&symbol=${encodeURIComponent(p.symbol)}&market=${p.market}` +
-      `&base=${p.base_price}&buyInt=${p.buy_interval_pct}&sellTgt=${p.sell_target_pct}&budget=${p.total_budget ?? ''}`;
+      `&base=${p.base_price}&buyInt=${p.buy_interval_pct}&sellTgt=${p.sell_target_pct}&budget=${p.total_budget ?? ''}` +
+      `&mode=${p.buy_mode ?? 'price'}`; // 정기매수법이면 같은 방식으로 열린다 (날짜는 새로 잡는다)
     router.push(`/project/new?${q}`);
   };
 

@@ -138,9 +138,11 @@ export function usePriceTracker(
           const label = sig.kind === 'buy' ? '매수' : sig.kind === 'stop' ? '🛑 마지노선' : '매도';
           await notifyNow(
             `${label} 포인트 도달 · ${project.symbol}`,
-            `${project.name} · 포켓 ${sig.pocket.idx + 1} · ${
-              sig.kind === 'stop' ? '마지노선' : '목표'
-            } ${sig.targetPrice} / 현재 ${sig.currentPrice}`
+            sig.kind === 'buy' && sig.pocket.buy_at
+              ? `${project.name} · 포켓 ${sig.pocket.idx + 1} · 정기매수 예정 시각 도달 / 현재 ${sig.currentPrice}`
+              : `${project.name} · 포켓 ${sig.pocket.idx + 1} · ${
+                  sig.kind === 'stop' ? '마지노선' : '목표'
+                } ${sig.targetPrice} / 현재 ${sig.currentPrice}`
           );
           supabase
             .from('price_alerts')

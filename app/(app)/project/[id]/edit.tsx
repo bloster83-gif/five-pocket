@@ -5,11 +5,27 @@ import { supabase } from '@/lib/supabase';
 import { notify } from '@/lib/alert';
 import { Button, Card, Field, NumberField } from '@/components/ui';
 import { colors, formatPrice, money, spacing } from '@/theme';
-import { buildPocketSeeds, estimatedShares, normalizeWeights, POCKET_COUNT } from '@/domain/pockets';
+import { buildPocketSeeds, buildScheduleSeeds, estimatedShares, inferSchedule, normalizeWeights, POCKET_COUNT, scheduleAt, type ScheduleUnit } from '@/domain/pockets';
 import type { Pocket, Project } from '@/types/db';
 import { BackHeader } from '@/components/BackHeader';
 import { WeightInput } from '@/components/WeightInput';
 import { useAllocMode } from '@/lib/allocMode';
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const dateStr = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const timeStr = (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+function parseStart(date: string, time: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
+  const t = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  if (!m || !t) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(t[1]), Number(t[2]), 0, 0);
+  return isNaN(d.getTime()) ? null : d;
+}
+const UNITS: { key: ScheduleUnit; label: string }[] = [
+  { key: 'day', label: '일' },
+  { key: 'week', label: '주' },
+  { key: 'month', label: '개월' },
+];
 
 // 프로젝트 수정 — 종목/시장/이름은 고정(이름=종목명).
 //  - 거래가 하나도 없으면: 전략·예산·포켓비중 수정 가능
@@ -29,6 +45,11 @@ export default function EditProjectScreen() {
   const [sellTarget, setSellTarget] = useState('10');
   const [totalBudget, setTotalBudget] = useState('');
   const [weights, setWeights] = useState<string[]>(Array(POCKET_COUNT).fill('20'));
+  // 정기매수법 — 저장된 포켓의 예정 시각에서 되짚어 낸 값으로 시작
+  const [startDate, setStartDate] = useState('');
+  const [startTime, setStartTime] = useState('09:30');
+  const [every, setEvery] = useState('1');
+  const [unit, setUnit] = useState<ScheduleUnit>('week');
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -50,6 +71,16 @@ export default function EditProjectScreen() {
       const ks = [...(k as Pocket[])].sort((a, b) => a.idx - b.idx);
       setPockets(ks);
       if (ks.length > 0) setWeights(ks.map((x) => String(x.weight)));
+      // 정기매수법이면 날짜·시각·주기를 포켓에서 되짚어 채운다
+      if ((p as Project)?.buy_mode === 'schedule') {
+        const inf = inferSchedule(ks);
+        if (inf) {
+          setStartDate(dateStr(inf.startAt));
+          setStartTime(timeStr(inf.startAt));
+          setEvery(String(inf.every));
+          setUnit(inf.unit);
+        }
+      }
     }
     setLoading(false);
   }, [id]);
@@ -72,11 +103,22 @@ export default function EditProjectScreen() {
   };
   const normalized = useMemo(() => normalizeWeights(parsed.weights), [weights]); // eslint-disable-line react-hooks/exhaustive-deps
   const weightSum = parsed.weights.reduce((a, b) => a + b, 0);
+  const isSched = project?.buy_mode === 'schedule';
+  const scheduleStart = useMemo(() => parseStart(startDate, startTime), [startDate, startTime]);
+  const scheduleEvery = Math.max(1, Math.floor(Number(every) || 1));
+
   const seeds = useMemo(() => {
     if (!parsed.basePrice || parsed.basePrice <= 0) return [];
+    if (isSched) {
+      if (!scheduleStart) return [];
+      return buildScheduleSeeds({
+        ...parsed,
+        schedule: { startAt: scheduleStart, every: scheduleEvery, unit, count: parsed.pocketCount },
+      });
+    }
     return buildPocketSeeds(parsed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [basePrice, buyInterval, sellTarget, totalBudget, weights, market]);
+  }, [basePrice, buyInterval, sellTarget, totalBudget, weights, market, isSched, scheduleStart, scheduleEvery, unit]);
 
   const setWeight = (i: number, v: string) => {
     const next = [...weights];
@@ -106,6 +148,9 @@ export default function EditProjectScreen() {
     if (!parsed.basePrice || parsed.basePrice <= 0) {
       return notify('입력 필요', '기준가를 올바르게 입력하세요.');
     }
+    if (isSched && !scheduleStart) {
+      return notify('입력 필요', '첫 매수 날짜는 YYYY-MM-DD, 시각은 HH:MM 형식으로 입력하세요.');
+    }
 
     setSaving(true);
     const { error: perr } = await supabase
@@ -134,6 +179,8 @@ export default function EditProjectScreen() {
             sell_target_price: s.sell_target_price,
             weight: s.weight,
             budget: s.budget,
+            // 정기매수법은 예정 시각도 다시 쓴다 (안 쓰면 날짜 수정이 반영되지 않는다)
+            ...(isSched ? { buy_at: s.buy_at ?? null } : null),
           })
           .eq('id', k.id);
       })
@@ -173,28 +220,90 @@ export default function EditProjectScreen() {
         <Text style={{ color: colors.textDim, fontSize: 12 }}>
           {project.symbol} · {market === 'KRX' ? '한국(원화)' : '미국(달러)'} · 종목/이름은 변경할 수 없어요
         </Text>
-        <View style={{ opacity: dim }}>
-          <NumberField
-            label={`기준가 (${market === 'KRX' ? '원' : '달러'})`}
-            value={basePrice}
-            onChangeText={setBasePrice}
-            decimals
-            editable={!locked}
-            placeholder="1번 포켓 매수 기준가"
-          />
-        </View>
+        {/* 정기매수법은 기준가가 없다 (예정 시각의 현재가로 산다) */}
+        {!isSched && (
+          <View style={{ opacity: dim }}>
+            <NumberField
+              label={`기준가 (${market === 'KRX' ? '원' : '달러'})`}
+              value={basePrice}
+              onChangeText={setBasePrice}
+              decimals
+              editable={!locked}
+              placeholder="1번 포켓 매수 기준가"
+            />
+          </View>
+        )}
       </Card>
 
       <Card style={{ opacity: dim }}>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>5분할 전략</Text>
-        <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          <View style={{ flex: 1 }}>
-            <Field label="매수 간격 %" value={buyInterval} onChangeText={setBuyInterval} keyboardType="decimal-pad" editable={!locked} />
+        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>
+          {isSched ? '📅 정기매수법' : '📉 정액매수법'}
+        </Text>
+        {isSched ? (
+          <>
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <View style={{ flex: 1.4 }}>
+                <Field label="첫 매수 날짜" value={startDate} onChangeText={setStartDate} placeholder="YYYY-MM-DD" autoCapitalize="none" editable={!locked} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Field label="시각" value={startTime} onChangeText={setStartTime} placeholder="09:30" autoCapitalize="none" editable={!locked} />
+              </View>
+            </View>
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800', marginTop: -6 }}>🕘 한국시간(폰 시간대) 기준</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-end' }}>
+              <View style={{ width: 78 }}>
+                <Field label="간격" value={every} onChangeText={setEvery} keyboardType="number-pad" editable={!locked} />
+              </View>
+              <View style={{ flexDirection: 'row', gap: 6, flex: 1, paddingBottom: 8 }}>
+                {UNITS.map((u) => {
+                  const on = unit === u.key;
+                  return (
+                    <Pressable
+                      key={u.key}
+                      onPress={() => !locked && setUnit(u.key)}
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 10,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: on ? colors.primary : colors.border,
+                        backgroundColor: on ? 'rgba(34,211,166,0.14)' : colors.cardAlt,
+                      }}
+                    >
+                      <Text style={{ color: on ? colors.primary : colors.textDim, fontWeight: '800' }}>{u.label}마다</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+            <Field label="매도 목표 % (체결가 대비)" value={sellTarget} onChangeText={setSellTarget} keyboardType="decimal-pad" editable={!locked} />
+            {scheduleStart ? (
+              <View style={{ backgroundColor: colors.cardAlt, borderRadius: 8, padding: spacing.md, gap: 3 }}>
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>매수 예정 ({parsed.pocketCount}회)</Text>
+                {Array.from({ length: Math.min(parsed.pocketCount, 5) }, (_, i) => {
+                  const d = scheduleAt(scheduleStart, scheduleEvery, unit, i);
+                  return (
+                    <Text key={i} style={{ color: colors.text, fontSize: 12 }}>
+                      포켓 {i + 1} · {dateStr(d)} {timeStr(d)}
+                    </Text>
+                  );
+                })}
+                {parsed.pocketCount > 5 && <Text style={{ color: colors.textDim, fontSize: 11 }}>… 외 {parsed.pocketCount - 5}회</Text>}
+              </View>
+            ) : (
+              <Text style={{ color: colors.warn, fontSize: 12 }}>날짜는 YYYY-MM-DD, 시각은 HH:MM 형식으로 입력하세요.</Text>
+            )}
+          </>
+        ) : (
+          <View style={{ flexDirection: 'row', gap: spacing.md }}>
+            <View style={{ flex: 1 }}>
+              <Field label="매수 간격 %" value={buyInterval} onChangeText={setBuyInterval} keyboardType="decimal-pad" editable={!locked} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="매도 목표 %" value={sellTarget} onChangeText={setSellTarget} keyboardType="decimal-pad" editable={!locked} />
+            </View>
           </View>
-          <View style={{ flex: 1 }}>
-            <Field label="매도 목표 %" value={sellTarget} onChangeText={setSellTarget} keyboardType="decimal-pad" editable={!locked} />
-          </View>
-        </View>
+        )}
       </Card>
 
       <Card style={{ opacity: dim }}>

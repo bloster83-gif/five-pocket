@@ -59,6 +59,7 @@ export default function NewProjectScreen() {
     buyInt?: string;
     sellTgt?: string;
     budget?: string;
+    mode?: string; // 'schedule' 이면 정기매수법으로 연다 (프로젝트 복사)
   }>();
 
   // 종목 검색
@@ -116,6 +117,7 @@ export default function NewProjectScreen() {
     if (params.buyInt) setBuyInterval(params.buyInt);
     if (params.sellTgt) setSellTarget(params.sellTgt);
     if (params.budget) setTotalBudget(params.budget);
+    if (params.mode === 'schedule') setBuyMode('schedule');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.copy, params.symbol]);
 

@@ -1088,8 +1088,8 @@ export default function PocketsScreen() {
             market={proj.market}
             price={prices[proj.symbol]?.price ?? null}
             avgBuy={pnl.totalQtyOpen > 0 ? pnl.avgOpenPrice : 0}
-            onSave={async (b, s, stop) => {
-              const r = await savePocketTargets(editPocket.id, b, s, stop);
+            onSave={async (b, s, stop, buyAt) => {
+              const r = await savePocketTargets(editPocket.id, b, s, stop, buyAt);
               await load();
               setEditPocket(null);
               if (!r.stopSaved && stop != null) notify('DB 준비 필요', STOP_PRICE_MIGRATION_HINT);

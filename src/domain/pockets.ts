@@ -92,8 +92,41 @@ export function scheduleAt(start: Date, every: number, unit: ScheduleUnit, i: nu
 }
 
 /**
- * 정기매수법 프로젝트의 '언제부터 언제까지, 얼마마다' 요약.
- * 주기는 포켓 간 간격에서 되짚어 낸다 (따로 저장하지 않아도 되게).
+ * 저장된 포켓들의 예정 시각에서 주기(every·unit)를 되짚어 낸다 — 따로 저장하지 않아도 되게.
+ * 날짜(일)가 같으면 개월, 7의 배수면 주, 그 외 일. 포켓이 하나뿐이면 null.
+ */
+export function inferSchedule(
+  pockets: { buy_at?: string | null }[]
+): { startAt: Date; every: number; unit: ScheduleUnit } | null {
+  const times = pockets
+    .map((k) => k.buy_at)
+    .filter((t): t is string => !!t)
+    .map((t) => Date.parse(t))
+    .filter((t) => Number.isFinite(t))
+    .sort((a, b) => a - b);
+  if (times.length === 0) return null;
+  const startAt = new Date(times[0]);
+  if (times.length < 2) return { startAt, every: 1, unit: 'week' };
+  const a = new Date(times[0]);
+  const b = new Date(times[1]);
+  if (a.getDate() === b.getDate()) {
+    const months = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+    if (months > 0) return { startAt, every: months, unit: 'month' };
+  }
+  const days = Math.max(1, Math.round((times[1] - times[0]) / 86400000));
+  if (days % 7 === 0) return { startAt, every: days / 7, unit: 'week' };
+  return { startAt, every: days, unit: 'day' };
+}
+
+/** 주기 표기 — '3일마다' / '1주마다' / '2개월마다' */
+export function scheduleEveryLabel(every: number, unit: ScheduleUnit): string {
+  if (unit === 'day') return every === 1 ? '매일' : `${every}일마다`;
+  if (unit === 'week') return `${every}주마다`;
+  return `${every}개월마다`;
+}
+
+/**
+ * 정기매수법 프로젝트의 '언제부터 언제까지, 얼마마다' 요약 (목록·상세 표시용).
  */
 export function describeSchedule(
   pockets: { buy_at?: string | null }[]
@@ -105,25 +138,15 @@ export function describeSchedule(
     .filter((t) => Number.isFinite(t))
     .sort((a, b) => a - b);
   if (times.length === 0) return null;
-
   const fmt = (ms: number) => {
     const d = new Date(ms);
     return `${d.getMonth() + 1}/${d.getDate()}`;
   };
   const from = fmt(times[0]);
   const to = fmt(times[times.length - 1]);
-  if (times.length < 2) return { from, to, every: '1회' };
-
-  const a = new Date(times[0]);
-  const b = new Date(times[1]);
-  // 날짜(일)가 같으면 '개월' 주기다 — 말일 보정 때문에 일수로는 28~31로 들쭉날쭉하다
-  if (a.getDate() === b.getDate()) {
-    const months = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
-    if (months > 0) return { from, to, every: `${months}개월마다` };
-  }
-  const days = Math.max(1, Math.round((times[1] - times[0]) / 86400000));
-  if (days % 7 === 0) return { from, to, every: `${days / 7}주마다` };
-  return { from, to, every: days === 1 ? '매일' : `${days}일마다` };
+  const inf = inferSchedule(pockets);
+  const every = times.length < 2 || !inf ? '1회' : scheduleEveryLabel(inf.every, inf.unit);
+  return { from, to, every };
 }
 
 /** 아직 사지 않은 포켓 중 가장 이른 매수 예정 시각(ISO). 없으면 null */

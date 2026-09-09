@@ -8,7 +8,7 @@ import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { BottomTabsBar } from '@/components/BottomTabsBar';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
 import { colors, formatBuyAt, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
-import { alignToKrxTick, buyPointReached, computePnL, describeSchedule, estimatedShares, findBudgetMismatches, pnlPct, realizedEvents, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
+import { alignToKrxTick, buyPointReached, computePnL, describeSchedule, estimatedShares, inferSchedule, scheduleAt, findBudgetMismatches, pnlPct, realizedEvents, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
 import { useAutoTrader } from '@/services/autoTrader';
@@ -164,11 +164,19 @@ export default function ProjectDetailScreen() {
 
   // 매도 완료된 포켓을 다시 매수 대기로 (기존 기록은 그대로 유지)
   const restartPocket = async (k: Pocket) => {
-    const { error } = await supabase
-      .from('pockets')
-      .update({ status: 'waiting', sell_target_price: null })
-      .eq('id', k.id);
+    // 정기매수법 포켓은 예정 시각이 이미 지나 있어서 그냥 되돌리면 다음 폴링에 바로 사 버린다.
+    // 다음 회차 시각(지금 + 주기)으로 옮겨 두고, 원하면 🎯 수정에서 날짜를 고치게 한다.
+    const patch: Record<string, unknown> = { status: 'waiting', sell_target_price: null };
+    let nextLabel: string | null = null;
+    if (k.buy_at) {
+      const inf = inferSchedule(pockets);
+      const next = inf ? scheduleAt(new Date(), inf.every, inf.unit, 1) : scheduleAt(new Date(), 1, 'day', 1);
+      patch.buy_at = next.toISOString();
+      nextLabel = formatBuyAt(next.toISOString());
+    }
+    const { error } = await supabase.from('pockets').update(patch).eq('id', k.id);
     if (error) return notify('처리 실패', error.message);
+    if (nextLabel) notify('재시작', `다음 매수 예정: ${nextLabel}\n날짜를 바꾸려면 포켓의 🎯 수정에서 고칠 수 있어요.`);
     load();
   };
 
@@ -692,10 +700,24 @@ export default function ProjectDetailScreen() {
             </View>
           </View>
 
-          {/* 기준가 (전략 기준점) */}
+          {/* 기준가 (정액매수법) / 매수 일정 (정기매수법 — 기준가가 없다) */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.cardAlt, borderRadius: radius.sm, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
-            <Text style={{ color: colors.textDim, fontSize: 12 }}>기준가 (포켓1 매수 기준)</Text>
-            <Text style={{ color: num.base, fontWeight: '800' }}>{formatPrice(project.base_price, mkt)}</Text>
+            {project.buy_mode === 'schedule' ? (
+              <>
+                <Text style={{ color: colors.textDim, fontSize: 12 }}>📅 정기매수 일정</Text>
+                <Text style={{ color: colors.buy, fontWeight: '800' }}>
+                  {(() => {
+                    const d = describeSchedule(pockets);
+                    return d ? `${d.from} ~ ${d.to} · ${d.every}` : '예정 없음';
+                  })()}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={{ color: colors.textDim, fontSize: 12 }}>기준가 (포켓1 매수 기준)</Text>
+                <Text style={{ color: num.base, fontWeight: '800' }}>{formatPrice(project.base_price, mkt)}</Text>
+              </>
+            )}
           </View>
 
           {/* 상태 표시 */}
@@ -928,8 +950,8 @@ export default function ProjectDetailScreen() {
               }}
               onCancelOrder={() => cancelPocketOrder(k)}
               projectClosed={!!project.closed_at}
-              onUpdateTargets={async (buyP, sellP, stopP) => {
-                const r = await savePocketTargets(k.id, buyP, sellP, stopP);
+              onUpdateTargets={async (buyP, sellP, stopP, buyAt) => {
+                const r = await savePocketTargets(k.id, buyP, sellP, stopP, buyAt);
                 await load();
                 if (!r.stopSaved && stopP != null) notify('DB 준비 필요', STOP_PRICE_MIGRATION_HINT);
               }}
@@ -1437,7 +1459,7 @@ function PocketCard({
   onChangeOrderPrice: () => void; // 미체결 주문가 변경 (취소 후 재주문) — 매수·매도 공통
   onCancelOrder: () => void; // 미체결 주문 취소 (매수 → 대기중 / 매도 → 보유중)
   projectClosed: boolean; // 프로젝트 종료 시 재시작 버튼 숨김
-  onUpdateTargets: (buyPrice: number, sellPrice: number | null, stopPrice: number | null) => Promise<void>; // 목표 매수·매도가·마지노선 직접 수정
+  onUpdateTargets: (buyPrice: number, sellPrice: number | null, stopPrice: number | null, buyAt?: string | null) => Promise<void>; // 목표 매수·매도가·마지노선·(정기)예정 시각 직접 수정
   onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number, budget?: number) => void;
 }) {
   // 종료된 프로젝트는 본문이 터치 비활성(pointerEvents=none)이라 토글을 못 누름
@@ -1466,7 +1488,8 @@ function PocketCard({
   // 매수가능 수량: 배분액 / 매수목표가(호가단위 정렬).
   //  실제 자동/수동 주문이 매수목표가(지정가) 기준으로 수량을 잡으므로 동일하게 목표가로 계산해야
   //  현재가가 목표가보다 높을 때 수량이 과소 표시되지 않는다.
-  const buyableQty = estimatedShares(k.budget, buyTargetDisp);
+  // 정기매수법은 그 시각의 현재가로 사므로 지금 현재가로 어림한다 (없으면 기준가)
+  const buyableQty = estimatedShares(k.budget, k.buy_at && price != null && price > 0 ? price : buyTargetDisp);
 
   // 매수 주문완료여도 실제 보유(체결 기록)가 있으면 '보유중'으로 취급 —
   // 해외 지연체결 등으로 pocket.status 갱신이 늦어도 다른 화면(리스트·포켓탭)과 일관되게 표시.
@@ -1539,8 +1562,8 @@ function PocketCard({
         market={market}
         price={price}
         avgBuy={heldLike && openQty > 0 ? openAvg : 0}
-        onSave={async (b, s, stop) => {
-          await onUpdateTargets(b, s, stop);
+        onSave={async (b, s, stop, buyAt) => {
+          await onUpdateTargets(b, s, stop, buyAt);
           setEditOpen(false);
         }}
       />
