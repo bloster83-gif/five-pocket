@@ -8,7 +8,7 @@ import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { BottomTabsBar } from '@/components/BottomTabsBar';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
 import { colors, formatBuyAt, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
-import { alignToKrxTick, computePnL, estimatedShares, findBudgetMismatches, pnlPct, realizedEvents, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
+import { alignToKrxTick, computePnL, describeSchedule, estimatedShares, findBudgetMismatches, pnlPct, realizedEvents, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
 import { useAutoTrader } from '@/services/autoTrader';
@@ -836,7 +836,12 @@ export default function ProjectDetailScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
           <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>🧺 5포켓</Text>
           <View style={{ backgroundColor: colors.buyBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: colors.buy }}>
-            <Text style={{ color: colors.buy, fontWeight: '900', fontSize: 13 }}>매수간격 ▼{project.buy_interval_pct}%</Text>
+            {/* 정기매수법은 '얼마 내려가면'이 아니라 '얼마마다'가 조건이다 */}
+            <Text style={{ color: colors.buy, fontWeight: '900', fontSize: 13 }}>
+              {project.buy_mode === 'schedule'
+                ? `📅 ${describeSchedule(pockets)?.every ?? '정기매수'}`
+                : `매수간격 ▼${project.buy_interval_pct}%`}
+            </Text>
           </View>
           <View style={{ backgroundColor: colors.sellBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: colors.sell }}>
             <Text style={{ color: colors.sell, fontWeight: '900', fontSize: 13 }}>매도목표 ▲{project.sell_target_pct}%</Text>

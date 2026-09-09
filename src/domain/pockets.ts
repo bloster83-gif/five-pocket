@@ -91,6 +91,50 @@ export function scheduleAt(start: Date, every: number, unit: ScheduleUnit, i: nu
   return d;
 }
 
+/**
+ * 정기매수법 프로젝트의 '언제부터 언제까지, 얼마마다' 요약.
+ * 주기는 포켓 간 간격에서 되짚어 낸다 (따로 저장하지 않아도 되게).
+ */
+export function describeSchedule(
+  pockets: { buy_at?: string | null }[]
+): { from: string; to: string; every: string } | null {
+  const times = pockets
+    .map((k) => k.buy_at)
+    .filter((t): t is string => !!t)
+    .map((t) => Date.parse(t))
+    .filter((t) => Number.isFinite(t))
+    .sort((a, b) => a - b);
+  if (times.length === 0) return null;
+
+  const fmt = (ms: number) => {
+    const d = new Date(ms);
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  };
+  const from = fmt(times[0]);
+  const to = fmt(times[times.length - 1]);
+  if (times.length < 2) return { from, to, every: '1회' };
+
+  const a = new Date(times[0]);
+  const b = new Date(times[1]);
+  // 날짜(일)가 같으면 '개월' 주기다 — 말일 보정 때문에 일수로는 28~31로 들쭉날쭉하다
+  if (a.getDate() === b.getDate()) {
+    const months = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+    if (months > 0) return { from, to, every: `${months}개월마다` };
+  }
+  const days = Math.max(1, Math.round((times[1] - times[0]) / 86400000));
+  if (days % 7 === 0) return { from, to, every: `${days / 7}주마다` };
+  return { from, to, every: days === 1 ? '매일' : `${days}일마다` };
+}
+
+/** 아직 사지 않은 포켓 중 가장 이른 매수 예정 시각(ISO). 없으면 null */
+export function nextBuyAt(pockets: { status: string; buy_at?: string | null }[]): string | null {
+  const times = pockets
+    .filter((k) => k.status === 'waiting' && k.buy_at)
+    .map((k) => k.buy_at as string)
+    .sort();
+  return times[0] ?? null;
+}
+
 /** 포켓의 매수 예정 시각(ms). 정기 매수 포켓이 아니면 null */
 export function buyAtOf(p: { buy_at?: string | null }): number | null {
   if (!p.buy_at) return null;

@@ -205,6 +205,29 @@ export function pocketColor(idx: number): string {
 }
 
 
+/** 목록용 짧은 표기 — '9/12 09:30' */
+export function formatBuyAtShort(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  const d = new Date(t);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** 목록 배지용 남은 시간 — 'D-3' / '2시간' / '곧' / '지남' */
+export function formatBuyAtBadge(iso: string | null | undefined, now = Date.now()): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  const diff = t - now;
+  if (diff <= 0) return '지남';
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return '곧';
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}시간`;
+  return `D-${Math.floor(hours / 24)}`;
+}
+
 /**
  * 정기 매수 예정 시각 표기 — '9/12 09:30 · D-3' / '오늘 09:30 · 2시간 뒤' / '매수 예정 시각 지남'
  * 카드에서 한 줄로 보여줄 용도.

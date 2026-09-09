@@ -54,7 +54,9 @@ export default function NewProjectScreen() {
   const [selected, setSelected] = useState<SymbolResult | null>(null);
 
   // 전략/예산
-  const [basePrice, setBasePrice] = useState('');
+  const [basePrice, setBasePrice] = useState(''); // 정액매수법의 기준가 (직접 입력)
+  const [livePrice, setLivePrice] = useState<number | null>(null); // 종목 현재가 (표시용·정기매수법 참고값)
+  const [priceLoading, setPriceLoading] = useState(false);
   const [buyInterval, setBuyInterval] = useState('5');
   const [sellTarget, setSellTarget] = useState('10');
   const [totalBudget, setTotalBudget] = useState('');
@@ -171,22 +173,34 @@ export default function NewProjectScreen() {
     return () => clearTimeout(t);
   }, [query, selected]);
 
+  /** 현재가 조회 (KIS 우선 — NXT·주간거래 반영, 실패하면 야후) */
+  const fetchLive = async (r: SymbolResult) => {
+    setPriceLoading(true);
+    try {
+      const account = await loadBrokerAccount();
+      const q = await getUnifiedQuote(account, r.symbol, r.market);
+      setLivePrice(q.price);
+      return q.price;
+    } catch {
+      return null; // 웹 CORS 등 — 기준가는 직접 입력
+    } finally {
+      setPriceLoading(false);
+    }
+  };
+
   const onPick = async (r: SymbolResult) => {
     setSelected(r);
     setQuery(r.name);
     setResults([]);
-    // 현재가를 기준가로 자동 입력 (KIS 우선 — NXT·주간거래 반영, 실패하면 직접 입력)
-    try {
-      const account = await loadBrokerAccount();
-      const q = await getUnifiedQuote(account, r.symbol, r.market);
-      setBasePrice(String(q.price));
-    } catch {
-      /* 웹 CORS 등: 수동 입력 */
-    }
+    setLivePrice(null);
+    const p = await fetchLive(r);
+    // 정액매수법의 기준가 기본값 = 고른 순간의 현재가 (원하면 고쳐 쓴다)
+    if (p != null) setBasePrice(String(p));
   };
 
   const parsed = {
-    basePrice: Number(basePrice),
+    // 정액매수법 = 직접 입력한 기준가 / 정기매수법 = 기준가가 없으므로 현재가를 참고값으로
+    basePrice: buyMode === 'schedule' ? (livePrice ?? 0) : Number(basePrice),
     buyIntervalPct: Number(buyInterval),
     sellTargetPct: Number(sellTarget),
     totalBudget: totalBudget ? Number(totalBudget) : null,
@@ -249,7 +263,11 @@ export default function NewProjectScreen() {
 
   const onSubmit = async () => {
     if (!selected) return notify('종목 선택 필요', '먼저 종목을 검색해서 선택하세요.');
-    if (!parsed.basePrice || parsed.basePrice <= 0) return notify('입력 필요', '기준가를 올바르게 입력하세요.');
+    if (!parsed.basePrice || parsed.basePrice <= 0)
+      return notify(
+        '입력 필요',
+        buyMode === 'schedule' ? '현재가를 불러오지 못했어요. 🔄 로 다시 조회해 주세요.' : '기준가를 올바르게 입력하세요.'
+      );
     if (overBudget)
       return notify(
         '예산 초과',
@@ -370,13 +388,34 @@ export default function NewProjectScreen() {
             </Text>
           </View>
         )}
-        <NumberField
-          label={`기준가 (${market === 'KRX' ? '원' : '달러'}) · 선택 시 현재가 자동입력`}
-          value={basePrice}
-          onChangeText={setBasePrice}
-          decimals
-          placeholder="1번 포켓 매수 기준가"
-        />
+        {/* 실시간 현재가 (표시만) — 기준가 입력은 정액매수법을 골랐을 때 전략 카드에서 */}
+        {selected && (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: colors.cardAlt,
+              borderRadius: radius.md,
+              paddingHorizontal: spacing.md,
+              paddingVertical: 10,
+            }}
+          >
+            <Text style={{ color: colors.textDim, fontSize: 13 }}>현재가</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              {priceLoading ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <Text style={{ color: num.live, fontWeight: '900', fontSize: 20 }}>
+                  {livePrice != null ? formatPrice(livePrice, market) : '—'}
+                </Text>
+              )}
+              <Pressable onPress={() => selected && void fetchLive(selected)} hitSlop={8}>
+                <Text style={{ color: colors.primary, fontSize: 14 }}>🔄</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
       </Card>
 
       {/* 전략 — 매수 방식(가격 분할 / 정기 매수) */}
@@ -410,14 +449,31 @@ export default function NewProjectScreen() {
         </View>
 
         {buyMode === 'price' ? (
-          <View style={{ flexDirection: 'row', gap: spacing.md }}>
-            <View style={{ flex: 1 }}>
-              <Field label="매수 간격 %" value={buyInterval} onChangeText={setBuyInterval} keyboardType="decimal-pad" />
+          <>
+            {/* 기준가 = 1번 포켓 매수가. 종목을 고르면 현재가가 들어오고, 원하면 고쳐 쓴다 */}
+            <NumberField
+              label={`기준가 (${market === 'KRX' ? '원' : '달러'}) · 1번 포켓 매수가`}
+              value={basePrice}
+              onChangeText={setBasePrice}
+              decimals
+              placeholder={livePrice != null ? String(livePrice) : '종목을 고르면 현재가가 들어와요'}
+            />
+            {livePrice != null && Number(basePrice) > 0 && Number(basePrice) !== livePrice && (
+              <Pressable onPress={() => setBasePrice(String(livePrice))} hitSlop={6}>
+                <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>
+                  ↺ 현재가({formatPrice(livePrice, market)})로 맞추기
+                </Text>
+              </Pressable>
+            )}
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <View style={{ flex: 1 }}>
+                <Field label="매수 간격 %" value={buyInterval} onChangeText={setBuyInterval} keyboardType="decimal-pad" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Field label="매도 목표 %" value={sellTarget} onChangeText={setSellTarget} keyboardType="decimal-pad" />
+              </View>
             </View>
-            <View style={{ flex: 1 }}>
-              <Field label="매도 목표 %" value={sellTarget} onChangeText={setSellTarget} keyboardType="decimal-pad" />
-            </View>
-          </View>
+          </>
         ) : (
           <>
             <View style={{ flexDirection: 'row', gap: spacing.md }}>

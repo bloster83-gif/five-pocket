@@ -18,7 +18,7 @@ import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatChangePct, formatMoney, formatPrice, num, radius, signColor, spacing } from '@/theme';
-import { computePnL, findBudgetMismatches } from '@/domain/pockets';
+import { computePnL, describeSchedule, findBudgetMismatches } from '@/domain/pockets';
 import { PortfolioSummary, computeMarketSummaries } from '@/components/PortfolioSummary';
 import { HoldingMismatchCard } from '@/components/HoldingMismatchCard';
 import { getUnifiedQuote } from '@/services/prices/unified';
@@ -274,6 +274,9 @@ export default function ProjectsScreen() {
     const m = metrics[p.id];
     const closed = !!p.closed_at;
     const pockets = pocketsByProject[p.id] ?? [];
+    // 정기매수법이면 기준가 대신 '언제부터 언제까지, 얼마마다'를 보여준다
+    const sched = p.buy_mode === 'schedule';
+    const sch = sched ? describeSchedule(pockets) : null;
     const maxIdx = pockets.filter(litPocket).length ? Math.max(...pockets.filter(litPocket).map((x) => x.idx)) : -1;
     const rate = m?.buyValue && m.buyValue > 0 && m.pnl != null ? Math.round((m.pnl / m.buyValue) * 1000) / 10 : null;
     const showAuto = !closed && tier === 'auto' && (p.market === 'KRX' || p.market === 'US');
@@ -294,18 +297,20 @@ export default function ProjectsScreen() {
               paddingVertical: 10,
             }}
           >
-            {/* 1줄: 기준가 · 목표율 · 자동매매/상태 */}
+            {/* 1줄: 기준가(정액) 또는 매수 기간(정기) · 목표율 · 자동매매/상태 */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text
                 numberOfLines={1}
                 adjustsFontSizeToFit
                 minimumFontScale={0.7}
-                style={{ color: closed ? colors.textDim : num.base, fontWeight: '900', fontSize: 16 }}
+                style={{ color: closed ? colors.textDim : sched ? colors.buy : num.base, fontWeight: '900', fontSize: 16 }}
               >
-                {formatPrice(p.base_price, m?.market ?? p.market)}
+                {sched ? (sch ? `${sch.from} ~ ${sch.to}` : '예정 없음') : formatPrice(p.base_price, m?.market ?? p.market)}
               </Text>
               <View style={{ backgroundColor: colors.buyBg, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}>
-                <Text style={{ color: colors.buy, fontSize: 10, fontWeight: '800' }}>-{p.buy_interval_pct}%</Text>
+                <Text style={{ color: colors.buy, fontSize: 10, fontWeight: '800' }}>
+                  {sched ? `📅 ${sch?.every ?? '정기'}` : `-${p.buy_interval_pct}%`}
+                </Text>
               </View>
               <View style={{ backgroundColor: colors.sellBg, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}>
                 <Text style={{ color: colors.sell, fontSize: 10, fontWeight: '800' }}>+{p.sell_target_pct}%</Text>
@@ -648,6 +653,9 @@ export default function ProjectsScreen() {
             const item = row.project;
             const closed = !!item.closed_at;
             const m = metrics[item.id];
+            // 정기매수법이면 기준가 대신 '언제부터 언제까지, 얼마마다'
+            const itemSched = item.buy_mode === 'schedule';
+            const itemSch = itemSched ? describeSchedule(pocketsByProject[item.id] ?? []) : null;
             // 한국/미국 구분 서식 (배지 + 카드 좌측 색 띠)
             const isKR = item.market === 'KRX';
             const mkBadge = {
@@ -766,12 +774,23 @@ export default function ProjectsScreen() {
                         numberOfLines={1}
                         adjustsFontSizeToFit
                         minimumFontScale={0.7}
-                        style={{ color: closed ? colors.textDim : num.base, fontWeight: '900', fontSize: 16, flexShrink: 1 }}
+                        style={{
+                          color: closed ? colors.textDim : itemSched ? colors.buy : num.base,
+                          fontWeight: '900',
+                          fontSize: 16,
+                          flexShrink: 1,
+                        }}
                       >
-                        {formatPrice(item.base_price, m?.market ?? item.market)}
+                        {itemSched
+                          ? itemSch
+                            ? `${itemSch.from} ~ ${itemSch.to}`
+                            : '예정 없음'
+                          : formatPrice(item.base_price, m?.market ?? item.market)}
                       </Text>
                       <View style={{ backgroundColor: colors.buyBg, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}>
-                        <Text style={{ color: colors.buy, fontSize: 10, fontWeight: '800' }}>-{item.buy_interval_pct}%</Text>
+                        <Text style={{ color: colors.buy, fontSize: 10, fontWeight: '800' }}>
+                          {itemSched ? `📅 ${itemSch?.every ?? '정기'}` : `-${item.buy_interval_pct}%`}
+                        </Text>
                       </View>
                       <View style={{ backgroundColor: colors.sellBg, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}>
                         <Text style={{ color: colors.sell, fontSize: 10, fontWeight: '800' }}>+{item.sell_target_pct}%</Text>
