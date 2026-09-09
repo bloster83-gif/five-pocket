@@ -383,6 +383,11 @@ export interface HoldingMismatch {
   name: string;
   recordedQty: number; // 앱 기록
   heldQty: number; // 증권사 계좌
+  /**
+   * 아직 살아 있는 주문(status='sent')의 미체결 잔량으로 이 차이가 설명되는가.
+   * true = 주문이 체결됐는데 앱이 아직 반영 못 한 '시차'일 뿐 — 진짜 불일치가 아니다.
+   */
+  explainedByOrders: boolean;
 }
 
 /**
@@ -422,6 +427,22 @@ export async function findHoldingMismatches(account: BrokerAccount | null): Prom
     }
   };
 
+  // 살아 있는 주문의 미체결 잔량 — 체결됐는데 앱이 아직 못 잡은 '시차'를 구분하는 데 쓴다.
+  // 매수 주문이 n주 남아 있으면 계좌가 앱보다 최대 n주 많은 건 정상이고,
+  // 매도 주문이 n주 남아 있으면 계좌가 앱보다 최대 n주 적은 건 정상이다.
+  const pendingBuy = new Map<string, number>();
+  const pendingSell = new Map<string, number>();
+  {
+    const { data: orderRows } = await supabase.from('auto_orders').select('*').eq('status', 'sent');
+    for (const o of (orderRows ?? []) as AutoOrder[]) {
+      const rest = Math.max(0, Math.floor(Number(o.quantity) - Number(o.filled_qty ?? 0)));
+      if (rest <= 0) continue;
+      const key = toKisSymbol(o.symbol).toUpperCase();
+      const map = o.side === 'buy' ? pendingBuy : pendingSell;
+      map.set(key, (map.get(key) ?? 0) + rest);
+    }
+  }
+
   const out: HoldingMismatch[] = [];
   for (const [symbol, e] of bySymbol) {
     const recordedQty = Math.floor(
@@ -432,8 +453,13 @@ export async function findHoldingMismatches(account: BrokerAccount | null): Prom
     );
     const m = await loadBal(e.market);
     if (!m) continue; // 잔고 조회 실패 → 판단 보류
-    const heldQty = m.get(toKisSymbol(symbol).toUpperCase()) ?? 0;
-    if (recordedQty !== heldQty) out.push({ symbol, name: e.name, recordedQty, heldQty });
+    const key = toKisSymbol(symbol).toUpperCase();
+    const heldQty = m.get(key) ?? 0;
+    if (recordedQty === heldQty) continue;
+    // 살아 있는 주문이 설명할 수 있는 범위 안이면 '시차'로 본다
+    const explainedByOrders =
+      heldQty <= recordedQty + (pendingBuy.get(key) ?? 0) && heldQty >= recordedQty - (pendingSell.get(key) ?? 0);
+    out.push({ symbol, name: e.name, recordedQty, heldQty, explainedByOrders });
   }
   return out;
 }

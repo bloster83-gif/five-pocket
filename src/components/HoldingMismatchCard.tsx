@@ -15,7 +15,7 @@ import { Card } from '@/components/ui';
 import { FixHoldingModal, type FixTarget } from '@/components/FixHoldingModal';
 import { colors, money, radius, spacing } from '@/theme';
 import { computePnL } from '@/domain/pockets';
-import { findHoldingMismatches, type HoldingMismatch } from '@/services/pendingOrders';
+import { findHoldingMismatches, reconcilePendingOrders, type HoldingMismatch } from '@/services/pendingOrders';
 import type { BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
 const TTL_MS = 60_000;
@@ -60,7 +60,21 @@ export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
       .select('*')
       .eq('user_id', session.user.id)
       .maybeSingle();
-    setMismatches(await loadMismatches((data as BrokerAccount) ?? null));
+    const account = (data as BrokerAccount) ?? null;
+    let found = await loadMismatches(account);
+    // 살아 있는 주문으로 설명되는 차이라면 '체결이 늦게 확인된 것'일 뿐이다.
+    // 겁주기 전에 체결 동기화를 한 번 돌려 스스로 해소해 본다.
+    if (found.some((m) => m.explainedByOrders)) {
+      try {
+        if (await reconcilePendingOrders(account)) {
+          clearMismatchCache();
+          found = await loadMismatches(account);
+        }
+      } catch {
+        /* 동기화 실패는 무시 — 아래에서 '체결 확인 중'으로 안내한다 */
+      }
+    }
+    setMismatches(found);
   }, [session?.user?.id]);
 
   useFocusEffect(
@@ -103,8 +117,43 @@ export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
 
   if (mismatches.length === 0) return null;
 
+  // 살아 있는 주문으로 설명되는 차이는 '체결 확인 중'일 뿐이라 경고하지 않는다.
+  // (주문을 넣어 뒀는데 체결이 앱에 늦게 반영되는 구간 — 잠시 뒤 저절로 맞는다)
+  const pendingOnly = mismatches.filter((m) => m.explainedByOrders);
+  const real = mismatches.filter((m) => !m.explainedByOrders);
+
   return (
     <>
+      {pendingOnly.length > 0 && (
+        <Card style={{ borderColor: colors.border }}>
+          <Text style={{ color: colors.textDim, fontWeight: '800', fontSize: 13 }}>🕐 체결 확인 중</Text>
+          <Text style={{ color: colors.textDim, fontSize: 11, lineHeight: 16 }}>
+            넣어 둔 주문이 체결됐는데 앱이 아직 반영하지 못한 것 같아요. 잠시 뒤 저절로 맞춰져요.{'\n'}
+            (주문 잔량으로 설명되는 차이라 문제로 보지 않아요)
+          </Text>
+          {pendingOnly.map((m) => (
+            <View key={m.symbol} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flexShrink: 1 }} numberOfLines={1}>
+                {m.name}
+              </Text>
+              <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '800' }}>
+                앱 {money(m.recordedQty, 0)}주 · 계좌 {money(m.heldQty, 0)}주
+              </Text>
+            </View>
+          ))}
+          <Pressable
+            onPress={() => {
+              clearMismatchCache();
+              void refresh();
+            }}
+            hitSlop={6}
+          >
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>🔄 지금 다시 확인</Text>
+          </Pressable>
+        </Card>
+      )}
+
+      {real.length > 0 && (
       <Card style={{ borderColor: colors.warn, backgroundColor: 'rgba(251,191,36,0.08)' }}>
         <Text style={{ color: colors.warn, fontWeight: '900', fontSize: 14 }}>⚠️ 보유수량이 계좌와 달라요</Text>
         <Text style={{ color: colors.textDim, fontSize: 11, marginBottom: 4, lineHeight: 16 }}>
@@ -112,7 +161,7 @@ export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
           앱이 많으면 앱 밖에서 팔았거나(바로잡기) 체결이 중복 기록된 거예요(매매일지에서 그 기록 삭제).{'\n'}
           매매일지의 ‘＋ 수동 입력’은 프로젝트에 붙지 않는 독립 기록이라 이 경고를 없애지 못해요.
         </Text>
-        {mismatches.map((m) => (
+        {real.map((m) => (
           <View
             key={m.symbol}
             style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}
@@ -143,6 +192,7 @@ export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
           </View>
         ))}
       </Card>
+      )}
 
       <FixHoldingModal
         mismatch={fixTarget}
