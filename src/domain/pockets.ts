@@ -135,6 +135,23 @@ export function nextBuyAt(pockets: { status: string; buy_at?: string | null }[])
   return times[0] ?? null;
 }
 
+/**
+ * 대기 포켓이 '매수 포인트'에 닿았는가 — 화면의 노란불·깜박임 판정.
+ *   정액매수법: 현재가 ≤ 매수 목표가
+ *   정기매수법: 예정 시각이 지남 (가격은 보지 않는다)
+ * evaluateSignals 의 매수 조건과 같은 규칙이어야 한다.
+ */
+export function buyPointReached(
+  p: { status: string; buy_target_price: number; buy_at?: string | null },
+  currentPrice: number | null | undefined,
+  now = Date.now()
+): boolean {
+  if (p.status !== 'waiting') return false;
+  const at = buyAtOf(p);
+  if (at != null) return now >= at;
+  return currentPrice != null && currentPrice <= Number(p.buy_target_price);
+}
+
 /** 포켓의 매수 예정 시각(ms). 정기 매수 포켓이 아니면 null */
 export function buyAtOf(p: { buy_at?: string | null }): number | null {
   if (!p.buy_at) return null;

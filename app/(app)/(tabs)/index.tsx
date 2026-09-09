@@ -18,7 +18,7 @@ import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Chip, Field, FilterBar } from '@/components/ui';
 import { colors, formatChangePct, formatMoney, formatPrice, num, radius, signColor, spacing } from '@/theme';
-import { computePnL, describeSchedule, findBudgetMismatches } from '@/domain/pockets';
+import { buyPointReached, computePnL, describeSchedule, findBudgetMismatches } from '@/domain/pockets';
 import { PortfolioSummary, computeMarketSummaries } from '@/components/PortfolioSummary';
 import { HoldingMismatchCard } from '@/components/HoldingMismatchCard';
 import { getUnifiedQuote } from '@/services/prices/unified';
@@ -367,7 +367,8 @@ export default function ProjectsScreen() {
                       const pk = pockets.find((x) => x.idx === idx);
                       if (!litPocket(pk)) return <View key={idx} style={{ width: 13, height: 13 }} />;
                       const st = pk.status;
-                      const reached = st === 'waiting' && m?.price != null && m.price <= Number(pk.buy_target_price);
+                      // 정기매수법은 가격이 아니라 '예정 시각이 지났는가'로 켜진다
+                      const reached = buyPointReached(pk, m?.price);
                       const fill =
                         st === 'bought'
                           ? colors.buy
@@ -890,8 +891,8 @@ export default function ProjectsScreen() {
                                 // 생성되지 않은 포켓(예산·수량 0) → 아이콘 없이 빈 자리만(정렬 유지)
                                 if (!pk) return <View key={idx} style={{ width: dot, height: dot }} />;
                                 const st = pk.status;
-                                const reached =
-                                  st === 'waiting' && m?.price != null && m.price <= Number(pk.buy_target_price);
+                                // 정기매수법은 가격이 아니라 '예정 시각이 지났는가'로 켜진다
+                                const reached = buyPointReached(pk, m?.price);
                                 // 체결 전 '주문완료'는 같은 색의 옅은 원 + 진한 테두리로 구분한다.
                                 //  매수주문 = 흐린 빨강 + 빨강 테두리 → 체결되면 진한 빨강
                                 //  매도주문 = 흐린 파랑 + 파랑 테두리 → 체결되면 진한 파랑

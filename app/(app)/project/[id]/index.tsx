@@ -8,7 +8,7 @@ import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { BottomTabsBar } from '@/components/BottomTabsBar';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
 import { colors, formatBuyAt, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
-import { alignToKrxTick, computePnL, describeSchedule, estimatedShares, findBudgetMismatches, pnlPct, realizedEvents, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
+import { alignToKrxTick, buyPointReached, computePnL, describeSchedule, estimatedShares, findBudgetMismatches, pnlPct, realizedEvents, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
 import { useAutoTrader } from '@/services/autoTrader';
@@ -1458,7 +1458,8 @@ function PocketCard({
   const stopDisp = stopRaw != null ? (isKrx ? alignToKrxTick(stopRaw, 'sell') : stopRaw) : null;
   const stopPct =
     stopDisp != null && openAvg > 0 ? Math.round((stopDisp / openAvg - 1) * 1000) / 10 : null;
-  const buyReady = k.status === 'waiting' && price != null && price <= buyTargetDisp;
+  // 정기매수법 포켓은 가격이 아니라 예정 시각으로 '매수 포인트 도달'을 판정한다
+  const buyReady = k.buy_at ? buyPointReached(k, price) : k.status === 'waiting' && price != null && price <= buyTargetDisp;
   const sellReady =
     k.status === 'bought' && sellTargetDisp != null && price != null && price >= sellTargetDisp;
 
