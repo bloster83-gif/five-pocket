@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { notify } from '@/lib/alert';
 import { Button, Card, Field, NumberField } from '@/components/ui';
 import { colors, formatPrice, money, spacing } from '@/theme';
-import { buildPocketSeeds, buildScheduleSeeds, estimatedShares, inferSchedule, normalizeWeights, POCKET_COUNT, scheduleAt, type ScheduleUnit } from '@/domain/pockets';
+import { buildPocketSeeds, buildScheduleSeeds, estimatedShares, inferSchedule, normalizeWeights, pocketBuyTarget, POCKET_COUNT, scheduleAt, type ScheduleUnit } from '@/domain/pockets';
 import type { Pocket, Project } from '@/types/db';
 import { BackHeader } from '@/components/BackHeader';
 import { WeightInput } from '@/components/WeightInput';
@@ -107,18 +107,28 @@ export default function EditProjectScreen() {
   const scheduleStart = useMemo(() => parseStart(startDate, startTime), [startDate, startTime]);
   const scheduleEvery = Math.max(1, Math.floor(Number(every) || 1));
 
+  // 배분 방식 — 비중(%) / 금액 / 수량(주) (프로젝트 생성 화면과 같은 규칙)
+  // 수량 모드의 포켓 매수가: 정액매수법 = 포켓 목표가, 정기매수법 = 기준가(생성 당시 현재가, 참고값)
+  const pocketPrice = (i: number) =>
+    isSched ? parsed.basePrice : pocketBuyTarget(parsed.basePrice, parsed.buyIntervalPct, i, market);
+  const alloc = useAllocMode(market, weights, setWeights, totalBudget, setTotalBudget, pocketPrice);
+  const byAmount = alloc.mode === 'amount';
+  const byQty = alloc.mode === 'qty';
+  const byPct = alloc.mode === 'pct';
+
   const seeds = useMemo(() => {
     if (!parsed.basePrice || parsed.basePrice <= 0) return [];
+    const input = { ...parsed, budgets: alloc.budgets };
     if (isSched) {
       if (!scheduleStart) return [];
       return buildScheduleSeeds({
-        ...parsed,
+        ...input,
         schedule: { startAt: scheduleStart, every: scheduleEvery, unit, count: parsed.pocketCount },
       });
     }
-    return buildPocketSeeds(parsed);
+    return buildPocketSeeds(input);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [basePrice, buyInterval, sellTarget, totalBudget, weights, market, isSched, scheduleStart, scheduleEvery, unit]);
+  }, [basePrice, buyInterval, sellTarget, totalBudget, weights, alloc.budgets, market, isSched, scheduleStart, scheduleEvery, unit]);
 
   const setWeight = (i: number, v: string) => {
     const next = [...weights];
@@ -126,11 +136,9 @@ export default function EditProjectScreen() {
     setWeights(next);
   };
 
-  // 배분 방식 — 비중(%) 또는 금액 (프로젝트 생성 화면과 같은 규칙)
-  const alloc = useAllocMode(market, weights, setWeights, totalBudget, setTotalBudget);
-  const byAmount = alloc.mode === 'amount';
   const resetEqual = () => {
     const count = weights.length;
+    if (byQty) return alloc.setAllQtys(alloc.equalQtys(Number(totalBudget) || 0, count));
     if (byAmount) {
       const per = alloc.round((Number(totalBudget) || 0) / count);
       return alloc.setAllAmounts(Array(count).fill(per > 0 ? String(per) : ''));
@@ -310,26 +318,26 @@ export default function EditProjectScreen() {
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>예산 & 포켓 비율</Text>
         <NumberField
           label={
-            byAmount
-              ? `프로젝트 총 예산 (${market === 'KRX' ? '원' : '달러'}) · 포켓 금액 합계`
-              : `프로젝트 총 예산 (${market === 'KRX' ? '원' : '달러'}, 선택)`
+            byPct
+              ? `프로젝트 총 예산 (${market === 'KRX' ? '원' : '달러'}, 선택)`
+              : `프로젝트 총 예산 (${market === 'KRX' ? '원' : '달러'}) · ${byQty ? '수량 × 매수가 합계' : '포켓 금액 합계'}`
           }
           value={totalBudget}
           onChangeText={setTotalBudget}
           decimals
-          editable={!locked && !byAmount} // 금액 모드에서는 포켓 금액의 합이라 직접 못 고친다
+          editable={!locked && byPct} // 금액·수량 모드에서는 포켓 금액의 합이라 직접 못 고친다
           placeholder="예: 1,000,000"
         />
         {/* 배분 방식 — 비중(%)으로 나눌지, 금액을 직접 넣을지 */}
         {!locked && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={{ color: colors.textDim, fontSize: 13, marginRight: 2 }}>배분</Text>
-            {(['pct', 'amount'] as const).map((k) => (
+            {(['pct', 'amount', 'qty'] as const).map((k) => (
               <Pressable
                 key={k}
                 onPress={() => alloc.changeMode(k)}
                 style={{
-                  paddingHorizontal: 12,
+                  paddingHorizontal: 10,
                   paddingVertical: 6,
                   borderRadius: 999,
                   borderWidth: 1,
@@ -338,7 +346,7 @@ export default function EditProjectScreen() {
                 }}
               >
                 <Text style={{ color: alloc.mode === k ? colors.primary : colors.textDim, fontWeight: '800', fontSize: 13 }}>
-                  {k === 'pct' ? '비중 %' : `금액 ${market === 'KRX' ? '₩' : '$'}`}
+                  {k === 'pct' ? '비중 %' : k === 'amount' ? `금액 ${market === 'KRX' ? '₩' : '$'}` : '수량 주'}
                 </Text>
               </Pressable>
             ))}
@@ -350,7 +358,12 @@ export default function EditProjectScreen() {
         )}
         {/* 한 줄 고정 — 입력 중 '(자동 정규화됨)'이 붙으며 줄바꿈되면 아래 입력칸이 밀린다 */}
         <Text numberOfLines={1} style={{ color: colors.textDim }}>
-          {byAmount ? (
+          {byQty ? (
+            <>
+              총 {money(alloc.qtySum)}주 · {formatPrice(alloc.sum, market)}
+              {isSched ? ' (기준가 기준)' : ' (포켓별 매수 목표가 기준)'}
+            </>
+          ) : byAmount ? (
             <>포켓 금액 합계: {formatPrice(alloc.sum, market)}</>
           ) : (
             <>
@@ -372,7 +385,15 @@ export default function EditProjectScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
                 <Text style={{ color: colors.text, width: 56, opacity: excluded ? 0.5 : 1 }}>포켓 {i + 1}</Text>
                 <View style={{ width: byAmount ? 130 : 90 }}>
-                  {byAmount ? (
+                  {byQty ? (
+                    <WeightInput
+                      value={alloc.qtys[i] ?? ''}
+                      onChange={(v) => alloc.setQty(i, v)}
+                      editable={!locked}
+                      commas
+                      decimals={false}
+                    />
+                  ) : byAmount ? (
                     <WeightInput
                       value={alloc.amounts[i] ?? ''}
                       onChange={(v) => alloc.setAmount(i, v)}
@@ -385,9 +406,13 @@ export default function EditProjectScreen() {
                   )}
                 </View>
                 <Text numberOfLines={1} style={{ color: colors.textDim, flex: 1, opacity: excluded ? 0.5 : 1 }}>
-                  {byAmount
-                    ? `${normalized[i]}%`
-                    : `${normalized[i]}% ${allocAmt != null ? `· ${formatPrice(allocAmt, market)}` : ''}`}
+                  {byQty
+                    ? `${formatPrice(Number(alloc.amounts[i]) || 0, market)} · ${normalized[i]}%${
+                        alloc.priceOf(i) > 0 ? ` · @${formatPrice(alloc.priceOf(i), market)}` : ''
+                      }`
+                    : byAmount
+                      ? `${normalized[i]}%`
+                      : `${normalized[i]}% ${allocAmt != null ? `· ${formatPrice(allocAmt, market)}` : ''}`}
                 </Text>
               </View>
               {/* 이유는 잘리지 않게 아랫줄에 따로 (빨강) */}

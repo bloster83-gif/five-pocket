@@ -30,8 +30,28 @@ export interface StrategyInput {
   sellTargetPct: number; // 예: 10 → 체결가 대비 +10%에서 매도
   totalBudget?: number | null; // 프로젝트 전체 예산(선택)
   weights?: number[]; // 포켓별 비중(%). 미지정 시 균등(100/개수)
+  /**
+   * 포켓별 배분액을 직접 지정 (금액·수량 배분 모드).
+   * 비중은 소수 2자리로 정규화되기 때문에 '3주 × 71,000원 = 213,000원'처럼 딱 떨어지는 금액이
+   * 비중을 거치면 몇 원 모자라 1주가 깎일 수 있다 → 지정된 금액은 그대로 쓴다. 길이가 포켓 개수와 다르면 무시.
+   */
+  budgets?: (number | null)[];
   pocketCount?: number; // 포켓 개수(기본 5, 6~10 가능)
   market?: string; // 'KRX'면 목표가를 호가단위에 맞춰 정렬
+}
+
+/** 정액매수법 i번째 포켓의 매수 목표가 — 기준가에서 간격 %씩 내려가며, KRX 는 호가단위로 내림 */
+export function pocketBuyTarget(basePrice: number, buyIntervalPct: number, i: number, market?: string): number {
+  const buy = round4(basePrice * (1 - (buyIntervalPct / 100) * i));
+  return market === 'KRX' ? alignToKrxTick(buy, 'buy') : buy;
+}
+
+/** 포켓 i 배분액 — 직접 지정한 금액이 있으면 그것, 없으면 총예산 × 비중 */
+function pocketBudget(s: StrategyInput, weights: number[], i: number): number | null {
+  if (!s.totalBudget || s.totalBudget <= 0) return null;
+  const fixed = s.budgets && s.budgets.length === weights.length ? s.budgets[i] : undefined;
+  if (fixed != null && Number.isFinite(fixed)) return round2(Math.max(0, fixed));
+  return round2((s.totalBudget * weights[i]) / 100);
 }
 
 /**
@@ -199,7 +219,7 @@ export function buildScheduleSeeds(s: StrategyInput & { schedule: ScheduleInput 
     const base = isKrx ? alignToKrxTick(s.basePrice, 'buy') : round4(s.basePrice);
     let sell = round4(base * (1 + s.sellTargetPct / 100));
     if (isKrx) sell = alignToKrxTick(sell, 'sell');
-    const budget = s.totalBudget && s.totalBudget > 0 ? round2((s.totalBudget * weights[i]) / 100) : null;
+    const budget = pocketBudget(s, weights, i);
     seeds.push({
       idx: i,
       buy_target_price: base,
@@ -231,14 +251,11 @@ export function buildPocketSeeds(s: StrategyInput): PocketSeed[] {
   const isKrx = s.market === 'KRX';
   const seeds: PocketSeed[] = [];
   for (let i = 0; i < count; i++) {
-    let buy = round4(s.basePrice * (1 - (s.buyIntervalPct / 100) * i));
-    let sell = round4(buy * (1 + s.sellTargetPct / 100));
     // KRX 는 호가단위 배수만 주문 가능 → 매수는 내림, 매도는 올림으로 정렬해 저장
-    if (isKrx) {
-      buy = alignToKrxTick(buy, 'buy');
-      sell = alignToKrxTick(sell, 'sell');
-    }
-    const budget = s.totalBudget && s.totalBudget > 0 ? round2((s.totalBudget * weights[i]) / 100) : null;
+    const buy = pocketBuyTarget(s.basePrice, s.buyIntervalPct, i, s.market);
+    let sell = round4(buy * (1 + s.sellTargetPct / 100));
+    if (isKrx) sell = alignToKrxTick(sell, 'sell');
+    const budget = pocketBudget(s, weights, i);
     seeds.push({ idx: i, buy_target_price: buy, sell_target_price: sell, weight: weights[i], budget });
   }
   return seeds;
