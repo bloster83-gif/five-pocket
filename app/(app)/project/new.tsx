@@ -743,16 +743,24 @@ export default function NewProjectScreen() {
                     <WeightInput value={w} onChange={(v) => setWeight(i, v)} />
                   )}
                 </View>
-                {/* 이 줄도 한 줄 고정 — 값이 길어져 줄바꿈되면 입력 중 레이아웃이 흔들린다 */}
-                <Text numberOfLines={1} style={{ color: colors.textDim, flex: 1, opacity: excluded ? 0.5 : 1 }}>
-                  {byQty
-                    ? `${formatPrice(Number(alloc.amounts[i]) || 0, market)} · ${normalized[i]}%${
-                        alloc.priceOf(i) > 0 ? ` · @${formatPrice(alloc.priceOf(i), market)}` : ''
-                      }`
-                    : byAmount
-                      ? `${normalized[i]}%`
-                      : `${normalized[i]}% ${allocAmt != null ? `· ${formatPrice(allocAmt, market)}` : ''}`}
-                </Text>
+                {/* 설명은 항상 두 줄로 고정(비중 / 금액) — 한 줄에 다 넣으면 금액이 잘리고,
+                    줄 수가 바뀌면 입력 중 레이아웃이 흔들려 키보드가 닫힌다 */}
+                <View style={{ flex: 1, opacity: excluded ? 0.5 : 1 }}>
+                  <Text numberOfLines={1} style={{ color: colors.textDim }}>
+                    {byQty ? `${formatPrice(Number(alloc.amounts[i]) || 0, market)} · ${normalized[i]}%` : `${normalized[i]}%`}
+                  </Text>
+                  <Text numberOfLines={1} style={{ color: colors.textDim, fontSize: 12 }}>
+                    {byQty
+                      ? alloc.priceOf(i) > 0
+                        ? `@${formatPrice(alloc.priceOf(i), market)}`
+                        : ' '
+                      : byAmount
+                        ? ' '
+                        : allocAmt != null
+                          ? formatPrice(allocAmt, market)
+                          : ' '}
+                  </Text>
+                </View>
               </View>
               {/* 생성 안 되는 이유는 잘리지 않게 아랫줄에 따로 (빨강) */}
               {excluded && (
