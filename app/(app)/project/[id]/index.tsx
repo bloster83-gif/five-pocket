@@ -1596,8 +1596,24 @@ function PocketCard({
 
       {/* 목표 매수·매도가 직접 수정 (시장 상황 보며 조정) — 대기중/보유중일 때 */}
       {!projectClosed && k.status !== 'sold' && (
-        <Pressable onPress={() => setEditOpen(true)} style={{ alignSelf: 'flex-end', marginTop: 2 }} hitSlop={6}>
-          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🎯 목표가 수정</Text>
+<Pressable
+          onPress={() => setEditOpen(true)}
+          hitSlop={6}
+          style={{
+            alignSelf: 'flex-end',
+            marginTop: 4,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+            paddingHorizontal: 10,
+            paddingVertical: 5,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: colors.primary,
+            backgroundColor: 'rgba(34,211,166,0.10)',
+          }}
+        >
+          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>🎯 목표 수정</Text>
         </Pressable>
       )}
       <EditTargetsModal

@@ -817,9 +817,25 @@ export default function PocketsScreen() {
 
               {/* 목표 매수·매도가 직접 수정 (시장 상황 보며 조정) */}
               {k.status !== 'sold' && (
-                <Pressable onPress={() => setEditPocket(k)} style={{ alignSelf: 'flex-end' }} hitSlop={6}>
-                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🎯 목표가 수정</Text>
-                </Pressable>
+<Pressable
+          onPress={() => setEditPocket(k)}
+          hitSlop={6}
+          style={{
+            alignSelf: 'flex-end',
+            marginTop: 4,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+            paddingHorizontal: 10,
+            paddingVertical: 5,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: colors.primary,
+            backgroundColor: 'rgba(34,211,166,0.10)',
+          }}
+        >
+          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>🎯 목표 수정</Text>
+        </Pressable>
               )}
 
               {/* 주문완료(미체결) 박스 — 체결 기록이 없어 보유 정보가 비는 구간을 주문 내역으로 채운다.
