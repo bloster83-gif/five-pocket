@@ -15,7 +15,7 @@ import { useAutoTrader } from '@/services/autoTrader';
 import { getOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import { orderWindow } from '@/services/marketHours';
 import { getUnifiedQuote } from '@/services/prices/unified';
-import { savePocketTargets, STOP_PRICE_MIGRATION_HINT } from '@/services/pocketTargets';
+import { applyStopToProject, PROJECT_STOP_MIGRATION_HINT, savePocketTargets, STOP_PRICE_MIGRATION_HINT } from '@/services/pocketTargets';
 import { cancelPendingOrder, loadPendingOrders, markOrderProgress, reconcilePendingOrders, releasePendingOrderLocally } from '@/services/pendingOrders';
 import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/db';
 
@@ -979,7 +979,16 @@ export default function ProjectDetailScreen() {
               }}
               onCancelOrder={() => cancelPocketOrder(k)}
               projectClosed={!!project.closed_at}
-              onUpdateTargets={async (buyP, sellP, stopP, buyAt) => {
+              onUpdateTargets={async (buyP, sellP, stopP, buyAt, applyAll) => {
+                if (applyAll) {
+                  // 마지노선은 프로젝트 전체로, 나머지(목표가·예정 시각)는 이 포켓에
+                  const r = await savePocketTargets(k.id, buyP, sellP, null, buyAt);
+                  const pr = await applyStopToProject(project.id, stopP);
+                  await load();
+                  if (!r.stopSaved && stopP != null) notify('DB 준비 필요', STOP_PRICE_MIGRATION_HINT);
+                  else if (!pr.projectSaved && stopP != null) notify('DB 준비 필요', PROJECT_STOP_MIGRATION_HINT);
+                  return;
+                }
                 const r = await savePocketTargets(k.id, buyP, sellP, stopP, buyAt);
                 await load();
                 if (!r.stopSaved && stopP != null) notify('DB 준비 필요', STOP_PRICE_MIGRATION_HINT);
@@ -1489,7 +1498,7 @@ function PocketCard({
   onChangeOrderPrice: () => void; // 미체결 주문가 변경 (취소 후 재주문) — 매수·매도 공통
   onCancelOrder: () => void; // 미체결 주문 취소 (매수 → 대기중 / 매도 → 보유중)
   projectClosed: boolean; // 프로젝트 종료 시 재시작 버튼 숨김
-  onUpdateTargets: (buyPrice: number, sellPrice: number | null, stopPrice: number | null, buyAt?: string | null) => Promise<void>; // 목표 매수·매도가·마지노선·(정기)예정 시각 직접 수정
+  onUpdateTargets: (buyPrice: number, sellPrice: number | null, stopPrice: number | null, buyAt?: string | null, applyStopToAll?: boolean) => Promise<void>; // 목표 매수·매도가·마지노선·(정기)예정 시각 직접 수정 (applyStopToAll = 마지노선을 프로젝트 전체에)
   onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number, budget?: number) => void;
   projectStop?: number | null; // 프로젝트 마지노선 — 이 아래면 대기 포켓 매수 보류, 보유 포켓은 (포켓 마지노선 없을 때) 이 값으로 손절
 }) {
@@ -1598,8 +1607,9 @@ function PocketCard({
         market={market}
         price={price}
         avgBuy={heldLike && openQty > 0 ? openAvg : 0}
-        onSave={async (b, s, stop, buyAt) => {
-          await onUpdateTargets(b, s, stop, buyAt);
+        projectStop={projectStop}
+        onSave={async (b, s, stop, buyAt, all) => {
+          await onUpdateTargets(b, s, stop, buyAt, all);
           setEditOpen(false);
         }}
       />

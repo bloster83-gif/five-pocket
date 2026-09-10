@@ -22,6 +22,7 @@ export function EditTargetsModal({
   price,
   avgBuy,
   onSave,
+  projectStop = null,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -29,8 +30,19 @@ export function EditTargetsModal({
   market: string;
   price: number | null;
   avgBuy: number; // 보유중이면 평균매수가, 대기중이면 0
-  /** buyAt: 정기매수법 포켓의 예정 시각(ISO). 가격 방식 포켓이면 undefined */
-  onSave: (buyPrice: number, sellPrice: number | null, stopPrice: number | null, buyAt?: string | null) => Promise<void>;
+  /**
+   * buyAt: 정기매수법 포켓의 예정 시각(ISO). 가격 방식 포켓이면 undefined
+   * applyStopToAll: '이 프로젝트 전체에 적용' 체크 — 마지노선을 프로젝트 마지노선으로 저장(모든 포켓 + 대기 포켓 매수 보류)
+   */
+  onSave: (
+    buyPrice: number,
+    sellPrice: number | null,
+    stopPrice: number | null,
+    buyAt?: string | null,
+    applyStopToAll?: boolean
+  ) => Promise<void>;
+  /** 프로젝트 마지노선 — 포켓에 따로 없으면 이 값을 보여준다 */
+  projectStop?: number | null;
 }) {
   const isKrx = market === 'KRX';
   const dec = !isKrx; // 미국주식은 소수점 허용
@@ -38,6 +50,8 @@ export function EditTargetsModal({
   const [buyStr, setBuyStr] = useState('');
   const [sellStr, setSellStr] = useState('');
   const [stopStr, setStopStr] = useState('');
+  // 마지노선을 이 포켓만이 아니라 프로젝트 전체에 — 대기중 포켓은 포켓 단독 마지노선이 의미가 없어 항상 전체 적용
+  const [stopAll, setStopAll] = useState(false);
   const [saving, setSaving] = useState(false);
   // 정기매수법 포켓(대기중)은 매수 목표가 대신 '언제 살지'를 고친다
   const scheduled = !held && !!pocket?.buy_at;
@@ -49,7 +63,10 @@ export function EditTargetsModal({
       // 저장된 값을 KRX 호가단위로 정렬해 정수로 표시(40757.1 → 40800, 소수점/버그 방지)
       const b = pocket.buy_target_price;
       const s = pocket.sell_target_price;
-      const st = pocket.stop_price;
+      // 포켓에 마지노선이 없으면 프로젝트 마지노선을 보여준다 (그게 지금 실제로 적용되는 값)
+      const ownStop = pocket.stop_price != null && Number(pocket.stop_price) > 0;
+      const st = ownStop ? pocket.stop_price : projectStop;
+      setStopAll(!ownStop && (projectStop != null || avgBuy <= 0));
       const bA = b != null ? (isKrx ? alignToKrxTick(b, 'buy') : b) : null;
       const sA = s != null ? (isKrx ? alignToKrxTick(s, 'sell') : s) : null;
       // 마지노선은 매도 주문이므로 매도 쪽 호가로 정렬
@@ -64,7 +81,7 @@ export function EditTargetsModal({
         setTimeStr(`${p2(d.getHours())}:${p2(d.getMinutes())}`);
       }
     }
-  }, [visible, pocket?.buy_target_price, pocket?.sell_target_price, pocket?.stop_price, pocket?.buy_at, isKrx]);
+  }, [visible, pocket?.buy_target_price, pocket?.sell_target_price, pocket?.stop_price, pocket?.buy_at, isKrx, projectStop, avgBuy]);
 
   if (!pocket) return null;
 
@@ -127,7 +144,7 @@ export function EditTargetsModal({
     }
     setSaving(true);
     try {
-      await onSave(buyVal, sellVal > 0 ? sellVal : null, stopVal > 0 ? stopVal : null, buyAt);
+      await onSave(buyVal, sellVal > 0 ? sellVal : null, stopVal > 0 ? stopVal : null, buyAt, held ? stopAll : true);
     } catch (e: any) {
       notify('저장 실패', e?.message ?? '목표가를 저장하지 못했어요.');
     } finally {
@@ -264,10 +281,12 @@ export function EditTargetsModal({
             )}
           </View>
 
-          {/* 마지노선(손절) — 보유중 포켓만. 이 가격까지 떨어지면 무조건 전량 매도 */}
-          {held && (
+          {/* 마지노선(손절) — 보유중이면 이 포켓 손절가, 대기중이면 프로젝트 전체 마지노선(매수 보류 선) */}
+          {(
             <View style={{ gap: 4 }}>
-              <Text style={{ color: colors.warn, fontSize: 13, fontWeight: '800' }}>🛑 마지노선 (손절가)</Text>
+              <Text style={{ color: colors.warn, fontSize: 13, fontWeight: '800' }}>
+                🛑 마지노선 {held ? '(손절가)' : '(프로젝트 전체 · 이 아래면 매수 보류)'}
+              </Text>
               <TextInput
                 value={withCommas(stopStr, dec)}
                 onChangeText={(t) => setStopStr(rawNumeric(t, dec))}
@@ -281,10 +300,54 @@ export function EditTargetsModal({
                   평균매수가 대비 {stopProfit > 0 ? '+' : ''}
                   {stopProfit}%{stopProfit >= 0 ? ' · 최소 이익 확보' : ' · 손실 제한'}
                 </Text>
-              ) : (
+              ) : held ? (
                 <Text style={{ color: colors.textDim, fontSize: 12 }}>
                   현재가가 이 가격 이하로 내려가면 자동으로 전량 매도해요.
                 </Text>
+              ) : (
+                <Text style={{ color: colors.textDim, fontSize: 12 }}>
+                  대기중 포켓은 프로젝트 전체 마지노선으로 저장돼요 — 현재가가 이 아래면 모든 포켓이 매수를 보류하고, 보유 포켓은 전량 매도해요.
+                </Text>
+              )}
+              {/* 전체 적용 체크 — 보유중 포켓에서만 고를 수 있다 (대기중은 항상 전체) */}
+              {held && (
+                <Pressable
+                  onPress={() => setStopAll((v) => !v)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 8,
+                    marginTop: 4,
+                    padding: 10,
+                    borderRadius: radius.md,
+                    borderWidth: 1,
+                    borderColor: stopAll ? colors.warn : colors.border,
+                    backgroundColor: stopAll ? 'rgba(251,191,36,0.10)' : colors.cardAlt,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: 5,
+                      borderWidth: 2,
+                      borderColor: stopAll ? colors.warn : colors.textDim,
+                      backgroundColor: stopAll ? colors.warn : 'transparent',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {stopAll && <Text style={{ color: '#04121A', fontSize: 13, fontWeight: '900', lineHeight: 16 }}>✓</Text>}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: stopAll ? colors.warn : colors.text, fontSize: 13, fontWeight: '800' }}>이 프로젝트 전체에 적용</Text>
+                    <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                      {stopAll
+                        ? '모든 포켓에 같은 마지노선 — 보유 포켓은 이 아래면 전량 매도, 대기 포켓은 매수 보류. 포켓별로 따로 넣었던 마지노선은 지워져요.'
+                        : '끄면 이 포켓의 손절가로만 저장돼요.'}
+                    </Text>
+                  </View>
+                </Pressable>
               )}
               {stopAboveSell && (
                 <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
@@ -293,7 +356,8 @@ export function EditTargetsModal({
               )}
               {!stopAboveSell && stopHitNow && (
                 <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
-                  ⚠️ 현재가({formatPrice(price!, market)})가 이미 마지노선 이하예요. 저장하면 곧바로 매도 주문이 나갑니다.
+                  ⚠️ 현재가({formatPrice(price!, market)})가 이미 마지노선 이하예요.{' '}
+                  {held ? '저장하면 곧바로 매도 주문이 나갑니다.' : '저장하면 가격이 선 위로 올라올 때까지 매수하지 않아요.'}
                 </Text>
               )}
               {isKrx && stopVal > 0 && stopInput !== stopVal && (

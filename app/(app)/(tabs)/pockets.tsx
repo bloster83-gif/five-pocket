@@ -15,7 +15,7 @@ import { getUnifiedQuote } from '@/services/prices/unified';
 import { getStoredQuotes } from '@/services/prices/quoteStore';
 import { getOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
 import { orderWindow } from '@/services/marketHours';
-import { savePocketTargets, STOP_PRICE_MIGRATION_HINT } from '@/services/pocketTargets';
+import { applyStopToProject, PROJECT_STOP_MIGRATION_HINT, savePocketTargets, STOP_PRICE_MIGRATION_HINT } from '@/services/pocketTargets';
 import { useAccountCash } from '@/services/deposits';
 import { cancelPendingOrder, demoteEmptyBoughtPockets, healBoughtPockets, loadPendingOrders, markOrderProgress, reconcilePendingOrders, releasePendingOrderLocally } from '@/services/pendingOrders';
 import type { AutoOrder, BrokerAccount, Pocket, Project, Trade } from '@/types/db';
@@ -1089,7 +1089,18 @@ export default function PocketsScreen() {
             market={proj.market}
             price={prices[proj.symbol]?.price ?? null}
             avgBuy={pnl.totalQtyOpen > 0 ? pnl.avgOpenPrice : 0}
-            onSave={async (b, s, stop, buyAt) => {
+            projectStop={projectStopOf(proj)}
+            onSave={async (b, s, stop, buyAt, all) => {
+              if (all) {
+                // 마지노선은 프로젝트 전체로, 나머지는 이 포켓에
+                const r = await savePocketTargets(editPocket.id, b, s, null, buyAt);
+                const pr = await applyStopToProject(proj.id, stop);
+                await load();
+                setEditPocket(null);
+                if (!r.stopSaved && stop != null) notify('DB 준비 필요', STOP_PRICE_MIGRATION_HINT);
+                else if (!pr.projectSaved && stop != null) notify('DB 준비 필요', PROJECT_STOP_MIGRATION_HINT);
+                return;
+              }
               const r = await savePocketTargets(editPocket.id, b, s, stop, buyAt);
               await load();
               setEditPocket(null);

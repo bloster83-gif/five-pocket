@@ -46,3 +46,28 @@ export async function savePocketTargets(
 /** 마지노선 저장이 안 됐을 때 사용자에게 보여줄 안내 (마이그레이션 필요) */
 export const STOP_PRICE_MIGRATION_HINT =
   '마지노선 기능에 필요한 컬럼이 아직 없어요. 최신 마이그레이션(20260813b)을 Supabase에서 실행하면 켜집니다.\n(매수·매도 목표가는 저장됐어요)';
+
+/**
+ * 마지노선을 프로젝트 전체에 적용 — 🎯 수정 모달의 '이 프로젝트 전체에 적용' 체크.
+ *
+ * 값은 projects.stop_price(프로젝트 마지노선, 마이그레이션 20260910a) 한 곳에만 두고
+ * 포켓별 stop_price 는 모두 비운다 → 보유 포켓은 프로젝트 선으로 손절, 대기 포켓은 그 아래서 매수 보류.
+ * (포켓마다 같은 값을 복사해 두면 나중에 프로젝트 선을 고쳐도 포켓 값이 우선돼 어긋난다)
+ * projects.stop_price 컬럼이 없으면(마이그레이션 전) 포켓 전부에 같은 값을 넣는 걸로 대신한다.
+ */
+export async function applyStopToProject(projectId: string, stopPrice: number | null): Promise<{ projectSaved: boolean }> {
+  const { error } = await supabase.from('projects').update({ stop_price: stopPrice }).eq('id', projectId);
+  if (!error) {
+    const { error: e2 } = await supabase.from('pockets').update({ stop_price: null }).eq('project_id', projectId);
+    if (e2 && !isMissingColumn(e2)) throw new Error(e2.message);
+    return { projectSaved: true };
+  }
+  if (!isMissingColumn(error)) throw new Error(error.message);
+  // 프로젝트 컬럼이 없는 DB → 포켓 전부에 같은 값 (대기 포켓 매수 보류는 안 됨)
+  const { error: e3 } = await supabase.from('pockets').update({ stop_price: stopPrice }).eq('project_id', projectId);
+  if (e3) throw new Error(e3.message);
+  return { projectSaved: false };
+}
+
+export const PROJECT_STOP_MIGRATION_HINT =
+  '프로젝트 마지노선 컬럼이 아직 없어 보유 포켓들에만 같은 값을 넣었어요. 마이그레이션(20260910a)을 실행하면 대기 포켓의 매수 보류까지 켜집니다.';
