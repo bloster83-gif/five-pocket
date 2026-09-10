@@ -13,6 +13,7 @@ import { getDomesticBalance, getOverseasBalance, kisOrderBlocked } from '@/servi
 import type { BrokerAccount, SymbolResult } from '@/types/db';
 import { BackHeader } from '@/components/BackHeader';
 import { WeightInput } from '@/components/WeightInput';
+import { AutoBudgetField } from '@/components/AutoBudgetField';
 import { useAllocMode } from '@/lib/allocMode';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -584,18 +585,18 @@ export default function NewProjectScreen() {
       {/* 예산 + 포켓별 비율 */}
       <Card>
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>예산 & 포켓 비율</Text>
-        <NumberField
-          label={
-            byPct
-              ? `프로젝트 총 예산 (${market === 'KRX' ? '원' : '달러'}, 선택)`
-              : `프로젝트 총 예산 (${market === 'KRX' ? '원' : '달러'}) · ${byQty ? '수량 × 매수가 합계' : '포켓 금액 합계'}`
-          }
-          value={totalBudget}
-          onChangeText={setTotalBudget}
-          decimals
-          editable={byPct} // 금액·수량 모드에서는 포켓 금액의 합이라 직접 못 고친다
-          placeholder="예: 1,000,000"
-        />
+        {/* 금액·수량 모드에서는 총예산 = 포켓 금액 합 → 입력칸 대신 '자동 계산' 표시 */}
+        {byPct ? (
+          <NumberField
+            label={`프로젝트 총 예산 (${market === 'KRX' ? '원' : '달러'}, 선택)`}
+            value={totalBudget}
+            onChangeText={setTotalBudget}
+            decimals
+            placeholder="예: 1,000,000"
+          />
+        ) : (
+          <AutoBudgetField market={market} value={totalBudget} mode={byQty ? 'qty' : 'amount'} />
+        )}
         {/* 사용가능 예산 = 계좌 예수금 − 대기중 포켓 예산 (한투 계좌 연결 시) */}
         {cashLoading ? (
           <Text style={{ color: colors.textDim, fontSize: 12 }}>사용가능 예산 계산 중…</Text>

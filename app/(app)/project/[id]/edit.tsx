@@ -9,6 +9,7 @@ import { buildPocketSeeds, buildScheduleSeeds, estimatedShares, inferSchedule, n
 import type { Pocket, Project } from '@/types/db';
 import { BackHeader } from '@/components/BackHeader';
 import { WeightInput } from '@/components/WeightInput';
+import { AutoBudgetField } from '@/components/AutoBudgetField';
 import { useAllocMode } from '@/lib/allocMode';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -316,18 +317,19 @@ export default function EditProjectScreen() {
 
       <Card style={{ opacity: dim }}>
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>예산 & 포켓 비율</Text>
-        <NumberField
-          label={
-            byPct
-              ? `프로젝트 총 예산 (${market === 'KRX' ? '원' : '달러'}, 선택)`
-              : `프로젝트 총 예산 (${market === 'KRX' ? '원' : '달러'}) · ${byQty ? '수량 × 매수가 합계' : '포켓 금액 합계'}`
-          }
-          value={totalBudget}
-          onChangeText={setTotalBudget}
-          decimals
-          editable={!locked && byPct} // 금액·수량 모드에서는 포켓 금액의 합이라 직접 못 고친다
-          placeholder="예: 1,000,000"
-        />
+        {/* 금액·수량 모드에서는 총예산 = 포켓 금액 합 → 입력칸 대신 '자동 계산' 표시 */}
+        {byPct ? (
+          <NumberField
+            label={`프로젝트 총 예산 (${market === 'KRX' ? '원' : '달러'}, 선택)`}
+            value={totalBudget}
+            onChangeText={setTotalBudget}
+            decimals
+            editable={!locked}
+            placeholder="예: 1,000,000"
+          />
+        ) : (
+          <AutoBudgetField market={market} value={totalBudget} mode={byQty ? 'qty' : 'amount'} />
+        )}
         {/* 배분 방식 — 비중(%)으로 나눌지, 금액을 직접 넣을지 */}
         {!locked && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
