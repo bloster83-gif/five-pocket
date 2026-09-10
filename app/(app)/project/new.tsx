@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { notify } from '@/lib/alert';
-import { Button, Card, Field, NumberField } from '@/components/ui';
+import { Button, Callout, Card, Field, IconButton, NumberField, Pill, Segmented } from '@/components/ui';
 import { colors, formatMoney, formatPrice, money, num, radius, spacing } from '@/theme';
 import { buildPocketSeeds, buildScheduleSeeds, clampPocketCount, estimatedShares, MAX_POCKET_COUNT, MIN_POCKET_COUNT, normalizeWeights, pocketBuyTarget, POCKET_COUNT, scheduleAt, type ScheduleUnit } from '@/domain/pockets';
 import { searchSymbols } from '@/services/symbols';
@@ -405,24 +405,7 @@ export default function NewProjectScreen() {
             ))}
           </View>
         )}
-        {selected && (
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: spacing.sm,
-              backgroundColor: 'rgba(34,211,166,0.12)',
-              borderRadius: 8,
-              padding: spacing.sm,
-            }}
-          >
-            <Text style={{ color: colors.primary, fontWeight: '800' }}>✓ {selected.symbol}</Text>
-            <Text style={{ color: colors.textDim }}>
-              {selected.market === 'KRX' ? '한국(원화)' : '미국(달러)'}
-            </Text>
-          </View>
-        )}
-        {/* 실시간 현재가 (표시만) — 기준가 입력은 정액매수법을 골랐을 때 전략 카드에서 */}
+        {/* 고른 종목 + 실시간 현재가 (표시만) — 기준가 입력은 정액매수법을 골랐을 때 전략 카드에서 */}
         {selected && (
           <View
             style={{
@@ -433,9 +416,16 @@ export default function NewProjectScreen() {
               borderRadius: radius.md,
               paddingHorizontal: spacing.md,
               paddingVertical: 10,
+              gap: spacing.sm,
             }}
           >
-            <Text style={{ color: colors.textDim, fontSize: 13 }}>현재가</Text>
+            <View style={{ flex: 1, gap: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Pill label={selected.market === 'KRX' ? '한국' : '미국'} icon={selected.market === 'KRX' ? '🇰🇷' : '🇺🇸'} tone={selected.market === 'KRX' ? 'neutral' : 'accent'} size="xs" />
+                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>✓ {selected.symbol}</Text>
+              </View>
+              <Text style={{ color: colors.textDim, fontSize: 12 }}>현재가</Text>
+            </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               {priceLoading ? (
                 <ActivityIndicator color={colors.primary} />
@@ -444,43 +434,22 @@ export default function NewProjectScreen() {
                   {livePrice != null ? formatPrice(livePrice, market) : '—'}
                 </Text>
               )}
-              <Pressable onPress={() => selected && void fetchLive(selected)} hitSlop={8}>
-                <Text style={{ color: colors.primary, fontSize: 14 }}>🔄</Text>
-              </Pressable>
+              <IconButton icon="🔄" size={32} onPress={() => selected && void fetchLive(selected)} />
             </View>
           </View>
         )}
       </Card>
 
       {/* 전략 — 매수 방식(가격 분할 / 정기 매수) */}
-      <Card>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>매수 방식</Text>
-        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-          {([
-            { key: 'price' as const, title: '📉 정액매수법', desc: '기준가에서 간격만큼 내려갈 때마다' },
-            { key: 'schedule' as const, title: '📅 정기매수법', desc: '정해진 날짜·시각에 현재가로' },
-          ]).map((o) => {
-            const on = buyMode === o.key;
-            return (
-              <Pressable
-                key={o.key}
-                onPress={() => setBuyMode(o.key)}
-                style={{
-                  flex: 1,
-                  gap: 2,
-                  padding: spacing.md,
-                  borderRadius: radius.md,
-                  borderWidth: 1,
-                  borderColor: on ? colors.primary : colors.border,
-                  backgroundColor: on ? 'rgba(34,211,166,0.12)' : colors.cardAlt,
-                }}
-              >
-                <Text style={{ color: on ? colors.primary : colors.text, fontWeight: '900', fontSize: 13 }}>{o.title}</Text>
-                <Text style={{ color: colors.textDim, fontSize: 11 }}>{o.desc}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+      <Card title="매수 방식">
+        <Segmented
+          options={[
+            { key: 'price' as const, label: '📉 정액매수법', desc: '기준가에서 간격만큼 내려갈 때마다' },
+            { key: 'schedule' as const, label: '📅 정기매수법', desc: '정해진 날짜·시각에 현재가로' },
+          ]}
+          value={buyMode}
+          onChange={setBuyMode}
+        />
 
         {buyMode === 'price' ? (
           <>
@@ -527,26 +496,8 @@ export default function NewProjectScreen() {
               <View style={{ width: 78 }}>
                 <Field label="간격" value={every} onChangeText={setEvery} keyboardType="number-pad" />
               </View>
-              <View style={{ flexDirection: 'row', gap: 6, flex: 1, paddingBottom: 8 }}>
-                {UNITS.map((u) => {
-                  const on = unit === u.key;
-                  return (
-                    <Pressable
-                      key={u.key}
-                      onPress={() => setUnit(u.key)}
-                      style={{
-                        paddingHorizontal: 14,
-                        paddingVertical: 10,
-                        borderRadius: radius.md,
-                        borderWidth: 1,
-                        borderColor: on ? colors.primary : colors.border,
-                        backgroundColor: on ? 'rgba(34,211,166,0.14)' : colors.cardAlt,
-                      }}
-                    >
-                      <Text style={{ color: on ? colors.primary : colors.textDim, fontWeight: '800' }}>{u.label}마다</Text>
-                    </Pressable>
-                  );
-                })}
+              <View style={{ flex: 1, paddingBottom: 6 }}>
+                <Segmented options={UNITS.map((u) => ({ key: u.key, label: `${u.label}마다` }))} value={unit} onChange={setUnit} />
               </View>
             </View>
             <View style={{ flexDirection: 'row', gap: spacing.md }}>
@@ -561,8 +512,7 @@ export default function NewProjectScreen() {
             <StopLineField market={market} value={stopPrice} onChange={setStopPrice} price={livePrice} />
             {/* 언제 얼마씩 사는지 미리보기 — 날짜가 틀리면 여기서 바로 드러난다 */}
             {scheduleStart ? (
-              <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 3 }}>
-                <Text style={{ color: colors.textDim, fontSize: 11 }}>매수 예정 ({pocketCount}회)</Text>
+              <Callout title={`매수 예정 (${pocketCount}회)`}>
                 {Array.from({ length: Math.min(pocketCount, 4) }, (_, i) => {
                   const d = scheduleAt(scheduleStart, scheduleEvery, unit, i);
                   const alloc = parsed.totalBudget ? (parsed.totalBudget * normalized[i]) / 100 : null;
@@ -578,9 +528,9 @@ export default function NewProjectScreen() {
                 {pocketCount > 4 && (
                   <Text style={{ color: colors.textDim, fontSize: 11 }}>… 외 {pocketCount - 4}회</Text>
                 )}
-              </View>
+              </Callout>
             ) : (
-              <Text style={{ color: colors.warn, fontSize: 12 }}>날짜는 YYYY-MM-DD, 시각은 HH:MM 형식으로 입력하세요.</Text>
+              <Callout tone="warn">날짜는 YYYY-MM-DD, 시각은 HH:MM 형식으로 입력하세요.</Callout>
             )}
           </>
         )}
@@ -592,8 +542,7 @@ export default function NewProjectScreen() {
       </Card>
 
       {/* 예산 + 포켓별 비율 */}
-      <Card>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>예산 & 포켓 비율</Text>
+      <Card title="예산 & 포켓 배분">
         {/* 금액·수량 모드에서는 총예산 = 포켓 금액 합 → 입력칸 대신 '자동 계산' 표시 */}
         {byPct ? (
           <NumberField
@@ -610,29 +559,12 @@ export default function NewProjectScreen() {
         {cashLoading ? (
           <Text style={{ color: colors.textDim, fontSize: 12 }}>사용가능 예산 계산 중…</Text>
         ) : availableBudget != null ? (
-          <View
-            style={{
-              backgroundColor: overBudget ? 'rgba(248,113,113,0.14)' : colors.cardAlt,
-              borderRadius: 8,
-              padding: spacing.md,
-              gap: 4,
-              borderWidth: 1,
-              borderColor: overBudget ? colors.danger : colors.primary,
-            }}
-          >
+          <Callout tone={overBudget ? 'danger' : 'primary'} title="💰 사용가능 예산">
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>💰 사용가능 예산</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={{ color: overBudget ? colors.danger : colors.primary, fontSize: 18, fontWeight: '900' }}>
-                  {formatMoney(availableBudget, market)}
-                </Text>
-                <Pressable
-                  onPress={() => fillAll(availableBudget)}
-                  style={{ backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}
-                >
-                  <Text style={{ color: '#04121A', fontSize: 12, fontWeight: '900' }}>전액 입력</Text>
-                </Pressable>
-              </View>
+              <Text style={{ color: overBudget ? colors.danger : colors.primary, fontSize: 18, fontWeight: '900' }}>
+                {formatMoney(availableBudget, market)}
+              </Text>
+              <Button title="전액 입력" small onPress={() => fillAll(availableBudget)} />
             </View>
             {/* 안내/경고는 높이를 고정 — 입력 중 줄 수가 바뀌면 아래 입력칸이 밀려 키보드가 닫힌다 */}
             <View style={{ minHeight: 30, justifyContent: 'center' }}>
@@ -646,54 +578,31 @@ export default function NewProjectScreen() {
                 </Text>
               )}
             </View>
-          </View>
+          </Callout>
         ) : null}
         {/* 포켓 개수 선택 (기본 5, 특별 종목은 6~10) */}
         <View style={{ gap: 6 }}>
           <Text style={{ color: colors.textDim, fontSize: 13 }}>포켓 개수 (기본 5 · 늘리면 6~10)</Text>
-          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-            {Array.from({ length: MAX_POCKET_COUNT - MIN_POCKET_COUNT + 1 }, (_, k) => MIN_POCKET_COUNT + k).map((n) => (
-              <Pressable
-                key={n}
-                onPress={() => changePocketCount(n)}
-                style={{
-                  minWidth: 42,
-                  alignItems: 'center',
-                  paddingVertical: 8,
-                  paddingHorizontal: 10,
-                  borderRadius: radius.md,
-                  borderWidth: 1,
-                  borderColor: pocketCount === n ? colors.primary : colors.border,
-                  backgroundColor: pocketCount === n ? 'rgba(34,211,166,0.14)' : colors.cardAlt,
-                }}
-              >
-                <Text style={{ color: pocketCount === n ? colors.primary : colors.textDim, fontWeight: '800' }}>{n}</Text>
-              </Pressable>
-            ))}
-          </View>
+          <Segmented
+            compact
+            options={Array.from({ length: MAX_POCKET_COUNT - MIN_POCKET_COUNT + 1 }, (_, k) => MIN_POCKET_COUNT + k).map((n) => ({ key: n, label: String(n) }))}
+            value={pocketCount}
+            onChange={changePocketCount}
+          />
         </View>
 
         {/* 배분 방식 — 비중(%)으로 나눌지, 금액을 직접 넣을지 */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Text style={{ color: colors.textDim, fontSize: 13, marginRight: 2 }}>배분</Text>
-          {(['pct', 'amount', 'qty'] as const).map((k) => (
-            <Pressable
-              key={k}
-              onPress={() => alloc.changeMode(k)}
-              style={{
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: alloc.mode === k ? colors.primary : colors.border,
-                backgroundColor: alloc.mode === k ? 'rgba(34,211,166,0.14)' : colors.cardAlt,
-              }}
-            >
-              <Text style={{ color: alloc.mode === k ? colors.primary : colors.textDim, fontWeight: '800', fontSize: 13 }}>
-                {k === 'pct' ? '비중 %' : k === 'amount' ? `금액 ${market === 'KRX' ? '₩' : '$'}` : '수량 주'}
-              </Text>
-            </Pressable>
-          ))}
+          <Segmented
+            options={[
+              { key: 'pct' as const, label: '비중 %' },
+              { key: 'amount' as const, label: `금액 ${market === 'KRX' ? '₩' : '$'}` },
+              { key: 'qty' as const, label: '수량 주' },
+            ]}
+            value={alloc.mode}
+            onChange={alloc.changeMode}
+          />
           <View style={{ flex: 1 }} />
           <Pressable onPress={resetEqual}>
             <Text style={{ color: colors.accent, fontWeight: '700' }}>균등 분배</Text>

@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { notify } from '@/lib/alert';
-import { Button, Card, Field, NumberField } from '@/components/ui';
+import { Button, Callout, Card, Field, NumberField, Segmented } from '@/components/ui';
 import { colors, formatPrice, money, spacing } from '@/theme';
 import { buildPocketSeeds, buildScheduleSeeds, estimatedShares, inferSchedule, normalizeWeights, pocketBuyTarget, POCKET_COUNT, scheduleAt, type ScheduleUnit } from '@/domain/pockets';
 import type { Pocket, Project } from '@/types/db';
@@ -242,20 +242,12 @@ export default function EditProjectScreen() {
     <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
       <BackHeader fallback="/" />
       {locked && (
-        <Card style={{ borderColor: colors.warn }}>
-          <Text style={{ color: colors.warn, fontWeight: '800' }}>🔒 수정할 수 없어요</Text>
-          <Text style={{ color: colors.textDim, fontSize: 12 }}>
-            이미 매매(체결 {tradeCount}건)가 시작된 프로젝트라, 전략·예산을 바꾸면 손익 계산이 꼬여요.
-            전략을 바꾸려면 새 프로젝트를 만들어 주세요.
-          </Text>
-        </Card>
+        <Callout tone="warn" title="🔒 전략·예산은 수정할 수 없어요">
+          이미 매매(체결 {tradeCount}건)가 시작된 프로젝트라, 전략·예산을 바꾸면 손익 계산이 꼬여요. 전략을 바꾸려면 새 프로젝트를 만들어 주세요.
+        </Callout>
       )}
 
-      <Card>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{project.name}</Text>
-        <Text style={{ color: colors.textDim, fontSize: 12 }}>
-          {project.symbol} · {market === 'KRX' ? '한국(원화)' : '미국(달러)'} · 종목/이름은 변경할 수 없어요
-        </Text>
+      <Card title={project.name} subtitle={`${project.symbol} · ${market === 'KRX' ? '한국(원화)' : '미국(달러)'} · 종목/이름은 변경할 수 없어요`}>
         {/* 정기매수법은 기준가가 없다 (예정 시각의 현재가로 산다) */}
         {!isSched && (
           <View style={{ opacity: dim }}>
@@ -271,10 +263,7 @@ export default function EditProjectScreen() {
         )}
       </Card>
 
-      <Card style={{ opacity: dim }}>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>
-          {isSched ? '📅 정기매수법' : '📉 정액매수법'}
-        </Text>
+      <Card style={{ opacity: dim }} title={isSched ? '📅 정기매수법' : '📉 정액매수법'}>
         {isSched ? (
           <>
             <View style={{ flexDirection: 'row', gap: spacing.md }}>
@@ -290,32 +279,13 @@ export default function EditProjectScreen() {
               <View style={{ width: 78 }}>
                 <Field label="간격" value={every} onChangeText={setEvery} keyboardType="number-pad" editable={!locked} />
               </View>
-              <View style={{ flexDirection: 'row', gap: 6, flex: 1, paddingBottom: 8 }}>
-                {UNITS.map((u) => {
-                  const on = unit === u.key;
-                  return (
-                    <Pressable
-                      key={u.key}
-                      onPress={() => !locked && setUnit(u.key)}
-                      style={{
-                        paddingHorizontal: 14,
-                        paddingVertical: 10,
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        borderColor: on ? colors.primary : colors.border,
-                        backgroundColor: on ? 'rgba(34,211,166,0.14)' : colors.cardAlt,
-                      }}
-                    >
-                      <Text style={{ color: on ? colors.primary : colors.textDim, fontWeight: '800' }}>{u.label}마다</Text>
-                    </Pressable>
-                  );
-                })}
+              <View style={{ flex: 1, paddingBottom: 6 }}>
+                <Segmented options={UNITS.map((u) => ({ key: u.key, label: `${u.label}마다` }))} value={unit} onChange={setUnit} disabled={locked} />
               </View>
             </View>
             <Field label="매도 목표 % (체결가 대비)" value={sellTarget} onChangeText={setSellTarget} keyboardType="decimal-pad" editable={!locked} />
             {scheduleStart ? (
-              <View style={{ backgroundColor: colors.cardAlt, borderRadius: 8, padding: spacing.md, gap: 3 }}>
-                <Text style={{ color: colors.textDim, fontSize: 11 }}>매수 예정 ({parsed.pocketCount}회)</Text>
+              <Callout title={`매수 예정 (${parsed.pocketCount}회)`}>
                 {Array.from({ length: Math.min(parsed.pocketCount, 5) }, (_, i) => {
                   const d = scheduleAt(scheduleStart, scheduleEvery, unit, i);
                   return (
@@ -325,9 +295,9 @@ export default function EditProjectScreen() {
                   );
                 })}
                 {parsed.pocketCount > 5 && <Text style={{ color: colors.textDim, fontSize: 11 }}>… 외 {parsed.pocketCount - 5}회</Text>}
-              </View>
+              </Callout>
             ) : (
-              <Text style={{ color: colors.warn, fontSize: 12 }}>날짜는 YYYY-MM-DD, 시각은 HH:MM 형식으로 입력하세요.</Text>
+              <Callout tone="warn">날짜는 YYYY-MM-DD, 시각은 HH:MM 형식으로 입력하세요.</Callout>
             )}
           </>
         ) : (
@@ -345,8 +315,7 @@ export default function EditProjectScreen() {
       {/* 프로젝트 마지노선 (정기매수법) — 거래가 있어 전략이 잠겨 있어도 이것만은 언제든 고칠 수 있다.
           그래서 잠금 흐림(dim)이 걸린 전략 카드 밖, 별도 카드에 둔다. */}
       {isSched && (
-        <Card>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🛑 프로젝트 마지노선</Text>
+        <Card title="🛑 프로젝트 마지노선">
           <StopLineField market={market} value={stopPrice} onChange={setStopPrice} />
           {locked ? (
             <Button title="마지노선만 저장" onPress={saveStopOnly} loading={savingStop} />
@@ -356,8 +325,7 @@ export default function EditProjectScreen() {
         </Card>
       )}
 
-      <Card style={{ opacity: dim }}>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>예산 & 포켓 비율</Text>
+      <Card style={{ opacity: dim }} title="예산 & 포켓 배분">
         {/* 금액·수량 모드에서는 총예산 = 포켓 금액 합 → 입력칸 대신 '자동 계산' 표시 */}
         {byPct ? (
           <NumberField
@@ -375,24 +343,15 @@ export default function EditProjectScreen() {
         {!locked && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={{ color: colors.textDim, fontSize: 13, marginRight: 2 }}>배분</Text>
-            {(['pct', 'amount', 'qty'] as const).map((k) => (
-              <Pressable
-                key={k}
-                onPress={() => alloc.changeMode(k)}
-                style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: alloc.mode === k ? colors.primary : colors.border,
-                  backgroundColor: alloc.mode === k ? 'rgba(34,211,166,0.14)' : colors.cardAlt,
-                }}
-              >
-                <Text style={{ color: alloc.mode === k ? colors.primary : colors.textDim, fontWeight: '800', fontSize: 13 }}>
-                  {k === 'pct' ? '비중 %' : k === 'amount' ? `금액 ${market === 'KRX' ? '₩' : '$'}` : '수량 주'}
-                </Text>
-              </Pressable>
-            ))}
+            <Segmented
+              options={[
+                { key: 'pct' as const, label: '비중 %' },
+                { key: 'amount' as const, label: `금액 ${market === 'KRX' ? '₩' : '$'}` },
+                { key: 'qty' as const, label: '수량 주' },
+              ]}
+              value={alloc.mode}
+              onChange={alloc.changeMode}
+            />
             <View style={{ flex: 1 }} />
             <Pressable onPress={resetEqual}>
               <Text style={{ color: colors.accent, fontWeight: '700' }}>균등 분배</Text>

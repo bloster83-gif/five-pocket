@@ -277,7 +277,7 @@ function Row({ label, value, color }: { label: string; value: string; color: str
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
       <Text style={{ color: colors.textDim, fontSize: 12 }}>{label}</Text>
-      <Text style={{ color, fontSize: 14, fontWeight: '900' }}>{value}</Text>
+      <Text style={{ color, fontSize: 14, fontWeight: '800' }}>{value}</Text>
     </View>
   );
 }

@@ -4,7 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
-import { Button, Card, Chip, Field, FilterBar, NumberField } from '@/components/ui';
+import { Button, Card, Chip, Field, FilterBar, NumberField, SectionTitle } from '@/components/ui';
 import { BarChart, Legend } from '@/components/charts';
 import { colors, formatGoalAutoKRW, formatMoney, radius, spacing } from '@/theme';
 import { buildGoalRows } from '@/domain/goals';
@@ -394,9 +394,8 @@ export default function GoalsScreen() {
 
       {/* 목표 설정 (접기/펼치기) */}
       <Card>
-        <Pressable onPress={() => setShowSetting((s) => !s)} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🎯 목표 설정</Text>
-          <Text style={{ color: colors.textDim, fontSize: 16 }}>{showSetting ? '▲ 접기' : '▼ 펼치기'}</Text>
+        <Pressable onPress={() => setShowSetting((s) => !s)}>
+          <SectionTitle title="🎯 목표 설정" right={<Text style={{ color: colors.textDim, fontSize: 13, fontWeight: '700' }}>{showSetting ? '▲ 접기' : '▼ 펼치기'}</Text>} />
         </Pressable>
         {!showSetting && hasGoal && (
           <Text style={{ color: colors.textDim, fontSize: 12 }}>

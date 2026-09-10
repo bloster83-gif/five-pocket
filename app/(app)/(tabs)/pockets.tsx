@@ -5,7 +5,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
-import { Card, Chip, Field, FilterBar } from '@/components/ui';
+import { Card, Chip, Field, FilterBar, Pill } from '@/components/ui';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
 import { HoldingMismatchCard } from '@/components/HoldingMismatchCard';
 import { PortfolioSummary, computeMarketSummaries } from '@/components/PortfolioSummary';
@@ -621,7 +621,7 @@ export default function PocketsScreen() {
                 borderBottomColor: i == null || isPlus ? (on ? colors.buy : 'transparent') : pocketColor(i as number),
               }}
             >
-              <Text style={{ color: on ? '#FFFFFF' : colors.textDim, fontWeight: '900', fontSize: 12 }}>
+              <Text style={{ color: on ? '#FFFFFF' : colors.textDim, fontWeight: '800', fontSize: 12 }}>
                 {i == null ? '전체' : isPlus ? '6+' : (i as number) + 1}
               </Text>
             </Pressable>
@@ -717,12 +717,12 @@ export default function PocketsScreen() {
                 : k.status;
         const statusMeta =
           effStatus === 'bought'
-            ? { text: '보유중', color: colors.buy, bg: colors.buyBg }
+            ? { text: '보유중', tone: 'buy' as const }
             : effStatus === 'buy_ordered' || effStatus === 'sell_ordered'
-              ? { text: effStatus === 'buy_ordered' ? '매수 주문완료' : '매도 주문완료', color: colors.warn, bg: 'rgba(251,191,36,0.14)' }
+              ? { text: effStatus === 'buy_ordered' ? '매수 주문완료' : '매도 주문완료', tone: 'warn' as const }
               : effStatus === 'sold'
-                ? { text: '매도 완료', color: colors.sell, bg: colors.sellBg }
-                : { text: '대기', color: colors.textDim, bg: colors.cardAlt };
+                ? { text: '매도 완료', tone: 'sell' as const }
+                : { text: '대기', tone: 'neutral' as const };
         const cardEl = (
           <Pressable onPress={() => setExpanded(open ? null : k.id)}>
             <Card
@@ -744,9 +744,7 @@ export default function PocketsScreen() {
                   </View>
                   <Text style={{ color: colors.textDim, fontSize: 12 }}>{proj.symbol}</Text>
                 </View>
-                <View style={{ backgroundColor: statusMeta.bg, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
-                  <Text style={{ color: statusMeta.color, fontWeight: '800', fontSize: 12 }}>{statusMeta.text}</Text>
-                </View>
+                <Pill label={statusMeta.text} tone={statusMeta.tone} />
               </View>
 
               {/* 실시간 현재가 (한 줄) */}
@@ -1192,7 +1190,7 @@ function BuyOrderSwipe({
               <View style={{ width: 84, paddingRight: spacing.sm }}>
                 <View style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
                   {'포켓삭제'.split('').map((ch, i) => (
-                    <Text key={i} style={{ color: '#fff', fontWeight: '900', fontSize: 14, lineHeight: 17 }}>
+                    <Text key={i} style={{ color: '#fff', fontWeight: '800', fontSize: 14, lineHeight: 17 }}>
                       {ch}
                     </Text>
                   ))}
@@ -1206,7 +1204,7 @@ function BuyOrderSwipe({
           <View style={{ flex: 1, backgroundColor: auto ? colors.primary : colors.buy, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
             {auto && <Text style={{ fontSize: 16, marginBottom: 2 }}>🤖</Text>}
             {(auto ? '자동주문' : '매수주문').split('').map((ch, i) => (
-              <Text key={i} style={{ color: auto ? '#04121A' : '#fff', fontWeight: '900', fontSize: 14, lineHeight: 17 }}>
+              <Text key={i} style={{ color: auto ? '#04121A' : '#fff', fontWeight: '800', fontSize: 14, lineHeight: 17 }}>
                 {ch}
               </Text>
             ))}

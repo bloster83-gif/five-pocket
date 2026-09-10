@@ -4,7 +4,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import { Button, Card, ChartIcon, Row } from '@/components/ui';
+import { Button, Callout, Card, ChartIcon, Pill, Row, SectionTitle } from '@/components/ui';
 import { BottomTabsBar } from '@/components/BottomTabsBar';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
 import { colors, formatBuyAt, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
@@ -829,35 +829,21 @@ export default function ProjectDetailScreen() {
       {/* 자동매매 켜기/끄기만 (상세 설정·계좌연결은 프로젝트 목록/MY 탭에서) */}
       {tier === 'auto' && (
         <Card style={project.auto_trade_enabled ? { borderColor: colors.buy } : undefined}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🤖 자동매매</Text>
-              <Text style={{ color: project.auto_trade_enabled ? colors.buy : colors.textDim, fontSize: 12 }}>
-                {project.auto_trade_enabled ? 'ON · 목표가 도달 시 자동 주문' : 'OFF · 수동 매매'}
-              </Text>
-            </View>
-            <Switch value={project.auto_trade_enabled} onValueChange={toggleAutoTrade} />
-          </View>
+          <SectionTitle
+            title="🤖 자동매매"
+            subtitle={project.auto_trade_enabled ? 'ON · 목표가 도달 시 자동 주문' : 'OFF · 수동 매매'}
+            right={<Switch value={project.auto_trade_enabled} onValueChange={toggleAutoTrade} />}
+          />
           {lastEvent && (
-            <View
-              style={{
-                backgroundColor: lastEvent.ok ? colors.buyBg : 'rgba(251,191,36,0.12)',
-                borderRadius: 8,
-                padding: spacing.sm,
-              }}
-            >
-              <Text style={{ color: lastEvent.ok ? colors.buy : colors.warn, fontSize: 12, fontWeight: '700' }}>
-                {lastEvent.ok ? '✅' : '⚠️'} 포켓 {lastEvent.pocketIdx + 1} 자동 {lastEvent.kind === 'buy' ? '매수' : '매도'} ·{' '}
-                {lastEvent.message}
-              </Text>
-            </View>
+            <Callout tone={lastEvent.ok ? 'buy' : 'warn'}>
+              {`${lastEvent.ok ? '✅' : '⚠️'} 포켓 ${lastEvent.pocketIdx + 1} 자동 ${lastEvent.kind === 'buy' ? '매수' : '매도'} · ${lastEvent.message}`}
+            </Callout>
           )}
         </Card>
       )}
 
       {/* 손익 */}
-      <Card>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>손익</Text>
+      <Card title="손익">
         <Row
           label="보유 수량 / 평단"
           value={`${money(pnl.totalQtyOpen, 0)}주  ·  평단 ${formatPrice(pnl.avgOpenPrice, mkt)}`}
@@ -887,14 +873,14 @@ export default function ProjectDetailScreen() {
           <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>🧺 5포켓</Text>
           <View style={{ backgroundColor: colors.buyBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: colors.buy }}>
             {/* 정기매수법은 '얼마 내려가면'이 아니라 '얼마마다'가 조건이다 */}
-            <Text style={{ color: colors.buy, fontWeight: '900', fontSize: 13 }}>
+            <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>
               {project.buy_mode === 'schedule'
                 ? `📅 ${describeSchedule(pockets)?.every ?? '정기매수'}`
                 : `매수간격 ▼${project.buy_interval_pct}%`}
             </Text>
           </View>
           <View style={{ backgroundColor: colors.sellBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: colors.sell }}>
-            <Text style={{ color: colors.sell, fontWeight: '900', fontSize: 13 }}>매도목표 ▲{project.sell_target_pct}%</Text>
+            <Text style={{ color: colors.sell, fontWeight: '800', fontSize: 13 }}>매도목표 ▲{project.sell_target_pct}%</Text>
           </View>
         </View>
         {project.total_budget != null && (
@@ -1283,7 +1269,7 @@ function BuyOrderSwipe({
               <View style={{ width: 84, paddingRight: spacing.sm }}>
                 <View style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
                   {'포켓삭제'.split('').map((ch, i) => (
-                    <Text key={i} style={{ color: '#fff', fontWeight: '900', fontSize: 14, lineHeight: 17 }}>
+                    <Text key={i} style={{ color: '#fff', fontWeight: '800', fontSize: 14, lineHeight: 17 }}>
                       {ch}
                     </Text>
                   ))}
@@ -1297,7 +1283,7 @@ function BuyOrderSwipe({
           <View style={{ flex: 1, backgroundColor: auto ? colors.primary : colors.buy, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
             {auto && <Text style={{ fontSize: 16, marginBottom: 2 }}>🤖</Text>}
             {(auto ? '자동주문' : '매수주문').split('').map((ch, i) => (
-              <Text key={i} style={{ color: auto ? '#04121A' : '#fff', fontWeight: '900', fontSize: 14, lineHeight: 17 }}>
+              <Text key={i} style={{ color: auto ? '#04121A' : '#fff', fontWeight: '800', fontSize: 14, lineHeight: 17 }}>
                 {ch}
               </Text>
             ))}
@@ -1581,17 +1567,13 @@ function PocketCard({
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Text style={{ color: pocketColor(k.idx), fontWeight: '900', fontSize: 16 }}>포켓 {k.idx + 1}</Text>
-          {cycles > 0 && (
-            <View style={{ backgroundColor: colors.cardAlt, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
-              <Text style={{ color: colors.textDim, fontSize: 11, fontWeight: '700' }}>{cycles}회 순환</Text>
-            </View>
-          )}
+          {cycles > 0 && <Pill label={`${cycles}회 순환`} size="xs" />}
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          {effectivelyBought && <Text style={{ fontSize: 14 }}>🔴</Text>}
-          {pendingWord && <Text style={{ fontSize: 14 }}>🕐</Text>}
-          <Text style={{ color: statusPill.color, fontWeight: '800', fontSize: 12 }}>{statusPill.text}</Text>
-        </View>
+        <Pill
+          label={statusPill.text}
+          icon={effectivelyBought ? '🔴' : pendingWord ? '🕐' : undefined}
+          tone={effectivelyBought ? 'buy' : pendingWord ? 'warn' : k.status === 'sold' ? 'sell' : 'neutral'}
+        />
       </View>
 
       {/* 목표 매수·매도가 직접 수정 (시장 상황 보며 조정) — 대기중/보유중일 때 */}
@@ -1808,7 +1790,7 @@ function PocketCard({
           {stopDisp != null && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
               <View style={{ flex: 1, height: 1.5, backgroundColor: colors.warn, opacity: 0.55 }} />
-              <Text numberOfLines={1} style={{ color: colors.warn, fontSize: 13, fontWeight: '900' }}>
+              <Text numberOfLines={1} style={{ color: colors.warn, fontSize: 13, fontWeight: '800' }}>
                 🛑 마지노선 {formatPrice(stopDisp, market)}
                 {stopPct != null ? ` (${stopPct > 0 ? '+' : ''}${stopPct}%)` : ''}
               </Text>
@@ -1847,13 +1829,13 @@ function PocketCard({
                 <View style={{ marginTop: 6, gap: 3 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                     <Text style={{ color: colors.textDim, fontSize: 12 }}>{pendingWord} 주문가</Text>
-                    <Text style={{ color: pendingWord === '매수' ? colors.buy : colors.sell, fontSize: 14, fontWeight: '900' }}>
+                    <Text style={{ color: pendingWord === '매수' ? colors.buy : colors.sell, fontSize: 14, fontWeight: '800' }}>
                       {formatPrice(Number(pendingOrder.order_price), market)}
                     </Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                     <Text style={{ color: colors.textDim, fontSize: 12 }}>{doneQty > 0 ? '남은 수량' : '주문 수량'}</Text>
-                    <Text style={{ color: num.position, fontSize: 14, fontWeight: '900' }}>
+                    <Text style={{ color: num.position, fontSize: 14, fontWeight: '800' }}>
                       {money(restQty, 0)}주
                     </Text>
                   </View>
@@ -1867,7 +1849,7 @@ function PocketCard({
                   )}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                     <Text style={{ color: colors.textDim, fontSize: 12 }}>주문 금액</Text>
-                    <Text style={{ color: num.position, fontSize: 14, fontWeight: '900' }}>
+                    <Text style={{ color: num.position, fontSize: 14, fontWeight: '800' }}>
                       {formatMoney(Number(pendingOrder.order_price) * restQty, market)}
                     </Text>
                   </View>

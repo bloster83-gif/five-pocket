@@ -16,7 +16,7 @@ import { supabase } from '@/lib/supabase';
 import { setProjectCount } from '@/lib/badges';
 import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
-import { Card, Chip, Field, FilterBar } from '@/components/ui';
+import { Card, Chip, Field, FilterBar, Pill } from '@/components/ui';
 import { colors, formatChangePct, formatMoney, formatPrice, num, radius, signColor, spacing } from '@/theme';
 import { buyPointReached, computePnL, describeSchedule, findBudgetMismatches, projectStopOf } from '@/domain/pockets';
 import { PortfolioSummary, computeMarketSummaries } from '@/components/PortfolioSummary';
@@ -575,44 +575,14 @@ export default function ProjectsScreen() {
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <View
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 3,
-                            paddingHorizontal: 7,
-                            paddingVertical: 2,
-                            borderRadius: 6,
-                            backgroundColor: isKR ? 'rgba(255,255,255,0.08)' : 'rgba(91,141,239,0.16)',
-                            borderWidth: 1,
-                            borderColor: accent,
-                          }}
-                        >
-                          <Text style={{ fontSize: 11 }}>{isKR ? '🇰🇷' : '🇺🇸'}</Text>
-                          <Text style={{ color: accent, fontSize: 11, fontWeight: '900' }}>{isKR ? '한국' : '미국'}</Text>
-                        </View>
+                        <Pill label={isKR ? '한국' : '미국'} icon={isKR ? '🇰🇷' : '🇺🇸'} tone={isKR ? 'neutral' : 'accent'} size="xs" outline />
                         <Text numberOfLines={1} style={{ color: colors.text, fontSize: 18, fontWeight: '800', flexShrink: 1 }}>
                           {row.name}
                         </Text>
                       </View>
                       <Text style={{ color: colors.textDim, marginTop: 2 }}>{row.symbol}</Text>
                     </View>
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 4,
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: 999,
-                        backgroundColor: 'rgba(245,69,92,0.15)',
-                      }}
-                    >
-                      <Text style={{ fontSize: 12 }}>🔴</Text>
-                      <Text style={{ color: colors.buy, fontSize: 12, fontWeight: '800' }}>
-                        진행중 {openCount}
-                      </Text>
-                    </View>
+                    <Pill label={`진행중 ${openCount}`} icon="🔴" tone="buy" />
                   </View>
 
                   {/* 현재가 — 종목당 하나 */}
@@ -635,7 +605,7 @@ export default function ProjectsScreen() {
                           paddingVertical: 1,
                         }}
                       >
-                        <Text style={{ color: signColor(gm.changePct), fontWeight: '900', fontSize: 12 }}>
+                        <Text style={{ color: signColor(gm.changePct), fontWeight: '800', fontSize: 12 }}>
                           {gm.changePct > 0 ? '▲' : gm.changePct < 0 ? '▼' : ''}
                           {gm.changePct > 0 ? '+' : ''}
                           {formatChangePct(gm.changePct)}%
@@ -681,22 +651,7 @@ export default function ProjectsScreen() {
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         {/* 한국/미국 구분 배지 */}
-                        <View
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 3,
-                            paddingHorizontal: 7,
-                            paddingVertical: 2,
-                            borderRadius: 6,
-                            backgroundColor: mkBadge.bg,
-                            borderWidth: 1,
-                            borderColor: mkBadge.color,
-                          }}
-                        >
-                          <Text style={{ fontSize: 11 }}>{mkBadge.flag}</Text>
-                          <Text style={{ color: mkBadge.color, fontSize: 11, fontWeight: '900' }}>{mkBadge.label}</Text>
-                        </View>
+                        <Pill label={mkBadge.label} icon={mkBadge.flag} tone={isKR ? 'neutral' : 'accent'} size="xs" outline />
                         <Text
                           numberOfLines={1}
                           style={{
@@ -711,22 +666,7 @@ export default function ProjectsScreen() {
                       </View>
                       <Text style={{ color: colors.textDim, marginTop: 2 }}>{item.symbol}</Text>
                     </View>
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 4,
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: 999,
-                        backgroundColor: closed ? 'rgba(59,130,246,0.18)' : 'rgba(245,69,92,0.15)',
-                      }}
-                    >
-                      <Text style={{ fontSize: 12 }}>{closed ? '🔒' : '🔴'}</Text>
-                      <Text style={{ color: closed ? colors.sell : colors.buy, fontSize: 12, fontWeight: '800' }}>
-                        {closed ? '종료' : '진행중'}
-                      </Text>
-                    </View>
+                    <Pill label={closed ? '종료' : '진행중'} icon={closed ? '🔒' : '🔴'} tone={closed ? 'sell' : 'buy'} />
                   </View>
 
                   {/* 현재가 · 기준가 — 한 줄에 좌/우 정렬(세로 높이 통일) */}
@@ -755,7 +695,7 @@ export default function ProjectsScreen() {
                             flexShrink: 0,
                           }}
                         >
-                          <Text numberOfLines={1} style={{ color: signColor(m.changePct), fontWeight: '900', fontSize: 12 }}>
+                          <Text numberOfLines={1} style={{ color: signColor(m.changePct), fontWeight: '800', fontSize: 12 }}>
                             {m.changePct > 0 ? '▲' : m.changePct < 0 ? '▼' : ''}
                             {m.changePct > 0 ? '+' : ''}
                             {formatChangePct(m.changePct)}%
@@ -1010,8 +950,8 @@ function ProjectSwipe({
       }}
     >
       <View style={{ flex: 1, backgroundColor: bg, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#fff', fontWeight: '900', fontSize: 14, lineHeight: 19 }}>{l1}</Text>
-        <Text style={{ color: '#fff', fontWeight: '900', fontSize: 14, lineHeight: 19 }}>{l2}</Text>
+        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14, lineHeight: 19 }}>{l1}</Text>
+        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14, lineHeight: 19 }}>{l2}</Text>
       </View>
     </View>
   );

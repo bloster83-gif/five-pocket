@@ -351,19 +351,7 @@ export default function RadarScreen() {
             {groups.length > 0 && (
               <Chip label="미분류" active={groupFilter === 'none'} onPress={() => setGroupFilter((f) => (f === 'none' ? null : 'none'))} />
             )}
-            <Pressable
-              onPress={() => setGroupModal({ mode: 'create' })}
-              style={{
-                paddingHorizontal: 12,
-                paddingVertical: 7,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: colors.primary,
-                backgroundColor: 'rgba(34,211,166,0.10)',
-              }}
-            >
-              <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>＋ 그룹</Text>
-            </Pressable>
+            <Chip label="＋ 그룹" active activeColor={colors.primary} onPress={() => setGroupModal({ mode: 'create' })} />
           </ScrollView>
         )}
         {showSearch && (
@@ -623,7 +611,7 @@ function WatchRow({
           }}
           style={{ backgroundColor: colors.buy, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16, borderRadius: radius.md, marginRight: spacing.sm, width: 130 }}
         >
-          <Text style={{ color: '#fff', fontWeight: '900', fontSize: 13 }}>＋ 프로젝트 생성</Text>
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>＋ 프로젝트 생성</Text>
         </Pressable>
       )}
       renderRightActions={() => (
@@ -713,7 +701,7 @@ function WatchRow({
                     justifyContent: 'center',
                   }}
                 >
-                  <Text style={{ color: '#04121A', fontSize: 11, fontWeight: '900' }}>{memos.length}</Text>
+                  <Text style={{ color: '#04121A', fontSize: 11, fontWeight: '800' }}>{memos.length}</Text>
                 </View>
               ) : (
                 <Text style={{ color: colors.textDim, fontSize: 11 }}>0</Text>
@@ -736,45 +724,17 @@ function WatchRow({
                 alignItems: 'center',
               }}
             >
-              <Text style={{ color: '#04121A', fontWeight: '900', fontSize: 13 }}>📊 자세히 보기 (가치분석)</Text>
+              <Text style={{ color: '#04121A', fontWeight: '800', fontSize: 13 }}>📊 자세히 보기 (가치분석)</Text>
             </Pressable>
             {/* 그룹 지정 — 그룹이 있을 때만 표시 */}
             {groups.length > 0 && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
                 <Text style={{ color: colors.textDim, fontSize: 12, width: 52 }}>그룹</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, alignItems: 'center' }}>
-                  <Pressable
-                    onPress={() => onSetGroup(null)}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 5,
-                      borderRadius: 999,
-                      backgroundColor: item.group_id == null ? colors.textDim : colors.cardAlt,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                    }}
-                  >
-                    <Text style={{ color: item.group_id == null ? colors.bg : colors.textDim, fontSize: 11, fontWeight: '800' }}>미분류</Text>
-                  </Pressable>
-                  {groups.map((g) => {
-                    const on = item.group_id === g.id;
-                    return (
-                      <Pressable
-                        key={g.id}
-                        onPress={() => onSetGroup(on ? null : g.id)}
-                        style={{
-                          paddingHorizontal: 10,
-                          paddingVertical: 5,
-                          borderRadius: 999,
-                          backgroundColor: on ? colors.accent : colors.cardAlt,
-                          borderWidth: 1,
-                          borderColor: on ? colors.accent : colors.border,
-                        }}
-                      >
-                        <Text style={{ color: on ? '#fff' : colors.textDim, fontSize: 11, fontWeight: '800' }}>{g.name}</Text>
-                      </Pressable>
-                    );
-                  })}
+                  <Chip label="미분류" active={item.group_id == null} activeColor={colors.textDim} onPress={() => onSetGroup(null)} />
+                  {groups.map((g) => (
+                    <Chip key={g.id} label={g.name} active={item.group_id === g.id} activeColor={colors.accent} onPress={() => onSetGroup(item.group_id === g.id ? null : g.id)} />
+                  ))}
                 </ScrollView>
               </View>
             )}
@@ -1076,38 +1036,10 @@ function AddModal({
                 <View>
                   <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 4 }}>그룹 (선택)</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, alignItems: 'center' }}>
-                    <Pressable
-                      onPress={() => setGroupId(null)}
-                      style={{
-                        paddingHorizontal: 12,
-                        paddingVertical: 7,
-                        borderRadius: 999,
-                        backgroundColor: groupId == null ? colors.textDim : colors.cardAlt,
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                      }}
-                    >
-                      <Text style={{ color: groupId == null ? colors.bg : colors.textDim, fontSize: 12, fontWeight: '800' }}>미분류</Text>
-                    </Pressable>
-                    {groups.map((g) => {
-                      const on = groupId === g.id;
-                      return (
-                        <Pressable
-                          key={g.id}
-                          onPress={() => setGroupId(on ? null : g.id)}
-                          style={{
-                            paddingHorizontal: 12,
-                            paddingVertical: 7,
-                            borderRadius: 999,
-                            backgroundColor: on ? colors.accent : colors.cardAlt,
-                            borderWidth: 1,
-                            borderColor: on ? colors.accent : colors.border,
-                          }}
-                        >
-                          <Text style={{ color: on ? '#fff' : colors.textDim, fontSize: 12, fontWeight: '800' }}>{g.name}</Text>
-                        </Pressable>
-                      );
-                    })}
+                    <Chip label="미분류" active={groupId == null} activeColor={colors.textDim} onPress={() => setGroupId(null)} />
+                    {groups.map((g) => (
+                      <Chip key={g.id} label={g.name} active={groupId === g.id} activeColor={colors.accent} onPress={() => setGroupId(groupId === g.id ? null : g.id)} />
+                    ))}
                   </ScrollView>
                 </View>
               )}

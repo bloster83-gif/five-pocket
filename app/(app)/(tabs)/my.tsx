@@ -4,7 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
-import { Button, Card, Field, Row } from '@/components/ui';
+import { Button, Card, Field, LinkText, Pill, Row } from '@/components/ui';
 import { StatsContent } from '@/components/StatsContent';
 import { colors, formatMoney, radius, signColor, spacing } from '@/theme';
 import { formatPhone, isValidPhone, onlyDigits, sendPhoneOtp, verifyPhoneOtp } from '@/lib/phoneAuth';
@@ -175,21 +175,8 @@ export default function MyScreen() {
               </Text>
               {isAdmin && <Text style={{ fontSize: 14 }}>👑</Text>}
             </View>
-            <View
-              style={{
-                alignSelf: 'flex-start',
-                marginTop: 3,
-                backgroundColor: tier === 'auto' ? 'rgba(34,211,166,0.14)' : colors.cardAlt,
-                borderRadius: 999,
-                paddingHorizontal: 10,
-                paddingVertical: 2,
-                borderWidth: 1,
-                borderColor: tier === 'auto' ? colors.primary : colors.border,
-              }}
-            >
-              <Text style={{ color: tier === 'auto' ? colors.primary : colors.textDim, fontWeight: '800', fontSize: 11 }}>
-                {tier === 'auto' ? `AUTO 등급${tierExpiry ? ` · ~${tierExpiry}` : ''}` : 'Diary 등급'}
-              </Text>
+            <View style={{ alignSelf: 'flex-start', marginTop: 4 }}>
+              <Pill label={tier === 'auto' ? `AUTO 등급${tierExpiry ? ` · ~${tierExpiry}` : ''}` : 'Diary 등급'} tone={tier === 'auto' ? 'primary' : 'neutral'} outline />
             </View>
           </View>
         </View>
@@ -197,13 +184,11 @@ export default function MyScreen() {
 
       {/* 회원 등급 안내 + 오토 업그레이드 (가장 위쪽 · Diary 등급일 때 강조) */}
       <Pressable onPress={() => router.push('/upgrade')}>
-        <Card style={tier === 'auto' ? undefined : { borderColor: colors.buy, borderWidth: 1.5 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🚀 회원 등급 안내</Text>
-            <Text style={{ color: colors.accent, fontWeight: '800', fontSize: 13 }}>
-              {tier === 'auto' ? '등급 안내 →' : '오토회원 업그레이드 안내 →'}
-            </Text>
-          </View>
+        <Card
+          style={tier === 'auto' ? undefined : { borderColor: colors.buy, borderWidth: 1.5 }}
+          title="🚀 회원 등급 안내"
+          right={<LinkText label={tier === 'auto' ? '등급 안내 →' : '업그레이드 안내 →'} onPress={() => router.push('/upgrade')} />}
+        >
           <Text style={{ color: colors.textDim, fontSize: 13, lineHeight: 20 }}>
             <Text style={{ color: colors.text, fontWeight: '700' }}>Diary</Text>는 수동 매매 일지,{' '}
             <Text style={{ color: colors.primary, fontWeight: '700' }}>AUTO</Text>는 목표가 도달 시 자동 주문·24시간 자동매매까지.
@@ -217,13 +202,7 @@ export default function MyScreen() {
       </Pressable>
 
       {/* 내 정보 */}
-      <Card>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>내 정보</Text>
-          <Pressable onPress={() => (editing ? setEditing(false) : startEdit())}>
-            <Text style={{ color: colors.accent, fontWeight: '800', fontSize: 13 }}>{editing ? '닫기' : '✏️ 수정'}</Text>
-          </Pressable>
-        </View>
+      <Card title="내 정보" right={<LinkText label={editing ? '닫기' : '✏️ 수정'} onPress={() => (editing ? setEditing(false) : startEdit())} />}>
 
         {!editing ? (
           <>
@@ -352,15 +331,7 @@ export default function MyScreen() {
       </Card>
 
       {/* 증권사 계좌 */}
-      <Card>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🏦 한국투자증권 계좌</Text>
-          <Pressable onPress={() => router.push('/broker')}>
-            <Text style={{ color: colors.accent, fontWeight: '800', fontSize: 13 }}>
-              {account ? '변경 →' : '연결 →'}
-            </Text>
-          </Pressable>
-        </View>
+      <Card title="🏦 한국투자증권 계좌" right={<LinkText label={account ? '변경 →' : '연결 →'} onPress={() => router.push('/broker')} />}>
         {account ? (
           <>
             <Row label="계좌번호" value={`${account.account_no}-${account.account_product_code}`} />
@@ -378,30 +349,17 @@ export default function MyScreen() {
       </Card>
 
       {/* 보유주식 현황 (KIS 잔고) */}
-      <Card>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>💼 보유주식 현황</Text>
-          {account && (
+      <Card
+        title="💼 보유주식 현황"
+        right={
+          account ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Pressable
-                onPress={loadBalance}
-                disabled={balLoading}
-                style={{ backgroundColor: colors.cardAlt, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}
-              >
-                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
-                  {balLoading ? '조회중…' : balance ? '새로고침' : '조회'}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => router.push('/holdings')}
-                style={{ backgroundColor: colors.buy, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}
-              >
-                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>자세히 보기 →</Text>
-              </Pressable>
+              <Button title={balLoading ? '조회중…' : balance ? '새로고침' : '조회'} variant="ghost" small onPress={loadBalance} disabled={balLoading} />
+              <Button title="자세히 →" variant="buy" small onPress={() => router.push('/holdings')} />
             </View>
-          )}
-        </View>
-
+          ) : null
+        }
+      >
         {!account ? (
           <Text style={{ color: colors.textDim, fontSize: 13 }}>계좌를 연결하면 실제 보유주식을 볼 수 있어요.</Text>
         ) : balLoading ? (
@@ -449,7 +407,7 @@ export default function MyScreen() {
                 alignItems: 'center',
               }}
             >
-              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14 }}>💰 총 자산 (원화 환산)</Text>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>💰 총 자산 (원화 환산)</Text>
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>{formatMoney(totalAssetKRW, 'KRX')}</Text>
             </View>
 
@@ -596,7 +554,7 @@ function UpdateCard() {
           {checking ? (
             <ActivityIndicator color="#04121A" size="small" />
           ) : (
-            <Text style={{ color: '#04121A', fontWeight: '900', fontSize: 13 }}>업데이트 확인</Text>
+            <Text style={{ color: '#04121A', fontWeight: '800', fontSize: 13 }}>업데이트 확인</Text>
           )}
         </Pressable>
       </View>

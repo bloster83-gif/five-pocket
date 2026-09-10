@@ -587,7 +587,7 @@ export default function JournalScreen() {
           {/* ③ 이 기간에 입금/출금/배당이 있으면 따로 표시 (없으면 숨김) */}
           {hasFlow && (
             <Card style={{ borderColor: colors.primary }}>
-              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>💵 현금 흐름 ({periodLabel})</Text>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>💵 현금 흐름 ({periodLabel})</Text>
               {(['deposit', 'withdrawal', 'dividend'] as CashFlowType[])
                 .filter((k) => flowSums[k] !== 0)
                 .map((k) => (
@@ -930,7 +930,7 @@ function DayHeader({ date, realized }: { date: string; realized?: Record<string,
                 paddingVertical: 2,
               }}
             >
-              <Text style={{ color: signColor(v), fontWeight: '900', fontSize: 12 }}>
+              <Text style={{ color: signColor(v), fontWeight: '800', fontSize: 12 }}>
                 실현 {v > 0 ? '+' : ''}
                 {formatMoney(v, mkt)}
               </Text>

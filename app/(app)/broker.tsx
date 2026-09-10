@@ -199,8 +199,7 @@ export default function BrokerScreen() {
         </Card>
       )}
 
-      <Card>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🏦 한국투자증권 OpenAPI</Text>
+      <Card title="🏦 한국투자증권 OpenAPI">
         <Text style={{ color: colors.textDim, fontSize: 12 }}>
           한국투자증권 홈페이지 → 트레이딩 → Open API에서 신청하면 AppKey/AppSecret을 받을 수 있어요.
           처음에는 반드시 모의투자로 테스트한 뒤 실전으로 전환하세요.

@@ -269,7 +269,7 @@ export default function SignupScreen() {
                   justifyContent: 'center',
                 }}
               >
-                {agreed && <Text style={{ color: '#fff', fontWeight: '900', fontSize: 13 }}>✓</Text>}
+                {agreed && <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>✓</Text>}
               </View>
               <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>
                 위 내용을 모두 확인했으며 이에 동의합니다. (필수)

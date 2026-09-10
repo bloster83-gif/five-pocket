@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { confirmAction, notify } from '@/lib/alert';
 import { Card, Field } from '@/components/ui';
-import { colors, daysUntil, radius, spacing } from '@/theme';
+import { colors, fs, daysUntil, radius, spacing } from '@/theme';
 import { formatPhone } from '@/lib/phoneAuth';
 import { deleteAccount } from '@/lib/account';
 import type { MemberTier, Profile } from '@/types/db';
@@ -232,7 +232,7 @@ export default function AdminScreen() {
       {/* 요약 + 필터 + 검색 */}
       <Card>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>👑 회원 관리</Text>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: fs.h2 }}>👑 회원 관리</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
             {!showSearch && searchActive && (
               <Text style={{ color: colors.warn, fontSize: 11, fontWeight: '700' }}>● 검색 적용중</Text>
@@ -368,7 +368,7 @@ export default function AdminScreen() {
               </View>
               <View style={{ alignItems: 'flex-end', gap: 3 }}>
                 <View style={{ backgroundColor: meta.bg, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
-                  <Text style={{ color: meta.color, fontWeight: '900', fontSize: 13 }}>{meta.label}</Text>
+                  <Text style={{ color: meta.color, fontWeight: '800', fontSize: 13 }}>{meta.label}</Text>
                 </View>
                 {u.tier === 'auto' && (
                   <Text style={{ color: colors.warn, fontSize: 11, fontWeight: '700' }}>

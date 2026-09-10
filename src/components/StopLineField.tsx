@@ -5,8 +5,8 @@
 // 현재가가 이 선 이하면 보유 포켓은 팔고, 대기 포켓은 사지 않는다.
 
 import { Text, View } from 'react-native';
-import { NumberField } from '@/components/ui';
-import { colors, formatPrice, radius, spacing } from '@/theme';
+import { Callout, NumberField } from '@/components/ui';
+import { colors, formatPrice, spacing } from '@/theme';
 
 export function StopLineField({
   market,
@@ -36,32 +36,21 @@ export function StopLineField({
         editable={editable}
         placeholder={price != null && price > 0 ? `예: ${formatPrice(Math.round(price * 0.9), market)}` : '비워 두면 사용 안 함'}
       />
-      <View
-        style={{
-          backgroundColor: below ? 'rgba(248,113,113,0.12)' : colors.cardAlt,
-          borderRadius: radius.md,
-          padding: spacing.md,
-          gap: 4,
-          borderWidth: 1,
-          borderColor: below ? colors.danger : colors.border,
-        }}
-      >
-        {stop > 0 ? (
-          <Text style={{ color: below ? colors.danger : colors.warn, fontSize: 12, fontWeight: '800' }}>
-            {below
+      <Callout tone={below ? 'danger' : stop > 0 ? 'warn' : 'neutral'}>
+        <Text style={{ color: below ? colors.danger : stop > 0 ? colors.warn : colors.text, fontSize: 12, fontWeight: '800' }}>
+          {stop > 0
+            ? below
               ? `⚠️ 현재가(${formatPrice(price!, market)})가 이미 마지노선 이하예요 — 지금 만들면 가격이 선 위로 올라올 때까지 한 주도 사지 않아요.`
-              : `마지노선 ${formatPrice(stop, market)}${pct != null ? ` (현재가 대비 ${pct}%)` : ''}`}
-          </Text>
-        ) : (
-          <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '800' }}>마지노선 없음 — 가격이 아무리 떨어져도 예정대로 계속 삽니다.</Text>
-        )}
+              : `마지노선 ${formatPrice(stop, market)}${pct != null ? ` (현재가 대비 ${pct}%)` : ''}`
+            : '마지노선 없음 — 가격이 아무리 떨어져도 예정대로 계속 삽니다.'}
+        </Text>
         <Text style={{ color: colors.textDim, fontSize: 11, lineHeight: 16 }}>
           현재가가 마지노선 이하로 내려가면{'\n'}
           ① 매수 예정(대기중) 포켓은 예정 시각이 와도 사지 않고 보류해요. 가격이 선 위로 돌아오면 밀린 매수부터 그대로 재개됩니다.{'\n'}
           ② 보유중 포켓은 현재가로 전량 매도해요(손절). 포켓별 🎯 수정에서 따로 넣은 마지노선이 있으면 그쪽이 우선이에요.{'\n'}
           자동매매(서버 24시간 포함)와 앱 알림 모두 같은 규칙으로 움직입니다.
         </Text>
-      </View>
+      </Callout>
     </View>
   );
 }

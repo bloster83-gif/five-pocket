@@ -6,6 +6,7 @@ Expo(React Native) + Supabase 기반 **5분할 매수·매도 일지** 앱. 멀�
 - **매수·상승·이익 = 빨강(`colors.buy`), 매도·하락·손실 = 파랑(`colors.sell`)** — 미국식(초록=상승)으로 "고치지" 말 것.
 - 금액 표기: 한국주식 `₩` 소수점 없음, 미국주식 `$` 소수점 2자리 → `formatPrice`/`formatMoney` (src/theme.ts). 모든 숫자는 천단위 콤마.
 - **숫자 색상 통일(`num` in src/theme.ts)**: 앱 전체에서 같은 의미의 숫자는 같은 색. 보유수량·평균매수가·매입총액=`num.position`(핑크), 기준가=`num.base`(보라), 평가총액(현재가×수량)/총자산=`num.evalTotal`(앰버), 평가·실현손익/등락=`signColor()`(+빨강/-파랑), 실시간 현재가=`num.live`(하양), 예산·예수금=`num.budget`(청록). 매수목표가는 빨강(buy)·매도목표가는 파랑(sell) 유지. 새 숫자 추가 시 이 토큰을 쓸 것.
+- **UI 부품 통일**(`src/components/ui.tsx`): 카드 제목은 `<Card title subtitle right>`(또는 `SectionTitle`), 하나 고르는 토글은 `Segmented`, 상태 배지는 `Pill`(tone: buy/sell/warn/primary/accent/neutral), 안내·경고 상자는 `Callout`, 필터 알약은 `Chip`, 둥근 아이콘 버튼은 `IconButton`, 작은 보조 버튼은 `<Button small>`, 제목 옆 글자 동작은 `LinkText`. 글자 크기는 `fs`(h1 22·h2 16·body 14·sm 12·xs 11), 옅은 배경은 `tint(color, alpha)`. **인라인 Pressable 로 칩·배지·박스를 새로 그리지 말 것**. 굵기 900 은 실시간 현재가·큰 금액에만, 나머지 제목·값은 800.
 - 응답은 한국어로.
 
 ## 구조

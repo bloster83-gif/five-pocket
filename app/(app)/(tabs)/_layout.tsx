@@ -46,7 +46,7 @@ function TierBadge() {
       }}
     >
       {/* AUTO 회원은 위에 AUTO, 아래 줄에 D-day 를 세로로 쌓아 보기 좋게 (초록색) */}
-      <Text style={{ color: isAuto ? colors.primary : colors.textDim, fontWeight: '900', fontSize: 10, lineHeight: 12 }}>
+      <Text style={{ color: isAuto ? colors.primary : colors.textDim, fontWeight: '800', fontSize: 10, lineHeight: 12 }}>
         {isAuto ? 'AUTO' : 'Diary'}
       </Text>
       {isAuto && dday != null && (

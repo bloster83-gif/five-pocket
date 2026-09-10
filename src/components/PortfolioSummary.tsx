@@ -244,7 +244,7 @@ export function SummaryTable({
         }}
       >
         <View style={{ width: 74, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <Text numberOfLines={1} style={{ color: accent, fontWeight: '900', fontSize: 12 }}>
+          <Text numberOfLines={1} style={{ color: accent, fontWeight: '800', fontSize: 12 }}>
             {title}
           </Text>
           {/* 현재가를 다시 읽어 평가금액·평가이익을 바로 갱신 (진입 직후 값이 늦게 뜨는 경우 대비) */}
@@ -259,7 +259,7 @@ export function SummaryTable({
         </View>
         {markets.map((m) => (
           <View key={m} style={{ flex: 1, alignItems: 'flex-end', paddingLeft: 4 }}>
-            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ color: colors.text, fontWeight: '900', fontSize: 12 }}>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>
               {label(m)}
             </Text>
           </View>

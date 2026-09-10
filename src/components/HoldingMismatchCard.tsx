@@ -223,7 +223,7 @@ export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
 
       {real.length > 0 && (
       <Card style={{ borderColor: colors.warn, backgroundColor: 'rgba(251,191,36,0.08)' }}>
-        <Text style={{ color: colors.warn, fontWeight: '900', fontSize: 14 }}>⚠️ 보유수량이 계좌와 달라요</Text>
+        <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 14 }}>⚠️ 보유수량이 계좌와 달라요</Text>
         <Text style={{ color: colors.textDim, fontSize: 11, marginBottom: 4, lineHeight: 16 }}>
           계좌가 많으면 앱 밖에서 샀거나 체결을 놓친 거예요 — ‘바로잡기’로 그 수량을 포켓에 채워 넣으세요.{'\n'}
           앱이 많으면 앱 밖에서 팔았거나(바로잡기) 체결이 중복 기록된 거예요(매매일지에서 그 기록 삭제).{'\n'}
@@ -255,7 +255,7 @@ export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
                 backgroundColor: 'rgba(251,191,36,0.14)',
               }}
             >
-              <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '900' }}>🩹 바로잡기</Text>
+              <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '800' }}>🩹 바로잡기</Text>
             </Pressable>
           </View>
         ))}
@@ -264,7 +264,7 @@ export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
 
       {unmanaged.length > 0 && (
         <Card style={{ borderColor: colors.warn, backgroundColor: 'rgba(251,191,36,0.08)' }}>
-          <Text style={{ color: colors.warn, fontWeight: '900', fontSize: 14 }}>⚠️ 앱이 모르는 보유 종목</Text>
+          <Text style={{ color: colors.warn, fontWeight: '800', fontSize: 14 }}>⚠️ 앱이 모르는 보유 종목</Text>
           <Text style={{ color: colors.textDim, fontSize: 11, marginBottom: 4, lineHeight: 16 }}>
             계좌에는 있는데 진행중 프로젝트가 없어요. ‘바로잡기’를 누르면 프로젝트를 만들고 포켓 1에 전부 잡아요.{'\n'}
             (장기보유처럼 앱으로 관리하지 않는 종목이면 ‘숨기기’를 누르세요)
@@ -285,7 +285,7 @@ export function HoldingMismatchCard({ onFixed }: { onFixed?: () => void }) {
                   <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: '800' }}>숨기기</Text>
                 </Pressable>
                 <Pressable onPress={() => adopt(m)} hitSlop={6}>
-                  <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '900' }}>🩹 바로잡기</Text>
+                  <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '800' }}>🩹 바로잡기</Text>
                 </Pressable>
               </View>
             </View>

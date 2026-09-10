@@ -138,7 +138,7 @@ export default function UpgradeScreen() {
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>회원 등급 차이</Text>
 
         <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 6 }}>
-          <Text style={{ color: colors.textDim, fontWeight: '900', fontSize: 13 }}>📔 Diary (다이어리) · 무료</Text>
+          <Text style={{ color: colors.textDim, fontWeight: '800', fontSize: 13 }}>📔 Diary (다이어리) · 무료</Text>
           {DIARY.map((t) => (
             <Text key={t} style={{ color: colors.text, fontSize: 13, lineHeight: 20 }}>
               · {t}
@@ -147,7 +147,7 @@ export default function UpgradeScreen() {
         </View>
 
         <View style={{ backgroundColor: colors.buyBg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.buy, padding: spacing.md, gap: 6 }}>
-          <Text style={{ color: colors.buy, fontWeight: '900', fontSize: 13 }}>🤖 AUTO (오토) · 자동매매</Text>
+          <Text style={{ color: colors.buy, fontWeight: '800', fontSize: 13 }}>🤖 AUTO (오토) · 자동매매</Text>
           {AUTO.map((t) => (
             <Text key={t} style={{ color: colors.text, fontSize: 13, lineHeight: 20 }}>
               · {t}
