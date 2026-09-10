@@ -10,7 +10,7 @@ import { EditTargetsModal } from '@/components/EditTargetsModal';
 import { HoldingMismatchCard } from '@/components/HoldingMismatchCard';
 import { PortfolioSummary, computeMarketSummaries } from '@/components/PortfolioSummary';
 import { colors, formatBuyAt, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
-import { alignToKrxTick, computePnL, estimatedShares, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
+import { alignToKrxTick, computePnL, estimatedShares, projectStopOf, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
 import { getUnifiedQuote } from '@/services/prices/unified';
 import { getStoredQuotes } from '@/services/prices/quoteStore';
 import { getOrderFill, isNxtTradable, kisOrderBlocked, placeDomesticOrder, placeOverseasOrder } from '@/services/broker/kis';
@@ -693,7 +693,8 @@ export default function PocketsScreen() {
         const buyTargetDisp = isKrx ? alignToKrxTick(k.buy_target_price, 'buy') : k.buy_target_price;
         const sellTargetDisp =
           k.sell_target_price != null ? (isKrx ? alignToKrxTick(k.sell_target_price, 'sell') : k.sell_target_price) : null;
-        const stopRaw = stopPriceOf(k);
+        // 포켓 마지노선이 없으면 프로젝트 마지노선을 보여준다
+        const stopRaw = stopPriceOf(k) ?? projectStopOf(proj);
         const stopDisp = stopRaw != null ? (isKrx ? alignToKrxTick(stopRaw, 'sell') : stopRaw) : null;
         const open = expanded === k.id;
         // 상태 판정: 주문완료(미체결) 상태는 그대로 존중하고,

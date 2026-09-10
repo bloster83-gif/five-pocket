@@ -10,6 +10,7 @@ import type { Pocket, Project } from '@/types/db';
 import { BackHeader } from '@/components/BackHeader';
 import { WeightInput } from '@/components/WeightInput';
 import { AutoBudgetField } from '@/components/AutoBudgetField';
+import { StopLineField } from '@/components/StopLineField';
 import { useAllocMode } from '@/lib/allocMode';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -44,6 +45,8 @@ export default function EditProjectScreen() {
   const [basePrice, setBasePrice] = useState('');
   const [buyInterval, setBuyInterval] = useState('5');
   const [sellTarget, setSellTarget] = useState('10');
+  const [stopPrice, setStopPrice] = useState(''); // 프로젝트 마지노선 (정기매수법, 선택) — 잠겨 있어도 고칠 수 있다
+  const [savingStop, setSavingStop] = useState(false);
   const [totalBudget, setTotalBudget] = useState('');
   const [weights, setWeights] = useState<string[]>(Array(POCKET_COUNT).fill('20'));
   // 정기매수법 — 저장된 포켓의 예정 시각에서 되짚어 낸 값으로 시작
@@ -66,6 +69,7 @@ export default function EditProjectScreen() {
       setBasePrice(String(proj.base_price));
       setBuyInterval(String(proj.buy_interval_pct));
       setSellTarget(String(proj.sell_target_pct));
+      setStopPrice(proj.stop_price != null && Number(proj.stop_price) > 0 ? String(proj.stop_price) : '');
       setTotalBudget(proj.total_budget != null ? String(proj.total_budget) : '');
     }
     if (k) {
@@ -169,10 +173,14 @@ export default function EditProjectScreen() {
         buy_interval_pct: parsed.buyIntervalPct,
         sell_target_pct: parsed.sellTargetPct,
         total_budget: parsed.totalBudget,
+        ...(isSched ? { stop_price: Number(stopPrice) > 0 ? Number(stopPrice) : null } : null),
       })
       .eq('id', project.id);
     if (perr) {
       setSaving(false);
+      if (/stop_price/i.test(perr.message)) {
+        return notify('DB 준비 필요', '마지노선에 필요한 마이그레이션(20260910a)을 Supabase에서 먼저 실행해 주세요.');
+      }
       return notify('저장 실패', perr.message);
     }
 
@@ -197,6 +205,25 @@ export default function EditProjectScreen() {
 
     setSaving(false);
     notify('저장 완료', '프로젝트가 수정됐어요.');
+    router.back();
+  };
+
+  /** 잠긴(거래 있는) 프로젝트에서 마지노선만 저장 — 목표가 수정처럼 언제든 바꿀 수 있어야 한다 */
+  const saveStopOnly = async () => {
+    if (!project) return;
+    setSavingStop(true);
+    const { error } = await supabase
+      .from('projects')
+      .update({ stop_price: Number(stopPrice) > 0 ? Number(stopPrice) : null })
+      .eq('id', project.id);
+    setSavingStop(false);
+    if (error) {
+      if (/stop_price/i.test(error.message)) {
+        return notify('DB 준비 필요', '마지노선에 필요한 마이그레이션(20260910a)을 Supabase에서 먼저 실행해 주세요.');
+      }
+      return notify('저장 실패', error.message);
+    }
+    notify('저장 완료', Number(stopPrice) > 0 ? `마지노선 ${formatPrice(Number(stopPrice), market)} 으로 저장했어요.` : '마지노선을 해제했어요.');
     router.back();
   };
 
@@ -314,6 +341,20 @@ export default function EditProjectScreen() {
           </View>
         )}
       </Card>
+
+      {/* 프로젝트 마지노선 (정기매수법) — 거래가 있어 전략이 잠겨 있어도 이것만은 언제든 고칠 수 있다.
+          그래서 잠금 흐림(dim)이 걸린 전략 카드 밖, 별도 카드에 둔다. */}
+      {isSched && (
+        <Card>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🛑 프로젝트 마지노선</Text>
+          <StopLineField market={market} value={stopPrice} onChange={setStopPrice} />
+          {locked ? (
+            <Button title="마지노선만 저장" onPress={saveStopOnly} loading={savingStop} />
+          ) : (
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>아래 '수정 저장'을 누르면 함께 저장돼요.</Text>
+          )}
+        </Card>
+      )}
 
       <Card style={{ opacity: dim }}>
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>예산 & 포켓 비율</Text>

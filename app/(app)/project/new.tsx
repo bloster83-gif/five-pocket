@@ -14,6 +14,7 @@ import type { BrokerAccount, SymbolResult } from '@/types/db';
 import { BackHeader } from '@/components/BackHeader';
 import { WeightInput } from '@/components/WeightInput';
 import { AutoBudgetField } from '@/components/AutoBudgetField';
+import { StopLineField } from '@/components/StopLineField';
 import { useAllocMode } from '@/lib/allocMode';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -75,6 +76,7 @@ export default function NewProjectScreen() {
   const [priceLoading, setPriceLoading] = useState(false);
   const [buyInterval, setBuyInterval] = useState('5');
   const [sellTarget, setSellTarget] = useState('10');
+  const [stopPrice, setStopPrice] = useState(''); // 프로젝트 마지노선 (정기매수법, 선택)
   const [totalBudget, setTotalBudget] = useState('');
   const [pocketCount, setPocketCount] = useState(POCKET_COUNT); // 기본 5, 6~10 가능
 
@@ -316,12 +318,17 @@ export default function NewProjectScreen() {
         pocket_count: pocketCount,
         total_budget: parsed.totalBudget,
         buy_mode: buyMode,
+        // 프로젝트 마지노선(정기매수법, 선택) — 비었으면 컬럼을 아예 안 보내 마이그레이션 전 DB 에서도 저장된다
+        ...(buyMode === 'schedule' && Number(stopPrice) > 0 ? { stop_price: Number(stopPrice) } : null),
       })
       .select()
       .single();
 
     if (perr || !proj) {
       setSaving(false);
+      if (perr && /stop_price/i.test(`${perr.message}`)) {
+        return notify('DB 준비 필요', '마지노선에 필요한 마이그레이션(20260910a)을 Supabase에서 먼저 실행해 주세요.');
+      }
       if (perr && /buy_mode|42703|schema cache|PGRST204/i.test(`${perr.code} ${perr.message}`)) {
         return notify('DB 준비 필요', '정기 매수에 필요한 마이그레이션(20260909a)을 Supabase에서 먼저 실행해 주세요.');
       }
@@ -550,6 +557,8 @@ export default function NewProjectScreen() {
                 <Text style={{ color: colors.textDim, fontSize: 11 }}>체결가 대비 이만큼 오르면 매도</Text>
               </View>
             </View>
+            {/* 프로젝트 마지노선 — 이 아래로 내려가면 매수 보류 + 보유분 손절 */}
+            <StopLineField market={market} value={stopPrice} onChange={setStopPrice} price={livePrice} />
             {/* 언제 얼마씩 사는지 미리보기 — 날짜가 틀리면 여기서 바로 드러난다 */}
             {scheduleStart ? (
               <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: 3 }}>

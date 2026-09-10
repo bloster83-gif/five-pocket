@@ -187,9 +187,12 @@ export function nextBuyAt(pockets: { status: string; buy_at?: string | null }[])
 export function buyPointReached(
   p: { status: string; buy_target_price: number; buy_at?: string | null },
   currentPrice: number | null | undefined,
-  now = Date.now()
+  now = Date.now(),
+  projectStop?: number | null
 ): boolean {
   if (p.status !== 'waiting') return false;
+  // 프로젝트 마지노선 아래면 매수 보류 — 켜지지 않는다
+  if (belowStopLine(projectStop, currentPrice)) return false;
   const at = buyAtOf(p);
   if (at != null) return now >= at;
   return currentPrice != null && currentPrice <= Number(p.buy_target_price);
@@ -325,20 +328,48 @@ export function stopPriceOf(p: Pocket): number | null {
 }
 
 /**
+ * 프로젝트 마지노선 (projects.stop_price, 마이그레이션 20260910a) — 0 이하·null 은 사용 안 함.
+ *
+ * 포켓 마지노선이 '보유중 포켓 하나'의 손절선이라면, 프로젝트 마지노선은 '이 종목에서 손 뗄 선'이다.
+ * 현재가가 이 선 이하로 내려가면
+ *   ① 보유중 포켓은 (포켓 마지노선이 따로 없으면) 현재가로 전량 매도하고
+ *   ② 대기중 포켓은 예정 시각·목표가에 닿아도 사지 않는다(매수 보류).
+ * 가격이 선 위로 돌아오면 보류됐던 매수는 그대로 재개된다 (예정 시각이 이미 지난 포켓은 바로 산다).
+ * 정기매수법처럼 '떨어져도 계속 사는' 방식에 하한선을 두기 위해 만들었다.
+ */
+export function projectStopOf(p: { stop_price?: number | null } | null | undefined): number | null {
+  const v = p?.stop_price == null ? null : Number(p.stop_price);
+  return v != null && v > 0 ? v : null;
+}
+
+/** 현재가가 프로젝트 마지노선 이하인가 (= 매수 보류 구간) */
+export function belowStopLine(projectStop: number | null | undefined, price: number | null | undefined): boolean {
+  return projectStop != null && projectStop > 0 && price != null && price > 0 && price <= projectStop;
+}
+
+/**
  * 현재가를 받아 어떤 알림을 울려야 하는지 판정한다.
  *  - 매수 신호: 아직 'waiting' 인 포켓 중, 현재가 <= 매수 목표가
  *  - 매도 신호: 'bought' 인 포켓 중, 현재가 >= 매도 목표가
- *  - 손절 신호: 'bought' 인 포켓 중, 마지노선이 설정되어 있고 현재가 <= 마지노선
+ *  - 손절 신호: 'bought' 인 포켓 중, 마지노선(포켓 → 없으면 프로젝트)이 설정되어 있고 현재가 <= 마지노선
+ *  - 프로젝트 마지노선 아래면 대기 포켓은 매수 신호를 내지 않는다 (매수 보류)
  *
  * 손절을 매도보다 먼저 본다. 둘이 동시에 성립할 수는 없지만(마지노선 < 매도목표),
  * 사용자가 마지노선을 매도목표 위로 잘못 넣었을 때 '무조건 판다'는 쪽이 안전하다.
  * (실제 발송 중복 방지는 price_alerts 이력으로 별도 처리)
  */
-export function evaluateSignals(pockets: Pocket[], currentPrice: number, now = Date.now()): PriceSignal[] {
+export function evaluateSignals(
+  pockets: Pocket[],
+  currentPrice: number,
+  now = Date.now(),
+  projectStop?: number | null
+): PriceSignal[] {
   const signals: PriceSignal[] = [];
+  const held = belowStopLine(projectStop, currentPrice); // 프로젝트 마지노선 아래 → 매수 보류
   for (const p of pockets) {
     const at = buyAtOf(p);
     if (p.status === 'waiting') {
+      if (held) continue;
       if (at != null) {
         // 정기 매수 포켓 — 가격은 보지 않는다. 예정 시각이 지났으면 '지금 현재가로' 산다.
         if (now >= at) signals.push({ kind: 'buy', pocket: p, targetPrice: currentPrice, currentPrice });
@@ -351,7 +382,8 @@ export function evaluateSignals(pockets: Pocket[], currentPrice: number, now = D
     }
     if (p.status !== 'bought') continue;
 
-    const stop = stopPriceOf(p);
+    // 포켓 마지노선이 있으면 그것, 없으면 프로젝트 마지노선
+    const stop = stopPriceOf(p) ?? (projectStop != null && projectStop > 0 ? projectStop : null);
     if (stop != null && currentPrice <= stop) {
       signals.push({ kind: 'stop', pocket: p, targetPrice: stop, currentPrice });
     } else if (p.sell_target_price != null && currentPrice >= p.sell_target_price) {

@@ -59,6 +59,8 @@ interface ProjectRow {
   name: string;
   sell_target_pct: number;
   market: 'KRX' | 'US';
+  /** 프로젝트 마지노선 (마이그레이션 20260910a) — 이 값 이하면 보유 포켓 전량 매도 + 대기 포켓 매수 보류 */
+  stop_price?: number | null;
 }
 
 interface PocketRow {
@@ -887,13 +889,19 @@ Deno.serve(async (req: Request) => {
     return json({ skipped: 'market-closed', reconciled, ...(reconcileDebug ? { reconcileDebug } : {}) });
 
   // 1) 자동매매 대상 프로젝트 (KRX·US, 진행중, 추적 ON)
-  const { data: projects, error: pErr } = await admin
-    .from('projects')
-    .select('id,user_id,symbol,name,sell_target_pct,market')
-    .eq('auto_trade_enabled', true)
-    .eq('is_active', true)
-    .is('closed_at', null)
-    .in('market', ['KRX', 'US']);
+  // stop_price(프로젝트 마지노선) 컬럼은 마이그레이션 20260910a — 아직 없는 DB 에서도 러너가 멈추지 않게 폴백
+  const selectProjects = (cols: string) =>
+    admin
+      .from('projects')
+      .select(cols)
+      .eq('auto_trade_enabled', true)
+      .eq('is_active', true)
+      .is('closed_at', null)
+      .in('market', ['KRX', 'US']);
+  let { data: projects, error: pErr } = await selectProjects('id,user_id,symbol,name,sell_target_pct,market,stop_price');
+  if (pErr && /stop_price|42703|schema cache|PGRST204/i.test(`${pErr.code} ${pErr.message}`)) {
+    ({ data: projects, error: pErr } = await selectProjects('id,user_id,symbol,name,sell_target_pct,market'));
+  }
   if (pErr) return json({ error: pErr.message }, 500);
   if (!projects?.length) return json({ processed: 0, note: 'no projects' });
 
@@ -991,16 +999,23 @@ Deno.serve(async (req: Request) => {
       continue;
     }
 
+    // 프로젝트 마지노선 — 현재가가 이 아래면 대기 포켓은 사지 않고(보류), 보유 포켓은 (포켓 마지노선이 없으면) 이 값으로 판다
+    const projStop = proj.stop_price != null && Number(proj.stop_price) > 0 ? Number(proj.stop_price) : null;
+    const belowLine = projStop != null && price <= projStop;
+
     for (const k of pocketsByProject.get(proj.id) ?? []) {
       // 신호 판정 (클라이언트 evaluateSignals 와 동일한 규칙으로 유지할 것)
       let side: 'buy' | 'sell' | null = null;
       let limitPrice = 0;
       let isStop = false; // 마지노선(손절)으로 나가는 매도인지
-      const stop = k.stop_price != null && Number(k.stop_price) > 0 ? Number(k.stop_price) : null;
+      const stop = k.stop_price != null && Number(k.stop_price) > 0 ? Number(k.stop_price) : projStop;
       // 정기 매수 포켓(buy_at)은 가격을 보지 않는다 — 예정 시각이 지났으면 그때 현재가로 산다
       const buyAt = k.buy_at ? Date.parse(k.buy_at) : NaN;
       const scheduled = Number.isFinite(buyAt);
-      if (k.status === 'waiting' && scheduled) {
+      if (k.status === 'waiting' && belowLine) {
+        // 프로젝트 마지노선 아래 → 매수 보류 (선 위로 돌아오면 그대로 재개)
+        continue;
+      } else if (k.status === 'waiting' && scheduled) {
         if (Date.now() >= buyAt) {
           side = 'buy';
           limitPrice = price;

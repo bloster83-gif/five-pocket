@@ -8,7 +8,7 @@ import { Button, Card, ChartIcon, Row } from '@/components/ui';
 import { BottomTabsBar } from '@/components/BottomTabsBar';
 import { EditTargetsModal } from '@/components/EditTargetsModal';
 import { colors, formatBuyAt, formatChangePct, formatMoney, formatPrice, money, num, pocketColor, radius, rawNumeric, signColor, spacing, withCommas } from '@/theme';
-import { alignToKrxTick, buyPointReached, computePnL, describeSchedule, estimatedShares, inferSchedule, scheduleAt, findBudgetMismatches, pnlPct, realizedEvents, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
+import { alignToKrxTick, belowStopLine, buyPointReached, computePnL, describeSchedule, estimatedShares, inferSchedule, projectStopOf, scheduleAt, findBudgetMismatches, pnlPct, realizedEvents, sellTargetFromFill, stopPriceOf } from '@/domain/pockets';
 import { chooseAction, confirmAction, notify } from '@/lib/alert';
 import { usePriceTracker } from '@/services/priceTracker';
 import { useAutoTrader } from '@/services/autoTrader';
@@ -719,6 +719,34 @@ export default function ProjectDetailScreen() {
               </>
             )}
           </View>
+          {/* 프로젝트 마지노선 — 정기매수법은 늘 보여주고(없으면 '없음'), 정액매수법은 설정돼 있을 때만 */}
+          {(project.buy_mode === 'schedule' || projectStopOf(project) != null) && (() => {
+            const stop = projectStopOf(project);
+            const below = belowStopLine(stop, price);
+            return (
+              <Pressable
+                onPress={() => router.push(`/project/${project.id}/edit`)}
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  backgroundColor: below ? 'rgba(248,113,113,0.12)' : colors.cardAlt,
+                  borderRadius: radius.sm,
+                  paddingHorizontal: spacing.md,
+                  paddingVertical: 6,
+                  borderWidth: below ? 1 : 0,
+                  borderColor: colors.danger,
+                }}
+              >
+                <Text style={{ color: colors.textDim, fontSize: 12 }}>🛑 마지노선</Text>
+                <Text style={{ color: below ? colors.danger : stop != null ? colors.warn : colors.textDim, fontWeight: '800' }}>
+                  {stop != null
+                    ? `${formatPrice(stop, mkt)}${below ? ' · 매수 보류 중' : ''}`
+                    : '없음 · 수정에서 설정'}
+                </Text>
+              </Pressable>
+            );
+          })()}
 
           {/* 상태 표시 */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
@@ -921,6 +949,7 @@ export default function ProjectDetailScreen() {
               market={mkt}
               price={price}
               buyIntervalPct={Number(project.buy_interval_pct)}
+              projectStop={projectStopOf(project)}
               sellTargetPct={Number(project.sell_target_pct)}
               buyTrade={buyByPocket.get(k.id) ?? null}
               openQty={Math.floor(pocketOpen.totalQtyOpen)}
@@ -1438,6 +1467,7 @@ function PocketCard({
   projectClosed,
   onUpdateTargets,
   onTrade,
+  projectStop = null,
 }: {
   pocket: Pocket;
   market: string;
@@ -1461,6 +1491,7 @@ function PocketCard({
   projectClosed: boolean; // 프로젝트 종료 시 재시작 버튼 숨김
   onUpdateTargets: (buyPrice: number, sellPrice: number | null, stopPrice: number | null, buyAt?: string | null) => Promise<void>; // 목표 매수·매도가·마지노선·(정기)예정 시각 직접 수정
   onTrade: (side: 'buy' | 'sell', sqty: number, sprice: number, budget?: number) => void;
+  projectStop?: number | null; // 프로젝트 마지노선 — 이 아래면 대기 포켓 매수 보류, 보유 포켓은 (포켓 마지노선 없을 때) 이 값으로 손절
 }) {
   // 종료된 프로젝트는 본문이 터치 비활성(pointerEvents=none)이라 토글을 못 누름
   // → 종료 시에는 체결 내역을 기본 펼침으로 두어 바로 볼 수 있게 한다.
@@ -1476,12 +1507,17 @@ function PocketCard({
   const sellTargetDisp =
     k.sell_target_price != null ? (isKrx ? alignToKrxTick(k.sell_target_price, 'sell') : k.sell_target_price) : null;
   // 마지노선(손절) — 설정돼 있을 때만 표시. 평균매수가 대비 손익률을 함께 보여준다.
-  const stopRaw = stopPriceOf(k);
+  // 포켓 마지노선이 없으면 프로젝트 마지노선을 쓴다
+  const stopRaw = stopPriceOf(k) ?? projectStop;
   const stopDisp = stopRaw != null ? (isKrx ? alignToKrxTick(stopRaw, 'sell') : stopRaw) : null;
   const stopPct =
     stopDisp != null && openAvg > 0 ? Math.round((stopDisp / openAvg - 1) * 1000) / 10 : null;
+  // 프로젝트 마지노선 아래 → 대기 포켓은 매수 보류 (노란불도 꺼진다)
+  const buyHeld = k.status === 'waiting' && belowStopLine(projectStop, price);
   // 정기매수법 포켓은 가격이 아니라 예정 시각으로 '매수 포인트 도달'을 판정한다
-  const buyReady = k.buy_at ? buyPointReached(k, price) : k.status === 'waiting' && price != null && price <= buyTargetDisp;
+  const buyReady = k.buy_at
+    ? buyPointReached(k, price, Date.now(), projectStop)
+    : k.status === 'waiting' && price != null && price <= buyTargetDisp && !buyHeld;
   const sellReady =
     k.status === 'bought' && sellTargetDisp != null && price != null && price >= sellTargetDisp;
 
@@ -1618,6 +1654,24 @@ function PocketCard({
               <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 2 }}>
                 배분 예산 {formatPrice(Number(k.budget), market)}으로는 매수 목표가{' '}
                 {formatPrice(buyTargetDisp, market)}에 1주도 살 수 없어요. 목표가를 낮추거나 프로젝트 예산을 늘려 주세요.
+              </Text>
+            </View>
+          )}
+          {buyHeld && (
+            <View
+              style={{
+                marginTop: spacing.xs,
+                backgroundColor: 'rgba(248,113,113,0.12)',
+                borderRadius: radius.sm,
+                padding: spacing.sm,
+                borderWidth: 1,
+                borderColor: colors.danger,
+              }}
+            >
+              <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>🛑 마지노선 아래 · 매수 보류</Text>
+              <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 2 }}>
+                현재가 {formatPrice(price!, market)}가 프로젝트 마지노선 {formatPrice(projectStop!, market)} 이하예요.
+                {k.buy_at ? ' 예정 시각이 지나도 사지 않고, ' : ' 목표가에 닿아도 사지 않고, '}가격이 선 위로 돌아오면 그대로 재개돼요.
               </Text>
             </View>
           )}

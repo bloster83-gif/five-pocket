@@ -34,6 +34,8 @@ export interface Project {
   buy_interval_pct: number;
   sell_target_pct: number;
   /** 매수 방식 — 'price'(목표가 도달) | 'schedule'(정해진 시각) (마이그레이션 20260909a) */
+  /** 프로젝트 마지노선 — 현재가가 이 값 이하면 보유 포켓 전량 매도 + 대기 포켓 매수 보류 (마이그레이션 20260910a) */
+  stop_price?: number | null;
   buy_mode?: 'price' | 'schedule' | null;
   pocket_count: number;
   total_budget: number | null;

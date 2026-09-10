@@ -123,6 +123,7 @@ create table if not exists public.projects (
   sell_target_pct    numeric(6,3) not null default 10,  -- 매도 목표 수익률 %
   -- 매수 방식 — price: 목표가 도달 시 / schedule: 정해진 시각에 현재가로
   buy_mode           text not null default 'price' check (buy_mode in ('price', 'schedule')),
+  stop_price         numeric(20,4),                 -- 프로젝트 마지노선 — 이 가격 이하면 보유 포켓 전량 매도 + 대기 포켓 매수 보류. null = 사용 안 함
   pocket_count       int not null default 5 check (pocket_count between 1 and 10),
   total_budget       numeric(20,4),                 -- 프로젝트 전체 예산(선택)
   is_active          boolean not null default true, -- 실시간 추적/알림 on/off

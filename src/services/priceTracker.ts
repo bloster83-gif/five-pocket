@@ -3,7 +3,7 @@ import { AppState, Platform } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 import { notifyNow } from '@/lib/notifications';
-import { evaluateSignals, type PriceSignal } from '@/domain/pockets';
+import { evaluateSignals, projectStopOf, type PriceSignal } from '@/domain/pockets';
 import type { BrokerAccount, Pocket, Project } from '@/types/db';
 import { getUnifiedQuote } from './prices/unified';
 import { priceProvider } from './prices';
@@ -128,7 +128,7 @@ export function usePriceTracker(
               : null,
         });
 
-        const signals = evaluateSignals(pocketsRef.current, q.price);
+        const signals = evaluateSignals(pocketsRef.current, q.price, Date.now(), projectStopOf(project));
         for (const sig of signals) {
           const key = `${sig.pocket.id}:${sig.kind}`;
           if (sentRef.current.has(key)) continue;
